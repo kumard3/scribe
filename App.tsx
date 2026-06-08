@@ -18,16 +18,18 @@ import {
   useAudioRecorderState,
 } from 'expo-audio';
 import { WAV_16K_MONO } from './src/audio/recording';
-import { SUPPORTED_LANGUAGES } from './src/asr/registry';
+import { SUPPORTED_LANGUAGES, formatMB } from './src/asr/registry';
 import { isInstalled, prepare, resolveModel, transcribeFile } from './src/asr';
 import type { LanguageCode } from './src/asr/types';
 import { addHistory, clearHistory, deleteHistory, HistoryItem, loadHistory } from './src/history';
+import { deleteFileSafe } from './src/util/files';
 import { theme } from './src/ui/theme';
 import { Waveform, BAR_COUNT } from './src/ui/Waveform';
 import { RecordButton } from './src/ui/RecordButton';
 import { ProgressBar } from './src/ui/ProgressBar';
 import { LanguagePicker } from './src/ui/LanguagePicker';
 import { HistoryModal } from './src/ui/HistoryModal';
+import { ModelsModal } from './src/ui/ModelsModal';
 
 const IDLE_LEVELS = Array(BAR_COUNT).fill(0.06);
 
@@ -43,11 +45,15 @@ export default function App() {
   const [levels, setLevels] = useState<number[]>(IDLE_LEVELS);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [modelsOpen, setModelsOpen] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [, forceTick] = useState(0);
 
   const recorder = useAudioRecorder(WAV_16K_MONO);
   const recorderState = useAudioRecorderState(recorder, 80);
   const recording = recorderState.isRecording;
+  const recLang = useRef<LanguageCode>(language);
+  const recTranslate = useRef(translate);
 
   const model = useMemo(() => resolveModel(language), [language]);
   const langLabel = SUPPORTED_LANGUAGES.find((l) => l.code === language)?.label ?? language;
@@ -78,37 +84,48 @@ export default function App() {
   }, [transcript, fade]);
 
   const onMicPress = useCallback(async () => {
-    try {
-      setError(null);
-      if (recording) {
+    if (recording) {
+      const lang = recLang.current;
+      const trans = recTranslate.current;
+      let uri: string | null = null;
+      try {
         await recorder.stop();
-        const uri = recorder.uri;
+        uri = recorder.uri;
         if (!uri) throw new Error('No audio captured');
         setBusy(true);
-        const res = await transcribeFile(uri, language, translate);
+        const res = await transcribeFile(uri, lang, trans);
         const text = res.text || '';
         setTranscript(text);
-        setResultTranslated(translate);
-        setBusy(false);
+        setResultTranslated(trans);
         if (text.trim()) {
-          setHistory(addHistory({ text, language, translated: translate }));
+          setHistory(addHistory({ text, language: lang, translated: trans }));
         }
-      } else {
-        if (!isInstalled(model)) {
-          setDownloading(true);
-          setProgress(0);
-          await prepare(language, setProgress);
-          setDownloading(false);
-        } else {
-          await prepare(language);
-        }
-        setTranscript('');
-        await recorder.prepareToRecordAsync(WAV_16K_MONO);
-        recorder.record();
+      } catch (e: any) {
+        setError(e?.message ?? String(e));
+      } finally {
+        setBusy(false);
+        deleteFileSafe(uri);
       }
+      return;
+    }
+
+    try {
+      setError(null);
+      recLang.current = language;
+      recTranslate.current = translate;
+      if (!isInstalled(model)) {
+        setDownloading(true);
+        setProgress(0);
+        await prepare(language, setProgress);
+        setDownloading(false);
+      } else {
+        await prepare(language);
+      }
+      setTranscript('');
+      await recorder.prepareToRecordAsync(WAV_16K_MONO);
+      recorder.record();
     } catch (e: any) {
       setError(e?.message ?? String(e));
-      setBusy(false);
       setDownloading(false);
     }
   }, [recording, recorder, language, translate, model]);
@@ -122,7 +139,7 @@ export default function App() {
         ? `Downloading model · ${Math.round(progress * 100)}%`
         : installed
           ? 'Tap the mic and speak'
-          : `${model.label} · ${model.sizeMB} MB downloads on first use`;
+          : `${model.label} · ${formatMB(model.sizeBytes)} downloads on first use`;
 
   return (
     <View style={styles.root}>
@@ -130,20 +147,30 @@ export default function App() {
       <SafeAreaView style={styles.safe}>
         <View style={styles.header}>
           <Text style={styles.brand}>LocalVoice</Text>
-          <Pressable
-            style={styles.iconBtn}
-            onPress={() => {
-              setHistory(loadHistory());
-              setHistoryOpen(true);
-            }}
-            hitSlop={8}
-          >
-            <Ionicons name="time-outline" size={22} color={theme.text} />
-          </Pressable>
+          <View style={styles.headerBtns}>
+            <Pressable style={styles.iconBtn} onPress={() => setModelsOpen(true)} hitSlop={8}>
+              <Ionicons name="cloud-download-outline" size={21} color={theme.text} />
+            </Pressable>
+            <Pressable
+              style={styles.iconBtn}
+              onPress={() => {
+                setHistory(loadHistory());
+                setHistoryOpen(true);
+              }}
+              hitSlop={8}
+            >
+              <Ionicons name="time-outline" size={22} color={theme.text} />
+            </Pressable>
+          </View>
         </View>
 
         <View style={styles.card}>
-          <Pressable style={styles.langRow} onPress={() => setPickerOpen(true)} hitSlop={6}>
+          <Pressable
+            style={[styles.langRow, recording && styles.disabled]}
+            onPress={() => setPickerOpen(true)}
+            disabled={recording}
+            hitSlop={6}
+          >
             <Text style={styles.langText}>
               {resultTranslated && transcript ? 'English' : langLabel}
             </Text>
@@ -167,7 +194,11 @@ export default function App() {
           <Waveform levels={levels} active={recording} />
 
           <View style={styles.controls}>
-            <Pressable style={styles.pill} onPress={() => setPickerOpen(true)}>
+            <Pressable
+              style={[styles.pill, recording && styles.disabled]}
+              onPress={() => setPickerOpen(true)}
+              disabled={recording}
+            >
               <Ionicons name="language" size={16} color={theme.text} />
               <Text style={styles.pillText}>{langLabel}</Text>
             </Pressable>
@@ -210,20 +241,31 @@ export default function App() {
         onDelete={(id) => setHistory(deleteHistory(id))}
         onClear={() => setHistory(clearHistory())}
       />
+      <ModelsModal
+        visible={modelsOpen}
+        onClose={() => setModelsOpen(false)}
+        onChanged={() => forceTick((t) => t + 1)}
+        onWipeData={() => {
+          setHistory(clearHistory());
+          setTranscript('');
+        }}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.bg },
-  safe: { flex: 1, paddingHorizontal: 20 },
+  safe: { flex: 1, paddingHorizontal: 24, paddingTop: 8 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 8,
-    paddingBottom: 16,
+    paddingTop: 12,
+    paddingBottom: 20,
   },
+  headerBtns: { flexDirection: 'row', gap: 10 },
+  disabled: { opacity: 0.45 },
   brand: { color: theme.text, fontSize: 30, fontWeight: '800', letterSpacing: -0.5 },
   iconBtn: {
     width: 42,
@@ -236,22 +278,22 @@ const styles = StyleSheet.create({
   card: {
     flex: 1,
     backgroundColor: theme.surface,
-    borderRadius: 24,
-    padding: 20,
-    marginBottom: 18,
+    borderRadius: 26,
+    padding: 24,
+    marginBottom: 22,
   },
-  langRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 },
+  langRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 18 },
   langText: { color: theme.text, fontSize: 16, fontWeight: '700' },
   transcriptScroll: { flex: 1 },
   transcript: { color: theme.text, fontSize: 30, fontWeight: '600', lineHeight: 40 },
   placeholder: { color: theme.textFaint, fontSize: 30, fontWeight: '600', lineHeight: 40 },
-  bottom: { paddingBottom: 10 },
+  bottom: { paddingBottom: 18 },
   controls: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 10,
-    marginBottom: 16,
+    marginTop: 14,
+    marginBottom: 20,
     gap: 10,
   },
   pill: {

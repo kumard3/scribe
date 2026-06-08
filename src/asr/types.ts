@@ -8,8 +8,9 @@ export type ModelSpec = {
   engine: EngineKind;
   url: string;
   fileName: string;
-  sizeMB: number;
+  sizeBytes: number;
   languages: LanguageCode[] | 'multilingual';
+  note?: string;
 };
 
 export type TranscriptionResult = {

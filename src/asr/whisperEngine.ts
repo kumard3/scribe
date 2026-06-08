@@ -17,12 +17,24 @@ export class WhisperEngine implements ASREngine {
   async load(model: ModelSpec, localUri: string): Promise<void> {
     if (this.modelId === model.id && this.ctx) return;
     await this.unload();
-    this.ctx = await initWhisper({
-      filePath: stripScheme(localUri),
-      useGpu: true,
-      useFlashAttn: true,
-    });
-    this.modelId = model.id;
+
+    const filePath = stripScheme(localUri);
+    const attempts = [
+      { useGpu: true, useFlashAttn: true },
+      { useGpu: true, useFlashAttn: false },
+      { useGpu: false, useFlashAttn: false },
+    ];
+    let lastErr: unknown;
+    for (const opts of attempts) {
+      try {
+        this.ctx = await initWhisper({ filePath, ...opts });
+        this.modelId = model.id;
+        return;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr ?? new Error('Failed to initialize Whisper');
   }
 
   async transcribe(req: TranscribeRequest): Promise<TranscriptionResult> {

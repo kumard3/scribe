@@ -4,13 +4,14 @@ const HF = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
 
 export const MODELS: ModelSpec[] = [
   {
-    id: 'whisper-tiny-multi',
-    label: 'Tiny · multilingual (all-in-one)',
+    id: 'whisper-tiny',
+    label: 'Tiny · multilingual',
     engine: 'whisper',
     url: `${HF}/ggml-tiny.bin`,
     fileName: 'ggml-tiny.bin',
-    sizeMB: 75,
+    sizeBytes: 77691713,
     languages: 'multilingual',
+    note: 'Fastest · all-in-one',
   },
   {
     id: 'whisper-base-en',
@@ -18,30 +19,51 @@ export const MODELS: ModelSpec[] = [
     engine: 'whisper',
     url: `${HF}/ggml-base.en.bin`,
     fileName: 'ggml-base.en.bin',
-    sizeMB: 142,
+    sizeBytes: 147964211,
     languages: ['en'],
+    note: 'English · balanced',
   },
   {
-    id: 'whisper-small-multi',
-    label: 'Small · multilingual (Hindi & others)',
+    id: 'whisper-small-en-q5',
+    label: 'Small · English (quantized)',
+    engine: 'whisper',
+    url: `${HF}/ggml-small.en-q5_1.bin`,
+    fileName: 'ggml-small.en-q5_1.bin',
+    sizeBytes: 190098681,
+    languages: ['en'],
+    note: 'English · higher accuracy',
+  },
+  {
+    id: 'whisper-small',
+    label: 'Small · multilingual',
     engine: 'whisper',
     url: `${HF}/ggml-small.bin`,
     fileName: 'ggml-small.bin',
-    sizeMB: 466,
+    sizeBytes: 487601967,
     languages: 'multilingual',
+    note: 'Hindi & 90+ languages',
+  },
+  {
+    id: 'whisper-large-turbo-q5',
+    label: 'Large v3 Turbo (quantized)',
+    engine: 'whisper',
+    url: `${HF}/ggml-large-v3-turbo-q5_0.bin`,
+    fileName: 'ggml-large-v3-turbo-q5_0.bin',
+    sizeBytes: 574041195,
+    languages: 'multilingual',
+    note: 'Best quality · translation',
   },
 ];
 
-export const ALL_IN_ONE_MODEL_ID = 'whisper-tiny-multi';
-export const DEFAULT_MODEL_ID = 'whisper-small-multi';
+export const DEFAULT_MODEL_ID = 'whisper-small';
 
 export const LANGUAGE_ROUTES: Record<string, string> = {
-  auto: ALL_IN_ONE_MODEL_ID,
+  auto: 'whisper-tiny',
   en: 'whisper-base-en',
-  hi: 'whisper-small-multi',
-  es: 'whisper-small-multi',
-  fr: 'whisper-small-multi',
-  de: 'whisper-small-multi',
+  hi: 'whisper-small',
+  es: 'whisper-small',
+  fr: 'whisper-small',
+  de: 'whisper-small',
 };
 
 export function modelById(id: string): ModelSpec {
@@ -58,3 +80,7 @@ export const SUPPORTED_LANGUAGES: { code: LanguageCode; label: string }[] = [
   { code: 'fr', label: 'French' },
   { code: 'de', label: 'German' },
 ];
+
+export function formatMB(bytes: number): string {
+  return `${Math.round(bytes / 1e6)} MB`;
+}
