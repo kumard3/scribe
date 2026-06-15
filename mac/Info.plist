@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>Scribe</string>
+  <key>CFBundleDisplayName</key>
+  <string>Scribe</string>
+  <key>CFBundleIdentifier</key>
+  <string>ai.scribe.mac</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0.0</string>
+  <key>CFBundleExecutable</key>
+  <string>Scribe</string>
+  <key>CFBundleIconFile</key>
+  <string>Scribe</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+  <key>LSUIElement</key>
+  <true/>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Scribe transcribes your voice into text on-device.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Scribe uses on-device speech recognition to turn your voice into text.</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+</dict>
+</plist>

@@ -39,3 +39,15 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# mac app build artifacts
+mac/.build
+mac/.deps
+mac/Scribe.app
+
+# windows app build artifacts
+windows/Scribe/bin/
+windows/Scribe/obj/
+
+# release staging
+release/

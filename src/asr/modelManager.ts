@@ -19,13 +19,15 @@ export function isInstalled(model: ModelSpec): boolean {
 
 export async function downloadModel(
   model: ModelSpec,
-  onProgress?: (ratio: number) => void
+  onProgress?: (ratio: number) => void,
+  signal?: AbortSignal
 ): Promise<File> {
   const dest = localFile(model);
   if (isInstalled(model)) return dest;
   if (dest.exists) dest.delete();
 
   const task = new DownloadTask(model.url, dest, {
+    signal,
     onProgress: ({ bytesWritten, totalBytes }) => {
       const total = totalBytes > 0 ? totalBytes : model.sizeBytes;
       if (total > 0) onProgress?.(bytesWritten / total);

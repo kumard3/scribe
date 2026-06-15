@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "LocalVoice",
+    "name": "Scribe",
     "slug": "localvoice",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -10,14 +10,16 @@
       "supportsTablet": true,
       "bundleIdentifier": "ai.localvoice.app",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "LocalVoice uses the microphone to transcribe and translate your speech entirely on-device."
+        "NSMicrophoneUsageDescription": "Scribe uses the microphone to transcribe your speech entirely on-device."
       }
     },
     "android": {
       "package": "ai.localvoice.app",
-      "permissions": ["android.permission.RECORD_AUDIO"],
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
       "adaptiveIcon": {
-        "backgroundColor": "#0b0f1a",
+        "backgroundColor": "#0E0F13",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -29,6 +31,16 @@
     },
     "plugins": [
       "expo-audio",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Scribe uses the microphone to turn your speech into text on-device.",
+          "speechRecognitionPermission": "Scribe uses on-device speech recognition to transcribe your voice without sending audio anywhere.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
+        }
+      ],
       [
         "expo-build-properties",
         {

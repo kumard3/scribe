@@ -1,43 +1,39 @@
-# LocalVoice
+# Vox
 
-On-device speech → text and translation. No server, no API keys, no per-user cost. Models run entirely on the device and are downloaded per-language on first use.
+**Say it. See it.** On-device speech to text. No server, no API keys, no per-user cost. Three engines, all fully local:
 
-**v1 scope:** iOS (working), record-then-transcribe, Whisper engine, per-language model routing. Android and the NVIDIA (Parakeet/Canary) engines are scaffolded but not wired yet — see _Roadmap_.
+- **Live mode (default).** The phone's built-in on-device speech recognition (iOS `SFSpeechRecognizer`, Android `SpeechRecognizer`). Real-time streaming transcript, automatic punctuation, ~25 languages, **zero downloads**. This is the primary talk-and-see-text experience and it works on Android too (the OS owns the mic).
+- **Offline mode (Whisper).** Whisper (whisper.cpp via whisper.rn) for record-then-transcribe with optional translate-to-English, and for languages the system can't do on-device.
+- **More engines (sherpa-onnx).** Downloadable ONNX models — Moonshine (English), and the path to NVIDIA Parakeet, SenseVoice, and speaker diarization. Pick one in **Models → "Use"** and Offline mode routes through it.
+
+Live mode keeps the screen awake while recording and auto-resumes if iOS pauses recognition. Transcripts are editable, searchable, and shareable.
 
 ## Run it (iOS)
 
-This app has native code (whisper.cpp), so it needs a **development build** — it does **not** run in Expo Go.
+This app has native code, so it needs a **development/release build** — it does **not** run in Expo Go.
 
 ```bash
 cd localvoice
-npx expo run:ios            # builds the native app + launches the simulator
+npx expo run:ios            # builds the native app + launches it
 ```
 
-First launch:
-1. Pick a language chip (English is the default).
-2. Tap **Download model** (English = ~142 MB, downloaded once, cached on device).
-3. Tap **Tap to talk**, speak, then **Stop & transcribe**.
-4. Flip **Translate to English** to get translation instead of transcription.
+Usage:
+1. **Live** is selected by default. Pick a language, tap the mic, and watch text appear as you speak. Tap again to stop.
+2. Switch to **Offline** for record-then-transcribe with Whisper (and the Translate → EN toggle).
 
 To run on a physical iPhone: `npx expo run:ios --device` and select your phone (needs a free Apple developer signing team in Xcode the first time).
 
 ## How it works
 
 ```
-mic (expo-audio, 16 kHz mono WAV)
-        │
-        ▼
-  router.resolveModel(language)        ← per-language model routing
-        │
-        ▼
-  modelManager (download + cache)      ← expo-file-system, per-language packs
-        │
-        ▼
-  WhisperEngine (whisper.rn / whisper.cpp, Metal-accelerated)
-        │
-        ▼
-  transcript (+ optional translate-to-English)
+            Live    → system speech recognition (SFSpeechRecognizer / Android SpeechRecognizer)
+ tap mic ──┤          streaming partial+final results, on-device, punctuation, no download
+            Offline → mic (expo-audio WAV) → router.resolveModel(language)
+                      → modelManager (download + cache) → WhisperEngine (whisper.rn, Metal)
+                      → transcript (+ optional translate-to-English)
 ```
+
+Live mode lives in `src/asr/system.ts` (wraps `expo-speech-recognition`) and is driven by event hooks in `App.tsx`. Offline mode is the engine-agnostic Whisper path below.
 
 ### Per-language model routing — `src/asr/registry.ts`
 
@@ -67,10 +63,12 @@ Adding a new engine = implement `ASREngine` and register it in `index.ts`'s `eng
 
 ## Roadmap
 
-- **Android.** `expo-audio` can only emit AAC/AMR on Android, but whisper.cpp needs WAV/PCM. Swap the recorder for a raw-PCM stream (e.g. `@fugood/react-native-audio-pcm-stream`) and write a WAV header — this also unlocks live/streaming transcription and VAD.
-- **Live "detection" mode.** whisper.rn 0.6 ships `RealtimeTranscriber` + a VAD context (`initWhisperVad`). Feed it the PCM stream above for continuous talk-and-see-text with voice-activity detection.
-- **NVIDIA models (Parakeet / Canary).** Add a `SherpaEngine` (sherpa-onnx) implementing `ASREngine`. Parakeet = fastest English ASR; Canary = speech-to-text **+ translation** across 25 languages in one model. Register their ONNX models in `registry.ts` and route the relevant languages to them. The full 1B Canary is desktop-class; phones use the ~180 MB on-device variant or quantized models.
-- **Mac / desktop.** Reuse this same model-router design in a **Tauri** app (or run the full Canary-1B via whisper.cpp/NeMo locally).
+- **Live mode — done.** Real-time on-device dictation with punctuation on iOS + Android via `expo-speech-recognition`. This also sidesteps the Android WAV problem for the primary flow (the OS captures audio directly).
+- **Offline Android.** `expo-audio` can only emit AAC/AMR on Android, but whisper.cpp needs WAV/PCM. Offline (Whisper) mode therefore still needs a raw-PCM recorder on Android (e.g. `expo-speech-recognition`'s `recordingOptions.persist`, which writes 16 kHz WAV, or a PCM-stream lib). Live mode already covers Android with no extra work.
+- **NVIDIA models (Parakeet / Canary).** Optional offline upgrade: add a `SherpaEngine` (sherpa-onnx) implementing `ASREngine`. Canary = speech-to-text **+ translation** across 25 languages in one model; Parakeet = fastest English ASR. Register their ONNX models in `registry.ts` and route the relevant languages to them.
+- **Best-per-language Indic.** For Hindi/Indic where the system on-device model is weak, route Offline mode to AI4Bharat IndicConformer (MIT, all 22 Indian languages, ~130 MB INT8) via the Sherpa engine.
+- **Speaker diarization.** "Who spoke" labels via sherpa-onnx speaker-segmentation models (offline path).
+- **Mac / desktop.** Reuse this same router design in a **Tauri** app; on the desktop, macOS `SFSpeechRecognizer` covers the live path and whisper.cpp/NeMo covers offline.
 
 ## Why fully local
 Privacy (audio never leaves the device), zero inference cost (free for users), and offline operation. The tradeoff is app size / model download — solved with per-language download-on-demand packs instead of bundling everything.

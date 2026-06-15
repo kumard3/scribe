@@ -39,3 +39,25 @@ export async function transcribeFile(
   }
   return engine.transcribe({ wavPath, language, translateToEnglish });
 }
+
+export async function prepareModel(
+  model: ModelSpec,
+  onDownload?: (ratio: number) => void
+): Promise<void> {
+  const file = await downloadModel(model, onDownload);
+  await engineFor(model).load(model, file.uri);
+}
+
+export async function transcribeWithModel(
+  wavPath: string,
+  model: ModelSpec,
+  language: LanguageCode,
+  translateToEnglish: boolean
+): Promise<TranscriptionResult> {
+  if (!isInstalled(model)) throw new Error('Model not installed — download it in Models first.');
+  const engine = engineFor(model);
+  if (engine.loadedModelId() !== model.id) {
+    await engine.load(model, localFile(model).uri);
+  }
+  return engine.transcribe({ wavPath, language, translateToEnglish });
+}

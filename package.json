@@ -3,20 +3,30 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@dr.pogodin/react-native-fs": "^2.38.2",
     "@expo/vector-icons": "^15.0.2",
+    "@react-native-ml-kit/identify-languages": "^2.0.0",
+    "@react-native-ml-kit/translate-text": "^0.5.0",
     "buffer": "^6.0.3",
     "expo": "~56.0.9",
     "expo-audio": "~56.0.11",
     "expo-build-properties": "~56.0.17",
+    "expo-clipboard": "~56.0.4",
     "expo-dev-client": "~56.0.19",
+    "expo-document-picker": "~56.0.4",
     "expo-file-system": "~56.0.7",
+    "expo-keep-awake": "~56.0.3",
+    "expo-quick-actions": "^6.0.2",
+    "expo-speech-recognition": "^56.0.1",
     "expo-status-bar": "~56.0.4",
     "react": "19.2.3",
     "react-native": "0.85.3",
+    "react-native-sherpa-onnx": "^0.4.3",
     "whisper.rn": "^0.6.0"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "sharp": "^0.34.5",
     "typescript": "~6.0.3"
   },
   "scripts": {

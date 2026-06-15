@@ -5,6 +5,7 @@ export type HistoryItem = {
   text: string;
   language: string;
   translated: boolean;
+  translatedTo?: string;
   createdAt: number;
 };
 
@@ -40,6 +41,12 @@ export function addHistory(
     createdAt: Date.now(),
   };
   const next = [item, ...loadHistory()].slice(0, MAX_ITEMS);
+  persist(next);
+  return next;
+}
+
+export function updateHistory(id: string, text: string): HistoryItem[] {
+  const next = loadHistory().map((i) => (i.id === id ? { ...i, text } : i));
   persist(next);
   return next;
 }

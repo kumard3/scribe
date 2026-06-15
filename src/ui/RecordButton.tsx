@@ -57,11 +57,11 @@ export function RecordButton({ recording, busy, onPress }: Props) {
           style={[styles.fab, { backgroundColor: recording ? theme.danger : theme.primary }]}
         >
           {busy ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={theme.onPrimary} />
           ) : recording ? (
             <View style={styles.stopSquare} />
           ) : (
-            <Ionicons name="mic" size={40} color="#fff" />
+            <Ionicons name="mic" size={40} color={theme.onPrimary} />
           )}
         </Pressable>
       </Animated.View>

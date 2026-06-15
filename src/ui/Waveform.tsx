@@ -1,22 +1,23 @@
 import { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, View } from 'react-native';
+import { Animated, StyleSheet } from 'react-native';
 import { theme } from './theme';
 
 export const BAR_COUNT = 32;
+const BAR_MAX = 64;
 
 type Props = { levels: number[]; active: boolean };
 
 export function Waveform({ levels, active }: Props) {
   const anims = useRef(levels.map((l) => new Animated.Value(l))).current;
-  const breathe = useRef(new Animated.Value(0)).current;
+  const breathe = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     Animated.parallel(
       levels.map((l, i) =>
         Animated.timing(anims[i], {
-          toValue: l,
-          duration: 90,
-          useNativeDriver: false,
+          toValue: Math.max(0.06, l),
+          duration: 110,
+          useNativeDriver: true,
         })
       )
     ).start();
@@ -46,10 +47,7 @@ export function Waveform({ levels, active }: Props) {
             styles.bar,
             {
               backgroundColor: active ? theme.primary : theme.primaryDim,
-              height: v.interpolate({
-                inputRange: [0, 1],
-                outputRange: [4, 64],
-              }),
+              transform: [{ scaleY: v }],
             },
           ]}
         />
@@ -68,6 +66,7 @@ const styles = StyleSheet.create({
   },
   bar: {
     flex: 1,
+    height: BAR_MAX,
     marginHorizontal: 1.5,
     borderRadius: 999,
   },

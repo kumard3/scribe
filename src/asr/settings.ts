@@ -1,0 +1,112 @@
+import { File, Paths } from 'expo-file-system';
+
+type Settings = {
+  selectedModelId: string;
+  vocab: string[];
+  autoPolish: boolean;
+  onboarded: boolean;
+  translateToEnglish: boolean;
+  translateTarget: string;
+  cloudApiKey: string;
+  cloudBaseUrl: string;
+  cloudModel: string;
+};
+
+const DEFAULT: Settings = {
+  selectedModelId: 'system',
+  vocab: [],
+  autoPolish: false,
+  onboarded: false,
+  translateToEnglish: false,
+  translateTarget: '',
+  cloudApiKey: '',
+  cloudBaseUrl: 'https://api.openai.com/v1',
+  cloudModel: 'whisper-1',
+};
+
+function file(): File {
+  return new File(Paths.document, 'settings.json');
+}
+
+function load(): Settings {
+  try {
+    const f = file();
+    if (!f.exists) return DEFAULT;
+    return { ...DEFAULT, ...JSON.parse(f.textSync()) };
+  } catch {
+    return DEFAULT;
+  }
+}
+
+function persist(s: Settings): void {
+  const f = file();
+  if (!f.exists) f.create();
+  f.write(JSON.stringify(s));
+}
+
+export function getSelectedModelId(): string {
+  return load().selectedModelId;
+}
+
+export function setSelectedModelId(selectedModelId: string): void {
+  persist({ ...load(), selectedModelId });
+}
+
+export function getVocab(): string[] {
+  return load().vocab;
+}
+
+export function setVocab(vocab: string[]): void {
+  persist({ ...load(), vocab });
+}
+
+export function getAutoPolish(): boolean {
+  return load().autoPolish;
+}
+
+export function setAutoPolish(autoPolish: boolean): void {
+  persist({ ...load(), autoPolish });
+}
+
+export function getOnboarded(): boolean {
+  return load().onboarded;
+}
+
+export function setOnboarded(onboarded: boolean): void {
+  persist({ ...load(), onboarded });
+}
+
+export function getTranslateToEnglish(): boolean {
+  return load().translateToEnglish;
+}
+
+export function setTranslateToEnglish(translateToEnglish: boolean): void {
+  persist({ ...load(), translateToEnglish });
+}
+
+// Target language for translation ('' = off). Migrates the old English toggle.
+export function getTranslateTarget(): string {
+  const s = load();
+  return s.translateTarget || (s.translateToEnglish ? 'en' : '');
+}
+
+export function setTranslateTarget(translateTarget: string): void {
+  persist({ ...load(), translateTarget });
+}
+
+export type CloudSettings = { apiKey: string; baseUrl: string; model: string };
+
+export function getCloud(): CloudSettings {
+  const s = load();
+  return { apiKey: s.cloudApiKey, baseUrl: s.cloudBaseUrl, model: s.cloudModel };
+}
+
+export function setCloud(patch: Partial<CloudSettings>): void {
+  const s = load();
+  persist({
+    ...s,
+    cloudApiKey: patch.apiKey ?? s.cloudApiKey,
+    cloudBaseUrl: patch.baseUrl ?? s.cloudBaseUrl,
+    cloudModel: patch.model ?? s.cloudModel,
+  });
+}

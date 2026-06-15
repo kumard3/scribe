@@ -41,7 +41,7 @@ export class WhisperEngine implements ASREngine {
     if (!this.ctx) throw new Error('Whisper model not loaded');
     const started = Date.now();
     const { promise } = this.ctx.transcribe(stripScheme(req.wavPath), {
-      language: req.language === 'auto' ? 'auto' : req.language,
+      language: req.language === 'auto' ? 'auto' : req.language === 'hi-en' ? 'en' : req.language,
       translate: req.translateToEnglish ?? false,
     });
     const res = await promise;

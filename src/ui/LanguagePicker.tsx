@@ -9,17 +9,20 @@ type Props = {
   current: LanguageCode;
   onSelect: (code: LanguageCode) => void;
   onClose: () => void;
+  title?: string;
+  options?: { code: string; label: string }[];
 };
 
-export function LanguagePicker({ visible, current, onSelect, onClose }: Props) {
+export function LanguagePicker({ visible, current, onSelect, onClose, title, options }: Props) {
+  const items = options ?? SUPPORTED_LANGUAGES;
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={() => {}}>
           <View style={styles.handle} />
-          <Text style={styles.title}>Speech language</Text>
+          <Text style={styles.title}>{title ?? 'Speech language'}</Text>
           <ScrollView>
-            {SUPPORTED_LANGUAGES.map((l) => {
+            {items.map((l) => {
               const active = current === l.code;
               return (
                 <Pressable
@@ -48,7 +51,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.surface,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingBottom: 40,
     paddingTop: 12,
     maxHeight: '70%',
