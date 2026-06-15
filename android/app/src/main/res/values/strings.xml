@@ -1,0 +1,6 @@
+<resources>
+  <string name="app_name">Scribe</string>
+  <string name="voice_keyboard_label">Scribe Voice</string>
+  <string name="flow_bubble_accessibility_label">Scribe Flow Bubble</string>
+  <string name="flow_bubble_accessibility_desc">Lets the Scribe Flow Bubble paste dictated text into the field you\'re typing in, in any app.</string>
+</resources>
