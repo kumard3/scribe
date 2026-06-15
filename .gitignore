@@ -66,3 +66,8 @@ windows/Scribe/obj/
 
 # release staging
 release/
+
+# internal docs (kept local, not tracked)
+PRODUCTION.md
+PRIVACY.md
+AGENTS.md
