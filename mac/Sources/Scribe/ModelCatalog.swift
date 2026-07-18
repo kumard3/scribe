@@ -176,9 +176,9 @@ enum ModelCatalog {
       label: "Srota · Hinglish",
       note: "Qwen3-ASR fine-tune · natural Hindi-English mix · transcribes on release",
       archive: "", sizeBytes: 1_018_020_320, live: false, quality: .best,
-      directURL: "https://github.com/kumard3/localvoice/releases/download/srota-gguf-1/srota-hinglish-q8_0.gguf",
+      directURL: "https://github.com/kumard3/scribe/releases/download/srota-gguf-1/srota-hinglish-q8_0.gguf",
       fileName: "srota-hinglish-q8_0.gguf",
-      mmprojURL: "https://github.com/kumard3/localvoice/releases/download/srota-gguf-1/mmproj-srota-hinglish-f16.gguf",
+      mmprojURL: "https://github.com/kumard3/scribe/releases/download/srota-gguf-1/mmproj-srota-hinglish-f16.gguf",
       mmprojFileName: "mmproj-srota-hinglish-f16.gguf",
       mmprojSizeBytes: 378_576_480
     ),

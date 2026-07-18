@@ -1,7 +1,7 @@
 export const SITE_URL = 'https://scribe-site.kumard3.workers.dev';
 export const SITE_NAME = 'Scribe';
 
-export const REPO = 'https://github.com/kumard3/localvoice';
+export const REPO = 'https://github.com/kumard3/scribe';
 export const RELEASES = `${REPO}/releases`;
 export const AUTHOR = 'kumard3';
 
