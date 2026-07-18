@@ -5,7 +5,7 @@ export const REPO = 'https://github.com/kumard3/scribe';
 export const RELEASES = `${REPO}/releases`;
 export const AUTHOR = 'kumard3';
 
-export const APP_VERSION = '1.0.0-beta';
+export const APP_VERSION = '1.2.0';
 export const LANG_COUNT = 59;
 
 export const OG_IMAGE = '/og.png';
