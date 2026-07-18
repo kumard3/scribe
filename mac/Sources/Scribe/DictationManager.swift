@@ -53,6 +53,7 @@ final class DictationManager: ObservableObject {
   private var appleErrorRestarts = 0
 
   private var sherpa: SherpaEngine?
+  private var qwenSpec: ModelSpec?
   private var sherpaSamples: [Float] = []
   private var hwRate = 16000
   private var onBufferCurrent: ((AVAudioPCMBuffer) -> Void)?
@@ -86,7 +87,7 @@ final class DictationManager: ObservableObject {
       requestMic { granted in
         dlog("mic granted=\(granted)")
         guard granted else { self.set("Enable Microphone in System Settings"); return }
-        self.beginSherpa(spec)
+        spec.kind == .qwenAsr ? self.beginQwen(spec) : self.beginSherpa(spec)
       }
     }
   }
@@ -137,7 +138,7 @@ final class DictationManager: ObservableObject {
     engine.stop()
     guard let rate = startEngine(onBuffer: onBuffer) else { return }
     if rate != hwRate {
-      if sherpa != nil {
+      if sherpa != nil || qwenSpec != nil {
         dlog("hw rate changed \(hwRate) → \(rate), dropping \(sherpaSamples.count) buffered samples")
         sherpaSamples.removeAll()
       }
@@ -392,6 +393,40 @@ final class DictationManager: ObservableObject {
     }
   }
 
+  // MARK: - qwen-asr path (Srota)
+
+  private func beginQwen(_ spec: ModelSpec) {
+    guard !isRecording else { return }
+    let dir = ModelStore.dir(for: spec)
+    let model = dir.appendingPathComponent(spec.fileName)
+    let mmproj = dir.appendingPathComponent(spec.mmprojFileName)
+    guard FileManager.default.fileExists(atPath: model.path),
+          FileManager.default.fileExists(atPath: mmproj.path) else {
+      set("\(spec.label) isn’t downloaded — get it in the Dashboard")
+      return
+    }
+    request = nil
+    task = nil
+    qwenSpec = spec
+    sherpaSamples = []
+    guard let rate = startEngine(onBuffer: { [weak self] buffer in
+      self?.consumeQwen(buffer)
+    }) else { return }
+    hwRate = rate
+    markListening()
+  }
+
+  private func consumeQwen(_ buffer: AVAudioPCMBuffer) {
+    guard let ch = buffer.floatChannelData?[0] else { return }
+    let samples = [Float](UnsafeBufferPointer(start: ch, count: Int(buffer.frameLength)))
+    sherpaQueue.async { [weak self] in
+      guard let self else { return }
+      if self.sherpaSamples.count < self.maxBufferedSamples {
+        self.sherpaSamples.append(contentsOf: samples)
+      }
+    }
+  }
+
   private func consumeSherpa(_ buffer: AVAudioPCMBuffer) {
     guard let ch = buffer.floatChannelData?[0] else { return }
     let samples = [Float](UnsafeBufferPointer(start: ch, count: Int(buffer.frameLength)))
@@ -418,6 +453,29 @@ final class DictationManager: ObservableObject {
     releaseEngine()
     isRecording = false
     level = 0
+
+    if let spec = qwenSpec {
+      qwenSpec = nil
+      phase = .transcribing
+      set("Transcribing…")
+      let rate = hwRate
+      let dir = ModelStore.dir(for: spec)
+      sherpaQueue.async { [weak self] in
+        guard let self else { return }
+        let samples = self.sherpaSamples
+        self.sherpaSamples = []
+        AsrRuntime.shared.transcribe(
+          modelPath: dir.appendingPathComponent(spec.fileName).path,
+          mmprojPath: dir.appendingPathComponent(spec.mmprojFileName).path,
+          samples: samples, sampleRate: rate
+        ) { text in
+          dlog("qwen-asr transcribed \((text ?? "").count) chars from \(samples.count) samples")
+          self.set("Ready")
+          self.finish(with: text ?? "")
+        }
+      }
+      return
+    }
 
     if let sherpa {
       if sherpa.spec.live {

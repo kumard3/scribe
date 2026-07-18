@@ -30,20 +30,22 @@ if [ ! -f "$LLAMA_LIB/libllama.dylib" ]; then
   echo "Building llama.cpp ($LLAMA_TAG, Metal, universal2)… first build is slow."
   rm -rf .deps/llama-src .deps/llama-build
   git clone --depth 1 --branch "$LLAMA_TAG" https://github.com/ggml-org/llama.cpp .deps/llama-src
+  # LLAMA_BUILD_TOOLS=ON is needed for the mtmd LIBRARY target (audio input for
+  # Srota / Qwen3-ASR) — but only library targets are built; llama.cpp master's
+  # app/ and tool executables drift and fail (e.g. missing build-info.h).
   cmake -S .deps/llama-src -B .deps/llama-build \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=ON \
     -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON \
-    -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=OFF \
+    -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=ON \
     -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
-  # Build only the libraries the app links/loads — llama.cpp master's app/ and
-  # tool targets drift and fail (e.g. missing build-info.h), and we don't ship them.
   cmake --build .deps/llama-build --config Release -j \
-    --target llama ggml ggml-base ggml-cpu ggml-metal ggml-blas
+    --target llama mtmd ggml ggml-base ggml-cpu ggml-metal ggml-blas
   mkdir -p "$LLAMA_LIB" Sources/CLlama/vendor
-  find .deps/llama-build -name "*.dylib" -exec cp {} "$LLAMA_LIB/" \;
+  find .deps/llama-build \( -path "*/bin/*.dylib" -o -path "*/src/*.dylib" -o -path "*/ggml/*.dylib" \) -name "*.dylib" -exec cp {} "$LLAMA_LIB/" \;
   cp .deps/llama-src/include/llama.h Sources/CLlama/vendor/
   cp .deps/llama-src/ggml/include/*.h Sources/CLlama/vendor/
+  cp .deps/llama-src/tools/mtmd/mtmd.h .deps/llama-src/tools/mtmd/mtmd-helper.h Sources/CLlama/vendor/
 fi
 
 echo "Building Scribe ($CONFIG)…"

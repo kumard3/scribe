@@ -23,6 +23,21 @@ char *cllama_generate(cllama_ctx *h, const char *prompt, int max_tokens,
 void cllama_free_str(char *s);
 void cllama_free(cllama_ctx *h);
 
+// --- Audio ASR via mtmd (Qwen3-ASR-style models, e.g. Srota Hinglish) ---
+
+typedef struct cllama_asr cllama_asr;
+
+// Load a Qwen3-ASR GGUF pair: the LLM model + its mmproj audio encoder.
+// Returns NULL on failure.
+cllama_asr *cllama_asr_load(const char *model_path, const char *mmproj_path);
+
+// Transcribe mono float PCM. Resamples internally to the model's rate.
+// Returns a malloc'd UTF-8 string to free with cllama_free_str(), NULL on failure.
+char *cllama_asr_transcribe(cllama_asr *h, const float *samples, int n_samples,
+                            int sample_rate, int max_tokens);
+
+void cllama_asr_free(cllama_asr *h);
+
 #ifdef __cplusplus
 }
 #endif

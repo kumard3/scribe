@@ -30,6 +30,7 @@ let package = Package(
           "-lsherpa-onnx-c-api",
           "-L", llamaLib,
           "-lllama",
+          "-lmtmd",
           "-lggml",
           "-lggml-base",
           "-lggml-cpu",

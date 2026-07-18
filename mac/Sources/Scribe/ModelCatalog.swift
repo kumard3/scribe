@@ -10,6 +10,7 @@ enum ModelKind: String {
   case dolphinCtc
   case onlineTransducer
   case nemotronTransducer
+  case qwenAsr
   case llm
 }
 
@@ -38,6 +39,11 @@ struct ModelSpec: Identifiable, Equatable {
   var directURL: String? = nil
   /// Saved file name for directURL downloads (the LLM kind only).
   var fileName: String = ""
+  /// Second GGUF for qwenAsr models: the mmproj audio encoder, downloaded
+  /// after the main model file.
+  var mmprojURL: String? = nil
+  var mmprojFileName: String = ""
+  var mmprojSizeBytes: Int64 = 0
 
   var sizeLabel: String {
     sizeBytes == 0 ? "No download" : "\(Int((Double(sizeBytes) / 1e6).rounded())) MB"
@@ -164,6 +170,17 @@ enum ModelCatalog {
       note: "NVIDIA · live · instant · punctuated",
       archive: "sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25.tar.bz2",
       sizeBytes: 463_945_051, live: true
+    ),
+    ModelSpec(
+      id: "srota-hinglish", kind: .qwenAsr,
+      label: "Srota · Hinglish",
+      note: "Qwen3-ASR fine-tune · natural Hindi-English mix · transcribes on release",
+      archive: "", sizeBytes: 1_018_020_320, live: false, quality: .best,
+      directURL: "https://github.com/kumard3/localvoice/releases/download/srota-gguf-1/srota-hinglish-q8_0.gguf",
+      fileName: "srota-hinglish-q8_0.gguf",
+      mmprojURL: "https://github.com/kumard3/localvoice/releases/download/srota-gguf-1/mmproj-srota-hinglish-f16.gguf",
+      mmprojFileName: "mmproj-srota-hinglish-f16.gguf",
+      mmprojSizeBytes: 378_576_480
     ),
     ModelSpec(
       id: "gemma-4-e2b", kind: .llm,

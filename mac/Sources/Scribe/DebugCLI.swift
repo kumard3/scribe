@@ -1,5 +1,6 @@
 import Foundation
 import CSherpa
+import CLlama
 import Speech
 
 /// Headless test hooks: `Scribe --transcribe file.wav <model-id>` (sherpa) and
@@ -11,6 +12,7 @@ enum DebugCLI {
       VoiceCommands.selfTest()
       exit(0)
     }
+    runQwenAsrIfRequested()
     runAppleStreamIfRequested()
     runAppleIfRequested()
     let args = CommandLine.arguments
@@ -47,6 +49,31 @@ enum DebugCLI {
       text = engine.transcribe(samples, sampleRate: rate)
     }
     print(text)
+    exit(text.isEmpty ? 1 : 0)
+  }
+
+  /// `Scribe --asr file.wav model.gguf mmproj.gguf` — headless Srota check.
+  private static func runQwenAsrIfRequested() {
+    let args = CommandLine.arguments
+    guard let i = args.firstIndex(of: "--asr"), args.count > i + 3 else { return }
+    guard let wave = SherpaOnnxReadWave(args[i + 1]) else {
+      FileHandle.standardError.write("cannot read \(args[i + 1])\n".data(using: .utf8)!)
+      exit(2)
+    }
+    defer { SherpaOnnxFreeWave(wave) }
+    guard let h = cllama_asr_load(args[i + 2], args[i + 3]) else {
+      FileHandle.standardError.write("asr model load failed\n".data(using: .utf8)!)
+      exit(3)
+    }
+    let n = Int(wave.pointee.num_samples)
+    let rate = wave.pointee.sample_rate
+    let c = cllama_asr_transcribe(h, wave.pointee.samples, Int32(n), Int32(rate), 1024)
+    let text = c.map { String(cString: $0) } ?? ""
+    if let c { cllama_free_str(c) }
+    print(AsrRuntime.cleanOutput(text))
+    FileHandle.standardError.write("freeing…\n".data(using: .utf8)!)
+    cllama_asr_free(h)
+    FileHandle.standardError.write("freed ok\n".data(using: .utf8)!)
     exit(text.isEmpty ? 1 : 0)
   }
 
