@@ -1,0 +1,19 @@
+---
+import { FAQ } from '../data/faq';
+---
+<section class="block" id="faq" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker">Questions</div>
+      <h2>Straight answers.</h2>
+    </div>
+    <div class="faq reveal">
+      {FAQ.map((item, i) => (
+        <details class="faq-item" open={i === 0}>
+          <summary>{item.q}<span class="faq-ico" aria-hidden="true"></span></summary>
+          <p>{item.a}</p>
+        </details>
+      ))}
+    </div>
+  </div>
+</section>

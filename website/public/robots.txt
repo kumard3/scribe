@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://scribe-site.kumard3.workers.dev/sitemap-index.xml

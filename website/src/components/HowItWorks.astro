@@ -1,0 +1,28 @@
+---
+import Icon from './Icon.astro';
+
+const steps = [
+  { n: '01', title: 'You speak', body: 'The mic feeds audio straight into a model already downloaded to your device.', arr: true },
+  { n: '02', title: 'It transcribes on-device', body: "Whisper / NeMo / your phone's own engine turns sound into text locally, even in airplane mode.", arr: true },
+  { n: '03', title: 'You keep the text', body: 'Edit, label speakers, translate, copy, or share. Nothing was ever sent to a server.', arr: false },
+];
+---
+<section class="block" id="how" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker">How it works</div>
+      <h2>The audio never gets a chance to leave.</h2>
+      <p>There's no upload step to opt out of. The model lives on your device, so your voice is processed where it's spoken.</p>
+    </div>
+    <div class="pipe">
+      {steps.map((s) => (
+        <div class="step reveal">
+          <div class="n">{s.n}</div>
+          <h4>{s.title}</h4>
+          <p>{s.body}</p>
+          {s.arr && <span class="arr"><Icon name="arrow" /></span>}
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

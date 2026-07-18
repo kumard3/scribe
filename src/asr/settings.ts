@@ -10,6 +10,8 @@ type Settings = {
   cloudApiKey: string;
   cloudBaseUrl: string;
   cloudModel: string;
+  diarizationEnabled: boolean;
+  recordModelId: string;
 };
 
 const DEFAULT: Settings = {
@@ -22,6 +24,8 @@ const DEFAULT: Settings = {
   cloudApiKey: '',
   cloudBaseUrl: 'https://api.openai.com/v1',
   cloudModel: 'whisper-1',
+  diarizationEnabled: false,
+  recordModelId: '',
 };
 
 function file(): File {
@@ -92,6 +96,24 @@ export function getTranslateTarget(): string {
 
 export function setTranslateTarget(translateTarget: string): void {
   persist({ ...load(), translateTarget });
+}
+
+export function getDiarizationEnabled(): boolean {
+  return load().diarizationEnabled;
+}
+
+export function setDiarizationEnabled(diarizationEnabled: boolean): void {
+  persist({ ...load(), diarizationEnabled });
+}
+
+// Model used in Record Mode (must be file-capable). Falls back to the live
+// selection when it's an offline model, else '' so the UI can prompt a pick.
+export function getRecordModelId(): string {
+  return load().recordModelId;
+}
+
+export function setRecordModelId(recordModelId: string): void {
+  persist({ ...load(), recordModelId });
 }
 
 export type CloudSettings = { apiKey: string; baseUrl: string; model: string };

@@ -1,0 +1,30 @@
+---
+import Icon from './Icon.astro';
+
+const features = [
+  { icon: 'mic', title: 'Live dictation', body: 'Talk and watch text appear instantly, anywhere you can type. Punctuation and cleanup included.' },
+  { icon: 'rec', title: 'Record mode', tag: 'New', body: 'Capture a whole meeting or long note. It keeps recording in the background, then transcribes on stop.' },
+  { icon: 'people', title: 'Speaker labels', tag: 'New', body: 'On-device diarization figures out who said what and lays the transcript out by speaker.' },
+  { icon: 'globe', title: 'Translate, offline', body: 'Turn any transcript into 59 languages on demand. The translation models run on the device too.' },
+  { icon: 'bubble', title: 'Flow bubble & keyboard', body: 'A floating mic over any app, plus a full voice keyboard. Dictate into messages, notes, anything.' },
+  { icon: 'chip', title: 'Pick your engine', body: 'From an instant built-in model to large multilingual ones. Choose by purpose, download once, run forever.' },
+] as const;
+---
+<section class="block" id="features">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker">What it does</div>
+      <h2>Everything Wispr Flow and Superwhisper do, without sending your voice anywhere.</h2>
+    </div>
+    <div class="features">
+      {features.map((f) => (
+        <div class="feat reveal">
+          <div class="ico"><Icon name={f.icon} /></div>
+          {'tag' in f && f.tag && <span class="tag">{f.tag}</span>}
+          <h3>{f.title}</h3>
+          <p>{f.body}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

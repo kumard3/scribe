@@ -13,10 +13,15 @@ export type ModelSpec = {
   note?: string;
 };
 
+export type TimedUnit = { start: number; end: number; text: string };
+
 export type TranscriptionResult = {
   text: string;
   language?: string;
   durationMs?: number;
+  /** Segment/word timings (seconds), when the engine provides them. Used to
+   *  attribute text to speakers during diarization. */
+  units?: TimedUnit[];
 };
 
 export type TranscribeRequest = {

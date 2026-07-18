@@ -5,6 +5,8 @@ import CSherpa
 /// audio and transcribe on stop; the online kind streams partial results.
 final class SherpaEngine {
   let spec: ModelSpec
+  let language: String
+  let provider: String
   private var offline: OpaquePointer?
   private var online: OpaquePointer?
   private var onlineStream: OpaquePointer?
@@ -23,8 +25,10 @@ final class SherpaEngine {
     keep = []
   }
 
-  init?(spec: ModelSpec) {
+  init?(spec: ModelSpec, language: String, provider: String) {
     self.spec = spec
+    self.language = language
+    self.provider = provider
     guard let dir = ModelStore.modelDir(for: spec),
           let tokens = ModelStore.tokensFile(in: ModelStore.dir(for: spec)) else {
       dlog("sherpa init: files missing for \(spec.id)")
@@ -37,13 +41,17 @@ final class SherpaEngine {
     case .appleSystem:
       return nil
 
-    case .onlineTransducer:
+    case .onlineTransducer, .nemotronTransducer:
       var cfg = SherpaOnnxOnlineRecognizerConfig()
       memset(&cfg, 0, MemoryLayout.size(ofValue: cfg))
       cfg.feat_config.sample_rate = 16000
       cfg.feat_config.feature_dim = 80
+      // Nemotron ships int8-only; zipformer ships an fp32 decoder. sherpa
+      // auto-detects the online model type (transducer vs nemotron) from the
+      // encoder metadata, so no explicit model_type is set.
+      let decInt8 = spec.kind == .nemotronTransducer
       guard let enc = ModelStore.find("encoder", in: dir),
-            let dec = ModelStore.find("decoder", in: dir, preferInt8: false),
+            let dec = ModelStore.find("decoder", in: dir, preferInt8: decInt8),
             let join = ModelStore.find("joiner", in: dir) else {
         dlog("sherpa init: transducer files missing for \(spec.id)")
         return nil
@@ -53,7 +61,7 @@ final class SherpaEngine {
       cfg.model_config.transducer.joiner = c(join.path)
       cfg.model_config.tokens = c(tokens.path)
       cfg.model_config.num_threads = threads
-      cfg.model_config.provider = c("cpu")
+      cfg.model_config.provider = c(provider)
       cfg.decoding_method = c("greedy_search")
       cfg.enable_endpoint = 1
       cfg.rule1_min_trailing_silence = 2.4
@@ -69,7 +77,7 @@ final class SherpaEngine {
       cfg.feat_config.feature_dim = 80
       cfg.model_config.tokens = c(tokens.path)
       cfg.model_config.num_threads = threads
-      cfg.model_config.provider = c("cpu")
+      cfg.model_config.provider = c(provider)
       cfg.decoding_method = c("greedy_search")
 
       switch spec.kind {
@@ -129,7 +137,7 @@ final class SherpaEngine {
         }
         cfg.model_config.whisper.encoder = c(enc.path)
         cfg.model_config.whisper.decoder = c(dec.path)
-        cfg.model_config.whisper.language = c("") // empty = auto-detect
+        cfg.model_config.whisper.language = c(language == "auto" ? "" : language)
         cfg.model_config.whisper.task = c("transcribe")
         cfg.model_config.whisper.tail_paddings = -1
       case .dolphinCtc:
@@ -235,12 +243,15 @@ final class SherpaEngineCache {
   private var engine: SherpaEngine?
   private let lock = NSLock()
 
-  func engine(for spec: ModelSpec) -> SherpaEngine? {
+  // Language and provider are baked into the recognizer config at creation, so a
+  // change to either has to rebuild the engine, not reuse the cached one.
+  func engine(for spec: ModelSpec, language: String, provider: String) -> SherpaEngine? {
     lock.lock()
     defer { lock.unlock() }
-    if let engine, engine.spec.id == spec.id { return engine }
+    if let engine, engine.spec.id == spec.id, engine.language == language,
+       engine.provider == provider { return engine }
     engine = nil // release the old model's memory before loading the next
-    engine = SherpaEngine(spec: spec)
+    engine = SherpaEngine(spec: spec, language: language, provider: provider)
     return engine
   }
 

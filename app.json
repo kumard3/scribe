@@ -2,7 +2,7 @@
   "expo": {
     "name": "Scribe",
     "slug": "localvoice",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -47,6 +47,13 @@
           "ios": {
             "deploymentTarget": "16.4"
           }
+        }
+      ],
+      [
+        "llama.rn",
+        {
+          "enableEntitlements": true,
+          "forceCxx20": true
         }
       ]
     ]

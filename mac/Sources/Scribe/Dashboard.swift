@@ -54,6 +54,7 @@ struct DashboardView: View {
         header
         hotkeysCard
         modelsCard
+        llmCard
         generalCard
         if !axTrusted { permissionCard }
         historyCard
@@ -125,16 +126,81 @@ struct DashboardView: View {
   }
 
   private var modelsCard: some View {
-    section("Models") {
-      Text("Everything runs on this Mac — bigger models are more accurate, live ones show text as you speak.")
-        .font(.caption).foregroundColor(Mono.textDim)
-      ForEach(Array(ModelCatalog.all.enumerated()), id: \.element.id) { i, spec in
+    let asr = ModelCatalog.all.filter { $0.kind != .llm }
+    return section("Models") {
+      Picker("Language", selection: $settings.language) {
+        ForEach(speechLanguages) { l in Text(l.label).tag(l.code) }
+      }
+      .font(.system(size: 13))
+      Text("Auto-detect misreads accented speech. Naming your language is the biggest accuracy win.")
+        .font(.caption).foregroundColor(Mono.textFaint)
+
+      Toggle("Use GPU acceleration (CoreML)", isOn: $settings.useGpu)
+        .font(.system(size: 13))
+      Text("Runs downloaded models on the GPU/Neural Engine when the build supports it. Falls back to CPU otherwise.")
+        .font(.caption).foregroundColor(Mono.textFaint)
+      Divider().overlay(Mono.border)
+
+      ForEach(Array(asr.enumerated()), id: \.element.id) { i, spec in
         modelRow(spec)
-        if i < ModelCatalog.all.count - 1 {
+        if i < asr.count - 1 {
           Divider().overlay(Mono.border)
         }
       }
     }
+  }
+
+  private var llmCard: some View {
+    let spec = ModelCatalog.llmModel
+    let installed = models.isInstalled(spec)
+    let downloading = models.progress[spec.id] != nil
+    return section("AI Cleanup & Summary") {
+      Text("On-device AI (Gemma 4) that rewrites and summarizes your dictation. One-time download, fully offline.")
+        .font(.caption).foregroundColor(Mono.textDim)
+
+      HStack(alignment: .center, spacing: 10) {
+        Image(systemName: "sparkles")
+          .font(.system(size: 15))
+          .foregroundColor(installed ? .white : Mono.textFaint)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(spec.label)
+            .font(.system(size: 13, weight: installed ? .semibold : .regular))
+            .foregroundColor(Mono.text)
+          Text(spec.note).font(.system(size: 11)).foregroundColor(Mono.textDim)
+        }
+        Spacer()
+        if downloading {
+          ProgressView(value: models.progress[spec.id] ?? 0)
+            .progressViewStyle(.linear).frame(width: 90)
+          Button("Cancel") { models.cancel(spec) }.font(.system(size: 11))
+        } else if installed {
+          Button { models.delete(spec) } label: { Image(systemName: "trash") }
+            .buttonStyle(.plain).foregroundColor(Mono.textFaint).help("Delete model files")
+        } else {
+          Button("Get · \(spec.sizeLabel)") { models.download(spec) }.font(.system(size: 12))
+        }
+      }
+      if let err = models.errors[spec.id] {
+        Text(err).font(.system(size: 11)).foregroundColor(Color(hex: 0xFF453A)).padding(.leading, 26)
+      }
+
+      if installed {
+        Divider().overlay(Mono.border)
+        Toggle("Clean up every dictation automatically", isOn: $settings.autoCleanLLM)
+          .font(.system(size: 13))
+        Text("Adds a moment after you stop talking while the AI rewrites your text before it's inserted.")
+          .font(.caption).foregroundColor(Mono.textFaint)
+      }
+    }
+  }
+
+  private func chip(_ text: String, strong: Bool) -> some View {
+    Text(text)
+      .font(.system(size: 9, weight: .bold))
+      .foregroundColor(strong ? Mono.text : Mono.textDim)
+      .padding(.horizontal, 5).padding(.vertical, 2)
+      .background(Capsule().fill(Mono.surfaceAlt))
+      .overlay(Capsule().strokeBorder(strong ? Mono.text.opacity(0.4) : Mono.border))
   }
 
   @ViewBuilder
@@ -155,29 +221,20 @@ struct DashboardView: View {
         .buttonStyle(.plain)
         .disabled(!installed)
 
-        VStack(alignment: .leading, spacing: 2) {
-          HStack(spacing: 6) {
-            Text(spec.label)
-              .font(.system(size: 13, weight: active ? .semibold : .regular))
-              .foregroundColor(Mono.text)
-            if spec.live {
-              Text("LIVE")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundColor(Mono.textDim)
-                .padding(.horizontal, 5).padding(.vertical, 2)
-                .background(Capsule().fill(Mono.surfaceAlt))
-                .overlay(Capsule().strokeBorder(Mono.border))
-            }
-          }
-          Text(spec.note)
-            .font(.system(size: 11))
-            .foregroundColor(Mono.textDim)
-        }
+        Text(spec.label)
+          .font(.system(size: 13, weight: active ? .semibold : .regular))
+          .foregroundColor(Mono.text)
+        if spec.live { chip("LIVE", strong: false) }
+        chip(spec.quality.rawValue, strong: spec.quality == .best)
 
         Spacer()
 
+        Text(spec.sizeLabel)
+          .font(.system(size: 11))
+          .foregroundColor(Mono.textFaint)
+
         if spec.kind == .appleSystem {
-          Text(spec.sizeLabel).font(.system(size: 11)).foregroundColor(Mono.textFaint)
+          EmptyView()
         } else if downloading {
           ProgressView(value: models.progress[spec.id] ?? 0)
             .progressViewStyle(.linear)
@@ -194,7 +251,7 @@ struct DashboardView: View {
           .foregroundColor(Mono.textFaint)
           .help("Delete model files")
         } else {
-          Button("Get · \(spec.sizeLabel)") { models.download(spec) }
+          Button("Get") { models.download(spec) }
             .font(.system(size: 12))
         }
       }

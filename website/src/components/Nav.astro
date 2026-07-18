@@ -1,0 +1,20 @@
+---
+import Brand from './Brand.astro';
+import { RELEASES } from '../consts';
+
+interface Props { anchors?: boolean; }
+const { anchors = true } = Astro.props;
+const base = anchors ? '' : '/';
+---
+<header id="hdr">
+  <div class="wrap nav">
+    <Brand href="/" />
+    <nav class="nav-links">
+      <a class="link" href={`${base}#features`}>Features</a>
+      <a class="link" href={`${base}#use-cases`}>Use cases</a>
+      <a class="link" href={`${base}#compare`}>Compare</a>
+      <a class="link" href={`${base}#faq`}>FAQ</a>
+      <a class="btn btn-primary" href={RELEASES}>Download</a>
+    </nav>
+  </div>
+</header>

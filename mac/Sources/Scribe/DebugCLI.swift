@@ -7,6 +7,10 @@ import Speech
 /// without starting the UI.
 enum DebugCLI {
   static func runIfRequested() {
+    if CommandLine.arguments.contains("--selftest-commands") {
+      VoiceCommands.selfTest()
+      exit(0)
+    }
     runAppleStreamIfRequested()
     runAppleIfRequested()
     let args = CommandLine.arguments
@@ -22,7 +26,11 @@ enum DebugCLI {
       exit(2)
     }
     defer { SherpaOnnxFreeWave(wave) }
-    guard let engine = SherpaEngine(spec: spec) else {
+    guard let engine = SherpaEngine(
+      spec: spec,
+      language: Settings.shared.language,
+      provider: Settings.shared.sherpaProvider,
+    ) else {
       FileHandle.standardError.write("model load failed for \(modelId)\n".data(using: .utf8)!)
       exit(3)
     }

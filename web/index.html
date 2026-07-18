@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scribe — Voice to text that never leaves your device</title>
+<meta name="description" content="Scribe turns your voice into text 100% on your device. Free, offline, no account, no servers. Live dictation, long-form recording, speaker labels, and translation in 59 languages." />
+<meta property="og:title" content="Scribe — Voice to text that never leaves your device" />
+<meta property="og:description" content="Free, fully on-device speech to text. Dictate, record meetings, label speakers, translate — all offline." />
+<meta name="theme-color" content="#000000" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23000'/%3E%3Cg fill='%23fff'%3E%3Crect x='6.5' y='13' width='3' height='6' rx='1.5'/%3E%3Crect x='11.5' y='9' width='3' height='14' rx='1.5'/%3E%3Crect x='16.5' y='5' width='3' height='22' rx='1.5'/%3E%3Crect x='21.5' y='11' width='3' height='10' rx='1.5'/%3E%3C/g%3E%3C/svg%3E" />
+<script>document.documentElement.classList.add('js')</script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #000000;
+    --panel: #0b0b0d;
+    --panel-2: #131316;
+    --line: #232327;
+    --line-soft: #1a1a1d;
+    --ink: #f5f5f7;
+    --ink-2: #b6b6bd;
+    --ink-3: #76767e;
+    --ink-4: #4a4a51;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+    --sans: "Hanken Grotesk", -apple-system, sans-serif;
+    --display: "Bricolage Grotesque", var(--sans);
+    --maxw: 1120px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  ::selection { background: #fff; color: #000; }
+  a { color: inherit; text-decoration: none; }
+
+  /* atmosphere: soft greyscale glow + film grain */
+  body::before {
+    content: "";
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(900px 520px at 50% -8%, rgba(255,255,255,.10), transparent 60%),
+      radial-gradient(700px 700px at 100% 0%, rgba(255,255,255,.04), transparent 55%);
+  }
+  body::after {
+    content: "";
+    position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: .04;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+
+  /* ---- nav ---- */
+  header {
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: blur(14px);
+    background: rgba(0,0,0,.55);
+    border-bottom: 1px solid transparent;
+    transition: border-color .3s, background .3s;
+  }
+  header.scrolled { border-bottom-color: var(--line); background: rgba(0,0,0,.78); }
+  .nav { display: flex; align-items: center; justify-content: space-between; height: 66px; }
+  .brand { display: flex; align-items: center; gap: 11px; font-family: var(--display); font-weight: 700; font-size: 19px; letter-spacing: -.01em; }
+  .mark { display: flex; align-items: flex-end; gap: 2.5px; height: 19px; }
+  .mark i { width: 3px; background: var(--ink); border-radius: 2px; display: block; }
+  .mark i:nth-child(1){height:7px} .mark i:nth-child(2){height:15px} .mark i:nth-child(3){height:19px} .mark i:nth-child(4){height:11px} .mark i:nth-child(5){height:5px}
+  .nav-links { display: flex; align-items: center; gap: 32px; }
+  .nav-links a.link { font-size: 14px; color: var(--ink-3); transition: color .2s; }
+  .nav-links a.link:hover { color: var(--ink); }
+  @media (max-width: 760px){ .nav-links a.link { display: none; } }
+
+  .btn {
+    font-family: var(--sans); font-size: 14px; font-weight: 600;
+    border-radius: 999px; padding: 10px 20px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 8px; border: 1px solid transparent;
+    transition: transform .15s ease, background .2s, border-color .2s, color .2s;
+    white-space: nowrap;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn-primary { background: var(--ink); color: #000; }
+  .btn-primary:hover { background: #fff; }
+  .btn-ghost { color: var(--ink); border-color: var(--line); background: transparent; }
+  .btn-ghost:hover { border-color: var(--ink-3); background: var(--panel-2); }
+  .btn-lg { padding: 15px 28px; font-size: 15.5px; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-3); display: inline-flex; align-items: center; gap: 9px;
+  }
+  .dot { width: 6px; height: 6px; background: var(--ink); border-radius: 999px; box-shadow: 0 0 0 0 rgba(255,255,255,.5); animation: pulse 2.6s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(255,255,255,.45)} 70%{box-shadow:0 0 0 7px rgba(255,255,255,0)} 100%{box-shadow:0 0 0 0 rgba(255,255,255,0)} }
+
+  /* ---- hero ---- */
+  .hero { padding: 92px 0 70px; }
+  .hero-grid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 56px; align-items: center; }
+  @media (max-width: 920px){ .hero-grid { grid-template-columns: 1fr; gap: 44px; } }
+  h1 {
+    font-family: var(--display); font-weight: 700;
+    font-size: clamp(40px, 6.4vw, 76px); line-height: .98; letter-spacing: -.035em;
+    margin: 22px 0 0;
+  }
+  h1 .muted { color: var(--ink-4); }
+  .lede { color: var(--ink-2); font-size: clamp(16px, 2vw, 19px); max-width: 32ch; margin-top: 22px; }
+  .hero-cta { display: flex; gap: 12px; margin-top: 34px; flex-wrap: wrap; }
+  .hero-note { margin-top: 18px; font-family: var(--mono); font-size: 12px; color: var(--ink-4); }
+
+  /* device / transcript card */
+  .device {
+    border: 1px solid var(--line); border-radius: 26px; background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    padding: 18px; position: relative; box-shadow: 0 40px 90px -50px rgba(255,255,255,.18), inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  .device-top { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 14px; }
+  .seg { display: inline-flex; background: #000; border: 1px solid var(--line); border-radius: 999px; padding: 3px; gap: 2px; }
+  .seg span { font-size: 12px; font-weight: 600; color: var(--ink-3); padding: 5px 14px; border-radius: 999px; }
+  .seg span.on { background: var(--panel-2); color: var(--ink); }
+  .rec-pill { font-family: var(--mono); font-size: 11px; color: var(--ink-3); display: flex; align-items: center; gap: 6px; }
+  .rec-pill .live { width: 7px; height: 7px; border-radius: 999px; background: #ff453a; animation: blink 1.4s infinite; }
+  @keyframes blink { 50%{ opacity: .25 } }
+
+  .wave { display: flex; align-items: center; justify-content: center; gap: 3px; height: 84px; padding: 6px 4px 18px; }
+  .wave i { width: 4px; background: var(--ink); border-radius: 999px; transform-origin: center; animation: wv 1.3s ease-in-out infinite; opacity: .85; }
+
+  .transcript { background: #000; border: 1px solid var(--line-soft); border-radius: 16px; padding: 18px; display: grid; gap: 16px; }
+  .turn { display: grid; gap: 5px; }
+  .spk { font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; display: flex; align-items: center; gap: 7px; }
+  .swatch { width: 9px; height: 9px; border-radius: 2px; }
+  .turn p { color: var(--ink-2); font-size: 14.5px; line-height: 1.5; }
+  .turn p b { color: var(--ink); font-weight: 600; }
+
+  /* ---- trust strip ---- */
+  .strip { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .strip .row { display: flex; flex-wrap: wrap; gap: 10px 34px; padding: 22px 0; align-items: center; justify-content: space-between; }
+  .chip { font-family: var(--mono); font-size: 12.5px; color: var(--ink-3); display: flex; align-items: center; gap: 9px; }
+  .chip svg { flex: none; }
+  .cico { display: inline-flex; align-items: center; }
+
+  /* ---- sections ---- */
+  section.block { padding: 96px 0; }
+  .sec-head { max-width: 620px; }
+  .sec-head h2 { font-family: var(--display); font-weight: 700; font-size: clamp(28px, 4vw, 44px); line-height: 1.02; letter-spacing: -.03em; }
+  .sec-head p { color: var(--ink-2); font-size: 17px; margin-top: 16px; }
+  .kicker { font-family: var(--mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 18px; }
+
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 20px; overflow: hidden; margin-top: 48px; }
+  @media (max-width: 860px){ .features { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px){ .features { grid-template-columns: 1fr; } }
+  .feat { background: var(--bg); padding: 30px 26px; min-height: 188px; transition: background .25s; position: relative; }
+  .feat:hover { background: var(--panel); }
+  .feat .ico { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 9px; margin-bottom: 20px; color: var(--ink); }
+  .feat h3 { font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+  .feat p { color: var(--ink-3); font-size: 14px; margin-top: 8px; line-height: 1.5; }
+  .feat .tag { position: absolute; top: 22px; right: 22px; font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: #000; background: var(--ink); padding: 3px 7px; border-radius: 5px; }
+
+  /* pipeline */
+  .pipe { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 48px; }
+  @media (max-width: 760px){ .pipe { grid-template-columns: 1fr; } }
+  .step { border: 1px solid var(--line); border-radius: 16px; padding: 26px; background: var(--panel); position: relative; }
+  .step .n { font-family: var(--mono); font-size: 12px; color: var(--ink-4); }
+  .step h4 { font-size: 17px; font-weight: 700; margin-top: 14px; }
+  .step p { color: var(--ink-3); font-size: 14px; margin-top: 8px; }
+  .step .arr { position: absolute; right: -10px; top: 50%; color: var(--ink-4); }
+  @media (max-width: 760px){ .step .arr { display: none; } }
+
+  /* compare table */
+  .compare { margin-top: 48px; border: 1px solid var(--line); border-radius: 20px; overflow: hidden; }
+  .compare .crow { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; }
+  .compare .crow > div { padding: 18px 20px; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+  .compare .crow:last-child > div { border-bottom: 0; }
+  .compare .crow > div + div { border-left: 1px solid var(--line); text-align: center; }
+  .compare .head > div { background: var(--panel); font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+  .compare .head > div:first-child { color: var(--ink); }
+  .compare .scribe { color: var(--ink); font-weight: 700; }
+  .compare .feature-name { color: var(--ink-2); }
+  .yes { color: var(--ink); font-weight: 700; }
+  .no { color: var(--ink-4); }
+  @media (max-width: 640px){ .compare .crow { grid-template-columns: 1.4fr .8fr .8fr .8fr; } .compare .crow > div { padding: 13px 10px; font-size: 12.5px; } }
+
+  /* platforms */
+  .plats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 48px; }
+  @media (max-width: 760px){ .plats { grid-template-columns: 1fr 1fr; } }
+  .plat { border: 1px solid var(--line); border-radius: 16px; padding: 26px 22px; background: var(--panel); }
+  .plat .pname { font-size: 18px; font-weight: 700; }
+  .plat .pstat { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-4); margin-top: 8px; }
+  .plat.ready .pstat { color: var(--ink); }
+
+  /* privacy manifesto */
+  .manifesto { border: 1px solid var(--line); border-radius: 26px; padding: clamp(36px, 6vw, 72px); background:
+      radial-gradient(600px 300px at 80% 0%, rgba(255,255,255,.06), transparent 60%), var(--panel); text-align: left; }
+  .manifesto h2 { font-family: var(--display); font-weight: 700; font-size: clamp(26px, 4.4vw, 50px); line-height: 1.04; letter-spacing: -.03em; max-width: 18ch; }
+  .manifesto h2 em { font-style: normal; color: var(--ink-4); }
+  .manifesto p { color: var(--ink-2); margin-top: 22px; max-width: 56ch; font-size: 16.5px; }
+
+  /* final cta */
+  .final { text-align: center; padding: 110px 0 90px; }
+  .final h2 { font-family: var(--display); font-weight: 700; font-size: clamp(34px, 6vw, 68px); letter-spacing: -.035em; line-height: 1; }
+  .final p { color: var(--ink-2); margin: 20px auto 0; max-width: 40ch; font-size: 17px; }
+  .final .hero-cta { justify-content: center; }
+
+  footer { border-top: 1px solid var(--line); padding: 40px 0; }
+  .foot { display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+  .foot .small { font-family: var(--mono); font-size: 12px; color: var(--ink-4); }
+  .foot a.link { font-size: 13px; color: var(--ink-3); }
+  .foot a.link:hover { color: var(--ink); }
+
+  /* reveal — progressive enhancement: only hide when JS is on (html.js), so
+     no-JS / crawlers always see content; observer un-hides on scroll. */
+  html.js .reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1); }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce){ html.js .reveal { opacity:1; transform:none; } .wave i, .dot, .rec-pill .live { animation: none !important; } }
+
+  @keyframes wv { 0%,100%{ transform: scaleY(.18) } 50%{ transform: scaleY(1) } }
+</style>
+</head>
+<body>
+
+<header id="hdr">
+  <div class="wrap nav">
+    <a class="brand" href="#top" aria-label="Scribe home">
+      <span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+      Scribe
+    </a>
+    <nav class="nav-links">
+      <a class="link" href="#features">Features</a>
+      <a class="link" href="#how">How it works</a>
+      <a class="link" href="#compare">Compare</a>
+      <a class="link" href="#privacy">Privacy</a>
+      <a class="btn btn-primary" href="https://github.com/kumard3/localvoice/releases">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <!-- HERO -->
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <span class="eyebrow"><span class="dot"></span>100% on-device · free forever</span>
+        <h1>Your voice,<br>transcribed.<br><span class="muted">Nothing leaves<br>your device.</span></h1>
+        <p class="lede">Scribe turns speech into text entirely on your phone, Mac, or PC. No account, no servers, no listening in. Dictate, record meetings, label speakers, and translate — all offline.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary btn-lg" href="https://github.com/kumard3/localvoice/releases">Download for Android</a>
+          <a class="btn btn-ghost btn-lg" href="https://github.com/kumard3/localvoice">View source</a>
+        </div>
+        <p class="hero-note">// also on macOS &amp; Windows · iOS soon · no telemetry, ever</p>
+      </div>
+
+      <!-- device mock: Record mode + speaker diarization -->
+      <div class="device reveal">
+        <div class="device-top">
+          <div class="seg"><span>Dictate</span><span class="on">Record</span></div>
+          <div class="rec-pill"><span class="live"></span>02:14 · on-device</div>
+        </div>
+        <div class="wave" id="wave" aria-hidden="true"></div>
+        <div class="transcript">
+          <div class="turn">
+            <span class="spk"><span class="swatch" style="background:#f5f5f7"></span>Speaker 1</span>
+            <p>Let's ship the <b>beta</b> this week — everything runs locally, so we don't owe anyone a privacy review.</p>
+          </div>
+          <div class="turn">
+            <span class="spk"><span class="swatch" style="background:#8e8e96"></span>Speaker 2</span>
+            <p>Agreed. And the recording kept going with the screen off — the <b>background capture</b> works.</p>
+          </div>
+          <div class="turn">
+            <span class="spk"><span class="swatch" style="background:#5b5b62"></span>Speaker 1</span>
+            <p>Translate it to Hindi for the notes and we're done.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TRUST STRIP -->
+  <div class="strip">
+    <div class="wrap row">
+      <span class="chip"><span class="cico" data-ico="shield"></span>No account</span>
+      <span class="chip"><span class="cico" data-ico="shield"></span>Zero servers</span>
+      <span class="chip"><span class="cico" data-ico="shield"></span>No telemetry</span>
+      <span class="chip"><span class="cico" data-ico="shield"></span>Works on airplane mode</span>
+      <span class="chip"><span class="cico" data-ico="shield"></span>Free &amp; open</span>
+    </div>
+  </div>
+
+  <!-- FEATURES -->
+  <section class="block" id="features">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="kicker">What it does</div>
+        <h2>Everything Wispr Flow and Superwhisper do — without sending your voice anywhere.</h2>
+      </div>
+      <div class="features">
+        <div class="feat reveal">
+          <div class="ico" data-ico="icoMic"></div>
+          <h3>Live dictation</h3>
+          <p>Talk and watch text appear instantly, anywhere you can type. Punctuation and cleanup included.</p>
+        </div>
+        <div class="feat reveal">
+          <div class="ico" data-ico="icoRec"></div>
+          <span class="tag">New</span>
+          <h3>Record mode</h3>
+          <p>Capture a whole meeting or long note — it keeps recording in the background, then transcribes on stop.</p>
+        </div>
+        <div class="feat reveal">
+          <div class="ico" data-ico="icoPeople"></div>
+          <span class="tag">New</span>
+          <h3>Speaker labels</h3>
+          <p>On-device diarization figures out who said what and lays the transcript out by speaker.</p>
+        </div>
+        <div class="feat reveal">
+          <div class="ico" data-ico="icoGlobe"></div>
+          <h3>Translate, offline</h3>
+          <p>Turn any transcript into 59 languages on demand — the translation models run on the device too.</p>
+        </div>
+        <div class="feat reveal">
+          <div class="ico" data-ico="icoBubble"></div>
+          <h3>Flow bubble &amp; keyboard</h3>
+          <p>A floating mic over any app, plus a full voice keyboard. Dictate into messages, notes, anything.</p>
+        </div>
+        <div class="feat reveal">
+          <div class="ico" data-ico="icoChip"></div>
+          <h3>Pick your engine</h3>
+          <p>From an instant built-in model to large multilingual ones. Choose by purpose, download once, run forever.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW -->
+  <section class="block" id="how" style="padding-top:0">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="kicker">How it works</div>
+        <h2>The audio never gets a chance to leave.</h2>
+        <p>There's no upload step to opt out of — the model lives on your device, so your voice is processed where it's spoken.</p>
+      </div>
+      <div class="pipe">
+        <div class="step reveal"><div class="n">01</div><h4>You speak</h4><p>The mic feeds audio straight into a model already downloaded to your device.</p><span class="arr" data-ico="arrow"></span></div>
+        <div class="step reveal"><div class="n">02</div><h4>It transcribes on-device</h4><p>Whisper / NeMo / your phone's own engine turns sound into text locally — even in airplane mode.</p><span class="arr" data-ico="arrow"></span></div>
+        <div class="step reveal"><div class="n">03</div><h4>You keep the text</h4><p>Edit, label speakers, translate, copy, or share. Nothing was ever sent to a server.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- COMPARE -->
+  <section class="block" id="compare" style="padding-top:0">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="kicker">Honestly compared</div>
+        <h2>Same job. Different deal.</h2>
+      </div>
+      <div class="compare reveal">
+        <div class="crow head">
+          <div>&nbsp;</div><div class="scribe">Scribe</div><div>Wispr Flow</div><div>Superwhisper</div>
+        </div>
+        <div class="crow"><div class="feature-name">Audio stays on device</div><div class="yes scribe">Always</div><div class="no">Cloud</div><div class="yes">Mostly</div></div>
+        <div class="crow"><div class="feature-name">Price</div><div class="yes scribe">Free</div><div class="no">$$ / mo</div><div class="no">$$</div></div>
+        <div class="crow"><div class="feature-name">Account required</div><div class="yes scribe">No</div><div class="no">Yes</div><div class="no">Yes</div></div>
+        <div class="crow"><div class="feature-name">Speaker labels</div><div class="yes scribe">Yes</div><div class="no">No</div><div class="no">No</div></div>
+        <div class="crow"><div class="feature-name">Android</div><div class="yes scribe">Yes</div><div class="yes">Yes</div><div class="no">No</div></div>
+        <div class="crow"><div class="feature-name">Open source</div><div class="yes scribe">Yes</div><div class="no">No</div><div class="no">No</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRIVACY -->
+  <section class="block" id="privacy" style="padding-top:0">
+    <div class="wrap">
+      <div class="manifesto reveal">
+        <h2>The most private dictation app is the one that <em>can't</em> betray you.</h2>
+        <p>Scribe has no backend to breach, no logs to subpoena, and no analytics SDK quietly phoning home. Models run on your hardware; the only network call is the one-time, optional model download. Turn on airplane mode and it still works — that's the proof.</p>
+        <div class="hero-cta" style="margin-top:30px">
+          <a class="btn btn-ghost" href="https://github.com/kumard3/localvoice">Read the source</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PLATFORMS -->
+  <section class="block" style="padding-top:0">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <div class="kicker">Where it runs</div>
+        <h2>One voice, every screen.</h2>
+      </div>
+      <div class="plats">
+        <div class="plat ready reveal"><div class="pname">Android</div><div class="pstat">Available · beta</div></div>
+        <div class="plat ready reveal"><div class="pname">macOS</div><div class="pstat">Menu-bar app</div></div>
+        <div class="plat ready reveal"><div class="pname">Windows</div><div class="pstat">Tray app</div></div>
+        <div class="plat reveal"><div class="pname">iOS</div><div class="pstat">Coming soon</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FINAL CTA -->
+  <section class="final">
+    <div class="wrap">
+      <h2 class="reveal">Speak freely.<br>Keep it yours.</h2>
+      <p class="reveal">Free, offline, and open. Install Scribe and your words never have to trust a server again.</p>
+      <div class="hero-cta reveal">
+        <a class="btn btn-primary btn-lg" href="https://github.com/kumard3/localvoice/releases">Download for Android</a>
+        <a class="btn btn-ghost btn-lg" href="https://github.com/kumard3/localvoice">Star on GitHub</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <a class="brand" href="#top"><span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>Scribe</a>
+    <div style="display:flex;gap:26px;align-items:center;flex-wrap:wrap">
+      <a class="link" href="https://github.com/kumard3/localvoice">GitHub</a>
+      <a class="link" href="https://github.com/kumard3/localvoice/releases">Releases</a>
+      <span class="small">On-device · free · no telemetry</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // icon set (monochrome, currentColor) injected into placeholders
+  const I = {
+    shield:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>',
+    icoMic:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg>',
+    icoRec:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none"/></svg>',
+    icoPeople:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1"/><circle cx="9" cy="7" r="3"/><path d="M22 19v-1a4 4 0 0 0-3-3.87"/><path d="M16 4.2a4 4 0 0 1 0 5.6"/></svg>',
+    icoGlobe:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z"/></svg>',
+    icoBubble:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8 8 0 0 1-11.6 7.1L3 21l2.4-6.4A8 8 0 1 1 21 11.5z"/><path d="M12 8v5"/><path d="M9.5 10.5h5"/></svg>',
+    icoChip:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/></svg>',
+    arrow:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>'
+  };
+  document.querySelectorAll('[data-ico]').forEach((el) => { el.innerHTML = I[el.dataset.ico] || ''; });
+
+  // animated hero waveform
+  const wave = document.getElementById('wave');
+  if (wave) {
+    const N = 44;
+    for (let i = 0; i < N; i++) {
+      const b = document.createElement('i');
+      const center = 1 - Math.abs(i - N / 2) / (N / 2);      // taller in the middle
+      const h = 14 + center * 56 + (i % 3) * 4;
+      b.style.height = h + 'px';
+      b.style.animationDelay = (-(i % 11) * 0.13) + 's';
+      b.style.animationDuration = (1.05 + (i % 5) * 0.12) + 's';
+      b.style.opacity = (0.4 + center * 0.6).toFixed(2);
+      wave.appendChild(b);
+    }
+  }
+
+  // sticky nav border + scroll reveal
+  const hdr = document.getElementById('hdr');
+  addEventListener('scroll', () => hdr.classList.toggle('scrolled', scrollY > 8), { passive: true });
+
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((e, i) => {
+      if (e.isIntersecting) { e.target.style.transitionDelay = Math.min(i * 60, 240) + 'ms'; e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, { threshold: 0.14, rootMargin: '0px 0px -8% 0px' });
+  document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+</script>
+</body>
+</html>

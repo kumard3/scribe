@@ -1,6 +1,6 @@
 namespace Scribe;
 
-enum ModelKind { Moonshine, NemoTransducer, NemoCtc, Canary, Whisper, DolphinCtc, OnlineTransducer }
+enum ModelKind { Moonshine, NemoTransducer, NemoCtc, Canary, Whisper, DolphinCtc, OnlineTransducer, NemotronTransducer }
 
 sealed record ModelSpec(
   string Id,
@@ -25,6 +25,12 @@ static class ModelCatalog
     new("zipformer-streaming-en", ModelKind.OnlineTransducer,
       "Zipformer Streaming · English", "Live partial text while you speak",
       "sherpa-onnx-streaming-zipformer-en-2023-06-21-mobile.tar.bz2", 365_748_162, true),
+    new("nemotron-3.5-streaming-multi", ModelKind.NemotronTransducer,
+      "Nemotron 3.5 Streaming · Multilingual", "NVIDIA · live · 40 languages · auto-detect · punctuated",
+      "sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11.tar.bz2", 473_894_907, true),
+    new("nemotron-streaming-en", ModelKind.NemotronTransducer,
+      "Nemotron Streaming · English", "NVIDIA · live · instant · punctuated",
+      "sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25.tar.bz2", 463_945_051, true),
     new("moonshine-tiny-en", ModelKind.Moonshine,
       "Moonshine Tiny · English", "Useful Sensors · tiny · transcribes on release",
       "sherpa-onnx-moonshine-tiny-en-quantized-2026-02-27.tar.bz2", 29_858_559, false),

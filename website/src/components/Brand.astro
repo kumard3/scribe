@@ -1,0 +1,8 @@
+---
+interface Props { href?: string; label?: string; }
+const { href = '/', label = 'Scribe home' } = Astro.props;
+---
+<a class="brand" href={href} aria-label={label}>
+  <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
+  Scribe
+</a>

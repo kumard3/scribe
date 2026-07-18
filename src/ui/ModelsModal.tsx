@@ -20,6 +20,13 @@ import {
   isInstalled,
 } from '../asr/modelManager';
 import { deleteNemo, downloadNemo, nemoInstalled, deleteAllNemo } from '../asr/nemo';
+import {
+  deleteLLM,
+  downloadLLM,
+  llmInstalled,
+  deleteAllLLM,
+  installedLLMStorageBytes,
+} from '../asr/llm';
 import { clearHistory } from '../history';
 import { getCloud, getSelectedModelId, setCloud, setSelectedModelId } from '../asr/settings';
 import { theme } from './theme';
@@ -57,6 +64,7 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
     const map: Record<string, boolean> = {};
     for (const m of catalog) {
       if (m.kind === 'whisper' && m.whisper) map[m.id] = isInstalled(m.whisper);
+      else if (m.kind === 'llm' && m.llm) map[m.id] = llmInstalled(m.llm);
       else if (m.kind === 'nemo') map[m.id] = false;
       else map[m.id] = true;
     }
@@ -78,7 +86,7 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
   }
 
   async function getModel(m: CatalogModel) {
-    if (m.kind !== 'whisper' && m.kind !== 'nemo') return;
+    if (m.kind !== 'whisper' && m.kind !== 'nemo' && m.kind !== 'llm') return;
     setError(null);
     setBusyId(m.id);
     setProgress((p) => ({ ...p, [m.id]: 0 }));
@@ -88,8 +96,11 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
     try {
       if (m.kind === 'whisper' && m.whisper) await downloadModel(m.whisper, onR, ctrl.signal);
       else if (m.kind === 'nemo' && m.nemo) await downloadNemo(m.nemo, onR, ctrl.signal);
+      else if (m.kind === 'llm' && m.llm) await downloadLLM(m.llm, onR, ctrl.signal);
       setInstalled((s) => ({ ...s, [m.id]: true }));
-      choose(m);
+      // The LLM is a post-processor, not a transcription engine — installing it
+      // must not change the selected voice model.
+      if (m.kind !== 'llm') choose(m);
     } catch (e: any) {
       if (e?.name !== 'AbortError' && !/abort/i.test(e?.message ?? '')) {
         setError(e?.message ?? String(e));
@@ -105,7 +116,7 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
   }
 
   function removeModel(m: CatalogModel) {
-    if (m.kind !== 'whisper' && m.kind !== 'nemo') return;
+    if (m.kind !== 'whisper' && m.kind !== 'nemo' && m.kind !== 'llm') return;
     Alert.alert('Remove model', `Delete this download (${m.sizeLabel})?`, [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -114,6 +125,7 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
         onPress: () => {
           if (m.kind === 'whisper' && m.whisper) deleteModel(m.whisper);
           else if (m.kind === 'nemo' && m.nemo) deleteNemo(m.nemo);
+          else if (m.kind === 'llm' && m.llm) deleteLLM(m.llm);
           setInstalled((s) => ({ ...s, [m.id]: false }));
           if (selectedId === m.id) choose(catalog[0]);
           setTick((t) => t + 1);
@@ -139,6 +151,7 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
           onPress: () => {
             deleteAllModels();
             deleteAllNemo();
+            deleteAllLLM();
             clearHistory();
             setSelectedModelId('system');
             setSelectedId('system');
@@ -150,33 +163,39 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
     );
   }
 
-  const storage = formatMB(installedStorageBytes());
+  const storage = formatMB(installedStorageBytes() + installedLLMStorageBytes());
   const featured = catalog.filter((m) => m.featured);
-  const more = catalog.filter((m) => !m.featured && m.kind !== 'cloud');
+  const more = catalog.filter((m) => !m.featured && m.kind !== 'cloud' && m.kind !== 'llm');
+  const llmModels = catalog.filter((m) => m.kind === 'llm');
   const cloud = catalog.find((m) => m.kind === 'cloud');
 
   function Row({ m, card }: { m: CatalogModel; card?: boolean }) {
-    const isSel = selectedId === m.id;
+    const isLLM = m.kind === 'llm';
+    const isSel = !isLLM && selectedId === m.id;
     const isDl = busyId === m.id;
     const pct = Math.round((progress[m.id] ?? 0) * 100);
     const have = installed[m.id];
-    const downloadable = m.kind === 'whisper' || m.kind === 'nemo';
+    const downloadable = m.kind === 'whisper' || m.kind === 'nemo' || isLLM;
     const name = m.title ?? m.label;
     const desc = m.tagline ?? m.note;
     const chip = m.chip ?? (m.live ? 'Real-time' : 'After recording');
     const isReco = chip === 'Recommended';
-    const sizeNote = m.kind === 'whisper' || m.kind === 'nemo' ? m.sizeLabel : '';
+    const sizeNote = downloadable ? m.sizeLabel : '';
     return (
       <Pressable
         style={[card ? styles.card : styles.row, card && isSel && styles.cardSel]}
-        onPress={() => choose(m)}
+        onPress={isLLM ? undefined : () => choose(m)}
         key={m.id}
       >
-        <Ionicons
-          name={isSel ? 'radio-button-on' : 'radio-button-off'}
-          size={22}
-          color={isSel ? theme.primary : theme.textFaint}
-        />
+        {isLLM ? (
+          <Ionicons name="sparkles" size={20} color={theme.primary} />
+        ) : (
+          <Ionicons
+            name={isSel ? 'radio-button-on' : 'radio-button-off'}
+            size={22}
+            color={isSel ? theme.primary : theme.textFaint}
+          />
+        )}
         <View style={styles.rowText}>
           <View style={styles.labelRow}>
             <Text style={styles.label}>{name}</Text>
@@ -261,6 +280,10 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
 
           <ScrollView style={{ maxHeight: 460 }} key={tick} keyboardShouldPersistTaps="handled">
             {featured.map((m) => (
+              <Row m={m} card key={m.id} />
+            ))}
+
+            {llmModels.map((m) => (
               <Row m={m} card key={m.id} />
             ))}
 

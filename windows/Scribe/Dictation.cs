@@ -67,13 +67,16 @@ sealed class Dictation : IDisposable
     _spec = spec;
     int threads = Math.Max(2, Environment.ProcessorCount / 2);
 
-    if (spec.Kind == ModelKind.OnlineTransducer)
+    if (spec.Kind == ModelKind.OnlineTransducer || spec.Kind == ModelKind.NemotronTransducer)
     {
+      // Nemotron ships int8-only; zipformer ships an fp32 decoder. sherpa
+      // auto-detects the online model type from the encoder metadata.
+      bool decInt8 = spec.Kind == ModelKind.NemotronTransducer;
       var cfg = new OnlineRecognizerConfig();
       cfg.FeatConfig.SampleRate = 16000;
       cfg.FeatConfig.FeatureDim = 80;
       cfg.ModelConfig.Transducer.Encoder = ModelStore.Find(dir, "encoder")!;
-      cfg.ModelConfig.Transducer.Decoder = ModelStore.Find(dir, "decoder", preferInt8: false)!;
+      cfg.ModelConfig.Transducer.Decoder = ModelStore.Find(dir, "decoder", preferInt8: decInt8)!;
       cfg.ModelConfig.Transducer.Joiner = ModelStore.Find(dir, "joiner")!;
       cfg.ModelConfig.Tokens = Path.Combine(dir, "tokens.txt");
       cfg.ModelConfig.NumThreads = threads;
@@ -133,7 +136,8 @@ sealed class Dictation : IDisposable
       case ModelKind.Whisper:
         off.ModelConfig.Whisper.Encoder = ModelStore.Find(dir, "encoder")!;
         off.ModelConfig.Whisper.Decoder = ModelStore.Find(dir, "decoder", preferInt8: false)!;
-        off.ModelConfig.Whisper.Language = ""; // auto-detect
+        var lang = Settings.Instance.Language;
+        off.ModelConfig.Whisper.Language = lang == "auto" ? "" : lang;
         off.ModelConfig.Whisper.Task = "transcribe";
         off.ModelConfig.Whisper.TailPaddings = -1;
         break;

@@ -1,0 +1,20 @@
+---
+const apps = [
+  'Messages', 'WhatsApp', 'Slack', 'Gmail', 'Notes', 'Notion',
+  'Docs', 'Telegram', 'Discord', 'X', 'ChatGPT', 'Chrome',
+  'VS Code', 'Calendar', 'Reminders', 'Maps', 'Email', 'Anywhere',
+];
+---
+<section class="block" id="apps" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker">Works everywhere</div>
+      <h2>Dictate into every app you already use.</h2>
+      <p>Scribe is a system keyboard and a floating mic, so it types anywhere you can. No per-app integrations to wire up, no plugins to install.</p>
+    </div>
+    <div class="appgrid">
+      {apps.map((a) => <div class="app reveal">{a}</div>)}
+    </div>
+    <p class="note-line">// the floating Flow Bubble and voice keyboard reach any text field on the system</p>
+  </div>
+</section>

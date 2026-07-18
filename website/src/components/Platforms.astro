@@ -1,0 +1,24 @@
+---
+const plats = [
+  { name: 'Android', status: 'Available · beta', ready: true },
+  { name: 'macOS', status: 'Menu-bar app', ready: true },
+  { name: 'Windows', status: 'Tray app', ready: true },
+  { name: 'iOS', status: 'Coming soon', ready: false },
+];
+---
+<section class="block" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker">Where it runs</div>
+      <h2>One voice, every screen.</h2>
+    </div>
+    <div class="plats">
+      {plats.map((p) => (
+        <div class={`plat reveal${p.ready ? ' ready' : ''}`}>
+          <div class="pname">{p.name}</div>
+          <div class="pstat">{p.status}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

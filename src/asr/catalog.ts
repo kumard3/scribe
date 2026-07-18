@@ -1,8 +1,9 @@
 import { MODELS, formatMB } from './registry';
 import { ModelSpec } from './types';
 import { NEMO_MODELS, NemoModelSpec } from './nemo';
+import { LLM_MODELS, LLMModelSpec } from './llm';
 
-export type ModelKind = 'system' | 'whisper' | 'nemo' | 'sherpa' | 'cloud';
+export type ModelKind = 'system' | 'whisper' | 'nemo' | 'sherpa' | 'cloud' | 'llm';
 
 export type CatalogModel = {
   id: string; // namespaced selection id
@@ -21,6 +22,7 @@ export type CatalogModel = {
   whisper?: ModelSpec;
   nemo?: NemoModelSpec;
   sherpaId?: string;
+  llm?: LLMModelSpec;
 };
 
 export const SYSTEM_MODEL_ID = 'system';
@@ -33,6 +35,12 @@ const DISPLAY: Record<string, Pick<CatalogModel, 'title' | 'tagline' | 'chip' | 
     title: 'Instant',
     tagline: 'No download. Works the moment you start — best for quick notes and messages.',
     chip: 'Recommended',
+    featured: true,
+  },
+  'nemo:nemotron-3.5-streaming-multi': {
+    title: 'Live · 40 languages',
+    tagline: 'NVIDIA Nemotron 3.5 streams as you speak and auto-detects 40 languages, punctuation built in. One-time download, fully offline.',
+    chip: 'Live · multilingual',
     featured: true,
   },
   'whisper:whisper-small-en-q5': {
@@ -73,14 +81,28 @@ export function buildCatalog(): CatalogModel[] {
     live: !!m.live,
     nemo: m,
   }));
+  // Whisper has no streaming interface — faking one by re-transcribing a rolling
+  // slice is both slow and less accurate than one whole-utterance decode.
   const whisper: CatalogModel[] = MODELS.map((m) => ({
     id: `whisper:${m.id}`,
     kind: 'whisper',
     label: m.label,
     note: m.note ?? '',
     sizeLabel: formatMB(m.sizeBytes),
-    live: true,
+    live: false,
     whisper: m,
+  }));
+  const llm: CatalogModel[] = LLM_MODELS.map((m) => ({
+    id: `llm:${m.id}`,
+    kind: 'llm',
+    label: m.label,
+    note: m.note,
+    sizeLabel: `~${(m.sizeBytes / 1e9).toFixed(1)} GB`,
+    live: false,
+    title: 'AI Cleanup & Summary',
+    tagline: 'On-device AI that cleans up and summarizes your transcript. One-time download, fully offline.',
+    chip: 'On-device AI',
+    llm: m,
   }));
   const cloud: CatalogModel = {
     id: CLOUD_MODEL_ID,
@@ -93,7 +115,7 @@ export function buildCatalog(): CatalogModel[] {
   // Sherpa/Moonshine intentionally omitted: the library's model catalog
   // (XDcobra release) is dead (404). NVIDIA NeMo models below are fetched
   // directly from k2-fsa instead. Whisper covers general offline use.
-  return [system, ...nemo, ...whisper, cloud].map((m) =>
+  return [system, ...nemo, ...whisper, ...llm, cloud].map((m) =>
     DISPLAY[m.id] ? { ...m, ...DISPLAY[m.id] } : m,
   );
 }

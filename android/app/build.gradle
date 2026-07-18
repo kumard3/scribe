@@ -169,11 +169,33 @@ android {
     }
 }
 
+// Speaker-diarization classes (com.k2fsa.sherpa.onnx.*) are provided AT RUNTIME by
+// react-native-sherpa-onnx (its classes.jar + libsherpa-onnx-jni.so ship in the APK).
+// We only need them on the COMPILE classpath here, so pull the same AAR compileOnly
+// (no second native lib is packaged). Version must match the RN package's pin.
+repositories {
+    exclusiveContent {
+        forRepository {
+            maven {
+                url "https://xdcobra.github.io/maven"
+                // The repo serves the .aar with no .pom; let Gradle resolve it artifact-only.
+                metadataSources { artifact() }
+            }
+        }
+        filter { includeGroup "com.xdcobra.sherpa" }
+    }
+}
+
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
 
     implementation("androidx.appcompat:appcompat:1.6.1")
+
+    // Must match react-native-sherpa-onnx's pinned version (its third_party
+    // sherpa-onnx-prebuilt/ANDROID_RELEASE_TAG) so the compiled API matches the
+    // classes it ships at runtime.
+    compileOnly("com.xdcobra.sherpa:sherpa-onnx:1.12.34-2@aar")
 
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";

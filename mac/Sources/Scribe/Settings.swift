@@ -121,6 +121,47 @@ enum ToggleHotkey: String, CaseIterable, Identifiable {
   }
 }
 
+struct SpeechLanguage: Identifiable, Hashable {
+  let code: String
+  let label: String
+  var id: String { code }
+}
+
+let speechLanguages: [SpeechLanguage] = [
+  .init(code: "auto", label: "Auto-detect"),
+  .init(code: "en", label: "English"),
+  .init(code: "hi", label: "Hindi"),
+  .init(code: "es", label: "Spanish"),
+  .init(code: "fr", label: "French"),
+  .init(code: "de", label: "German"),
+  .init(code: "pt", label: "Portuguese"),
+  .init(code: "it", label: "Italian"),
+  .init(code: "nl", label: "Dutch"),
+  .init(code: "ru", label: "Russian"),
+  .init(code: "ar", label: "Arabic"),
+  .init(code: "tr", label: "Turkish"),
+  .init(code: "id", label: "Indonesian"),
+  .init(code: "zh", label: "Chinese"),
+  .init(code: "ja", label: "Japanese"),
+  .init(code: "ko", label: "Korean"),
+  .init(code: "bn", label: "Bengali"),
+  .init(code: "ta", label: "Tamil"),
+  .init(code: "te", label: "Telugu"),
+  .init(code: "mr", label: "Marathi"),
+  .init(code: "gu", label: "Gujarati"),
+  .init(code: "kn", label: "Kannada"),
+  .init(code: "ml", label: "Malayalam"),
+  .init(code: "pa", label: "Punjabi"),
+  .init(code: "ur", label: "Urdu"),
+]
+
+// Whisper's own language detection misfires on accented speech — it will read
+// accented English as Hindi/Urdu and emit garbage — so default to the Mac's language.
+func defaultSpeechLanguage() -> String {
+  let code = Locale.current.language.languageCode?.identifier ?? ""
+  return speechLanguages.contains { $0.code == code } ? code : "auto"
+}
+
 final class Settings: ObservableObject {
   static let shared = Settings()
 
@@ -143,6 +184,19 @@ final class Settings: ObservableObject {
     willSet { objectWillChange.send() }
   }
   @AppStorage("activeModel") var activeModelId: String = ModelCatalog.systemId {
+    willSet { objectWillChange.send() }
+  }
+  @AppStorage("language") var language: String = defaultSpeechLanguage() {
+    willSet { objectWillChange.send() }
+  }
+  @AppStorage("useGpu") var useGpu: Bool = false {
+    willSet { objectWillChange.send() }
+  }
+
+  // sherpa-onnx execution provider. "coreml" needs a CoreML-enabled build; on a
+  // CPU-only lib sherpa logs a warning and falls back to CPU, so this is safe.
+  var sherpaProvider: String { useGpu ? "coreml" : "cpu" }
+  @AppStorage("autoCleanLLM") var autoCleanLLM: Bool = false {
     willSet { objectWillChange.send() }
   }
   @AppStorage("onboardedV1") var onboarded: Bool = false {

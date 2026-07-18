@@ -114,6 +114,15 @@ sealed class SettingsForm : Form
     Margin = new Padding(2, 0, 0, 8),
   };
 
+  readonly ComboBox _language = new()
+  {
+    DropDownStyle = ComboBoxStyle.DropDownList,
+    Width = 320,
+    FlatStyle = FlatStyle.Flat,
+    BackColor = Mono.SurfaceAlt,
+    ForeColor = Mono.Text,
+  };
+
   readonly Button _captureKey = new()
   {
     Text = "Set any key…",
@@ -184,7 +193,9 @@ sealed class SettingsForm : Form
     layout.Controls.Add(Section("MODEL",
       Row("Speech model:", _model),
       _modelNote,
-      Note("Everything runs on this PC. Models download once on first use — live ones show text as you speak, the rest transcribe when you release.")));
+      Note("Everything runs on this PC. Models download once on first use — live ones show text as you speak, the rest transcribe when you release."),
+      Row("Language:", _language),
+      Note("Auto-detect misreads accented speech — naming your language is the single biggest accuracy win. Whisper models only.")));
     layout.Controls.Add(Section("GENERAL", _startup));
 
     var copyBtn = new Button
@@ -213,6 +224,7 @@ sealed class SettingsForm : Form
     Controls.Add(layout);
 
     foreach (var m in ModelCatalog.All) _model.Items.Add($"{m.Label}{(m.Live ? "  · LIVE" : "")}");
+    foreach (var l in Settings.Languages) _language.Items.Add(l.Label);
 
     Load += (_, _) => Sync();
     _holdKey.SelectedIndexChanged += (_, _) =>
@@ -237,6 +249,26 @@ sealed class SettingsForm : Form
       catch (Exception ex)
       {
         _modelNote.Text = "Model setup failed: " + ex.Message;
+      }
+    };
+    // The language hint is baked into the recognizer at load, so changing it has
+    // to rebuild the active model rather than just persist.
+    _language.SelectedIndexChanged += async (_, _) =>
+    {
+      if (_syncing || _language.SelectedIndex < 0) return;
+      var code = Settings.Languages[_language.SelectedIndex].Code;
+      if (code == Settings.Instance.Language) return;
+      Settings.Instance.Language = code;
+      Settings.Instance.Save();
+      var spec = ModelCatalog.All[_model.SelectedIndex];
+      if (spec.Kind != ModelKind.Whisper) return;
+      try
+      {
+        await _switchModel(spec);
+      }
+      catch (Exception ex)
+      {
+        _modelNote.Text = "Model reload failed: " + ex.Message;
       }
     };
     _handsFree.CheckedChanged += (_, _) =>
@@ -280,6 +312,8 @@ sealed class SettingsForm : Form
     var mIdx = Array.FindIndex(ModelCatalog.All, m => m.Id == Settings.Instance.ModelId);
     _model.SelectedIndex = mIdx >= 0 ? mIdx : 0;
     UpdateModelNote(ModelCatalog.All[_model.SelectedIndex]);
+    var lIdx = Array.FindIndex(Settings.Languages, l => l.Code == Settings.Instance.Language);
+    _language.SelectedIndex = lIdx >= 0 ? lIdx : 0;
     _history.Items.Clear();
     foreach (var t in Settings.Instance.History) _history.Items.Add(t);
     _syncing = false;

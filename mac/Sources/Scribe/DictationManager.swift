@@ -23,7 +23,7 @@ func dlog(_ s: String) {
 final class DictationManager: ObservableObject {
   static let shared = DictationManager()
 
-  enum Phase { case idle, listening, transcribing, inserted }
+  enum Phase { case idle, listening, transcribing, postProcessing, inserted }
 
   @Published var isRecording = false
   @Published var lastText = ""
@@ -33,7 +33,7 @@ final class DictationManager: ObservableObject {
   @Published var history: [String] =
     (UserDefaults.standard.stringArray(forKey: "history") ?? [])
 
-  private let engine = AVAudioEngine()
+  private var engine = AVAudioEngine()
   private var recognizer: SFSpeechRecognizer?
   private var recognizerLocale = ""
   private var request: SFSpeechAudioBufferRecognitionRequest?
@@ -55,6 +55,9 @@ final class DictationManager: ObservableObject {
   private var sherpa: SherpaEngine?
   private var sherpaSamples: [Float] = []
   private var hwRate = 16000
+  private var onBufferCurrent: ((AVAudioPCMBuffer) -> Void)?
+  private var configObserver: NSObjectProtocol?
+  private var poppedSinceStart = false
   private let sherpaQueue = DispatchQueue(label: "ai.scribe.sherpa")
   // ~15 min at 48 kHz; past this we stop buffering rather than grow unbounded
   private let maxBufferedSamples = 48_000 * 900
@@ -101,6 +104,47 @@ final class DictationManager: ObservableObject {
 
   // MARK: - engine plumbing shared by both paths
 
+  // macOS keeps the input device — and a Bluetooth headset pinned in HFP — claimed
+  // until the AVAudioEngine instance is dropped; stop() alone does not release it.
+  private func releaseEngine() {
+    if let configObserver {
+      NotificationCenter.default.removeObserver(configObserver)
+      self.configObserver = nil
+    }
+    engine.inputNode.removeTap(onBus: 0)
+    engine.stop()
+    engine.reset() // settle the graph — dealloc mid-config-change throws (uncatchable)
+    engine = AVAudioEngine()
+  }
+
+  // Releasing the device means every start renegotiates the input (Bluetooth
+  // headsets flip HFP on/off), which fires a configuration change right after
+  // engine.start() — and AVAudioEngine stops delivering buffers on config
+  // change without auto-restarting. Rebuild the capture or we record silence.
+  //
+  // Reconfigure the SAME engine in place. Deallocating an engine whose graph
+  // is mid-configuration-change throws from AUGraph teardown — an uncatchable
+  // C++ exception that aborts the app. Dealloc only happens in stop(), when
+  // the engine is settled.
+  private func restartCapture() {
+    guard isRecording, let onBuffer = onBufferCurrent else { return }
+    dlog("audio config change — restarting capture")
+    if let configObserver {
+      NotificationCenter.default.removeObserver(configObserver)
+      self.configObserver = nil
+    }
+    engine.inputNode.removeTap(onBus: 0)
+    engine.stop()
+    guard let rate = startEngine(onBuffer: onBuffer) else { return }
+    if rate != hwRate {
+      if sherpa != nil {
+        dlog("hw rate changed \(hwRate) → \(rate), dropping \(sherpaSamples.count) buffered samples")
+        sherpaSamples.removeAll()
+      }
+      hwRate = rate
+    }
+  }
+
   /// Installs the mic tap and starts the engine. Returns the hardware sample
   /// rate, or nil after reporting the failure via status.
   private func startEngine(onBuffer: @escaping (AVAudioPCMBuffer) -> Void) -> Int? {
@@ -118,9 +162,17 @@ final class DictationManager: ObservableObject {
     input.removeTap(onBus: 0)
     // installTap raises ObjC NSExceptions Swift can't catch — route through
     // the ObjCCatch shim so a bad audio state can't kill the app.
+    // The "Pop" cue fires on the FIRST delivered buffer, not on engine.start()
+    // — with Bluetooth the capture renegotiates for ~1s after start, and a cue
+    // before audio actually flows makes users talk into a dead window.
+    poppedSinceStart = false
     let exception = ScribeTryCatch {
       input.installTap(onBus: 0, bufferSize: 1024, format: hw) { [weak self] buffer, _ in
         guard let self else { return }
+        if !self.poppedSinceStart {
+          self.poppedSinceStart = true
+          DispatchQueue.main.async { NSSound(named: "Pop")?.play() }
+        }
         onBuffer(buffer)
         if let ch = buffer.floatChannelData?[0] {
           let n = Int(buffer.frameLength)
@@ -134,9 +186,7 @@ final class DictationManager: ObservableObject {
     }
     if let exception {
       dlog("installTap exception: \(exception.reason ?? "?")")
-      input.removeTap(onBus: 0)
-      engine.stop()
-      engine.reset()
+      releaseEngine()
       set("Mic error: \(exception.reason ?? exception.name.rawValue)")
       return nil
     }
@@ -145,11 +195,14 @@ final class DictationManager: ObservableObject {
       dlog("engine started")
     } catch {
       dlog("engine.start error: \(error)")
-      input.removeTap(onBus: 0)
-      engine.reset()
+      releaseEngine()
       set("Audio engine error: \(error.localizedDescription)")
       return nil
     }
+    onBufferCurrent = onBuffer
+    configObserver = NotificationCenter.default.addObserver(
+      forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+    ) { [weak self] _ in self?.restartCapture() }
     return Int(hw.sampleRate)
   }
 
@@ -159,7 +212,6 @@ final class DictationManager: ObservableObject {
     phase = .listening
     set("Listening…")
     HUD.shared.show()
-    NSSound(named: "Pop")?.play()
     if wantsStop {
       wantsStop = false
       stop()
@@ -314,7 +366,11 @@ final class DictationManager: ObservableObject {
     task = nil
     set("Loading \(spec.label)…")
     sherpaQueue.async { [weak self] in
-      let loaded = SherpaEngineCache.shared.engine(for: spec)
+      let loaded = SherpaEngineCache.shared.engine(
+        for: spec,
+        language: Settings.shared.language,
+        provider: Settings.shared.sherpaProvider,
+      )
       DispatchQueue.main.async {
         guard let self else { return }
         guard let loaded else {
@@ -359,8 +415,7 @@ final class DictationManager: ObservableObject {
       wantsStop = true
       return
     }
-    engine.stop()
-    engine.inputNode.removeTap(onBus: 0)
+    releaseEngine()
     isRecording = false
     level = 0
 
@@ -407,7 +462,7 @@ final class DictationManager: ObservableObject {
   }
 
   private func finish(with text: String) {
-    let finalText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    let finalText = VoiceCommands.apply(text)
     dlog("finish text=\(finalText.count) chars")
     lastText = finalText
     guard !finalText.isEmpty else {
@@ -416,12 +471,33 @@ final class DictationManager: ObservableObject {
       HUD.shared.hide()
       return
     }
-    let pasted = Paster.insert(finalText)
+
+    // Optional on-device AI cleanup before insertion (Gemma 4). Runs off the
+    // main thread; falls back to the raw text on any failure.
+    let llm = ModelCatalog.llmModel
+    if Settings.shared.autoCleanLLM,
+       let path = ModelStore.ggufFile(in: ModelStore.dir(for: llm))?.path {
+      phase = .postProcessing
+      set("Cleaning up…")
+      LLMRuntime.shared.process(
+        modelPath: path, instruction: LLMRuntime.cleanupInstruction,
+        text: finalText, maxTokens: 1024
+      ) { cleaned in
+        self.insertAndFinalize(cleaned ?? finalText)
+      }
+      return
+    }
+    insertAndFinalize(finalText)
+  }
+
+  private func insertAndFinalize(_ text: String) {
+    lastText = text
+    let pasted = Paster.insert(text)
     if !pasted {
       set("Copied to clipboard — grant Accessibility for auto-paste")
     }
     if Settings.shared.saveHistory {
-      history.insert(finalText, at: 0)
+      history.insert(text, at: 0)
       if history.count > 50 { history.removeLast(history.count - 50) }
       UserDefaults.standard.set(history, forKey: "history")
     }

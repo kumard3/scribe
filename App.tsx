@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Linking,
   PanResponder,
   Platform,
@@ -47,7 +48,6 @@ import {
 import { sherpaInstalled, sherpaModelById, transcribeWithSherpa } from './src/asr/sherpa';
 import { nemoInstalled, transcribeWithNemo, nemoModelDir } from './src/asr/nemo';
 import { localFile } from './src/asr/modelManager';
-import { startWhisperLive, stopWhisperLive, feedWhisperLive } from './src/asr/live/whisperLive';
 import { startSherpaLive, stopSherpaLive, feedSherpaLive } from './src/asr/live/sherpaLive';
 import { startLiveMic, stopLiveMic } from './src/audio/liveMic';
 import { catalogModelById, CatalogModel, SYSTEM_MODEL_ID } from './src/asr/catalog';
@@ -56,13 +56,16 @@ import {
   getAutoPolish,
   getCloud,
   getOnboarded,
+  getRecordModelId,
   getSelectedModelId,
   getTranslateTarget,
   getVocab,
 } from './src/asr/settings';
+import { canRecordWith } from './src/asr/recordTranscribe';
 import { translateText, translateTargetLabel } from './src/asr/translate';
 import { polish } from './src/util/polish';
 import { summarize } from './src/util/summarize';
+import { LLM_MODELS, llmInstalled, cleanupWithLLM, summarizeWithLLM } from './src/asr/llm';
 import type { LanguageCode } from './src/asr/types';
 import {
   addHistory,
@@ -81,6 +84,7 @@ import { LanguagePicker } from './src/ui/LanguagePicker';
 import { HistoryModal } from './src/ui/HistoryModal';
 import { ModelsModal } from './src/ui/ModelsModal';
 import { SettingsModal } from './src/ui/SettingsModal';
+import { RecordScreen } from './src/ui/RecordScreen';
 import { Onboarding } from './src/ui/Onboarding';
 import { registerQuickActions, QA_DICTATE, QA_HISTORY } from './src/quickActions';
 
@@ -108,6 +112,8 @@ export default function App() {
   const [onDeviceLive, setOnDeviceLive] = useState(true);
   const [nativeRec, setNativeRec] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(!getOnboarded());
+  const [mode, setMode] = useState<'dictate' | 'record'>('dictate');
+  const [recordBusy, setRecordBusy] = useState(false);
   const [, forceTick] = useState(0);
 
   const [pcmRec, setPcmRec] = useState(false);
@@ -147,6 +153,15 @@ export default function App() {
     () => catalogModelById(selectedModelId) ?? catalogModelById(SYSTEM_MODEL_ID)!,
     [selectedModelId]
   );
+  // Record Mode needs a file-capable model. Prefer an explicit record pick, else
+  // the live selection if it can read files, else the sharper-English default.
+  const recordModel = useMemo(() => {
+    const rid = getRecordModelId();
+    const byId = rid ? catalogModelById(rid) : undefined;
+    if (byId && canRecordWith(byId)) return byId;
+    if (canRecordWith(selected)) return selected;
+    return catalogModelById('whisper:whisper-small-en-q5') ?? null;
+  }, [selected, selectedModelId]);
   const langLabel = SUPPORTED_LANGUAGES.find((l) => l.code === language)?.label ?? language;
   const active = recognizing || recording || nativeRec || modelLive;
   const liveDisplay = translateTarget && liveXlate ? liveXlate : transcript;
@@ -446,13 +461,11 @@ export default function App() {
     if (modelLive) {
       await stopLiveMic();
       setModelLive(false);
-      const m = recModel.current;
       const lang = recLang.current;
       const target = recTarget.current;
       setBusy(true);
       try {
-        let text =
-          m?.kind === 'whisper' ? await stopWhisperLive() : await stopSherpaLive();
+        let text = await stopSherpaLive();
         if (getAutoPolish()) text = polish(text);
         if (target && text.trim()) text = await translateText(text, target, lang);
         setTranscript(text);
@@ -491,15 +504,7 @@ export default function App() {
       setResultTarget('');
       const onText = (t: string) => setTranscript(t);
 
-      if (selected.kind === 'whisper' && selected.whisper) {
-        if (!isInstalled(selected.whisper)) {
-          setDownloading(true);
-          setProgress(0);
-          await prepareModel(selected.whisper, setProgress);
-          setDownloading(false);
-        }
-        await startWhisperLive(localFile(selected.whisper).uri, language, false, onText);
-      } else if (selected.kind === 'nemo' && selected.nemo) {
+      if (selected.kind === 'nemo' && selected.nemo) {
         const dir = await nemoModelDir(selected.nemo);
         if (!dir) {
           setError(`Download ${selected.label} in Models first.`);
@@ -511,13 +516,11 @@ export default function App() {
         return;
       }
 
-      const useWhisper = selected.kind === 'whisper';
       await startLiveMic(
         (samples, sr) => {
           const norm = Math.max(0.06, Math.min(1, rms(samples) * 8));
           setLevels((prev) => [...prev.slice(1), norm]);
-          if (useWhisper) feedWhisperLive(samples, sr);
-          else feedSherpaLive(samples, sr);
+          feedSherpaLive(samples, sr);
         },
         (msg) => setError(msg)
       );
@@ -558,10 +561,8 @@ export default function App() {
     if (modelLive) {
       await stopLiveMic();
       setModelLive(false);
-      const m = recModel.current;
       try {
-        if (m?.kind === 'whisper') await stopWhisperLive();
-        else await stopSherpaLive();
+        await stopSherpaLive();
       } catch {}
     }
     committed.current = '';
@@ -616,18 +617,52 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
-  const onPolish = useCallback(() => {
+  const [aiBusy, setAiBusy] = useState<null | 'clean' | 'summary'>(null);
+
+  const onPolish = useCallback(async () => {
+    if (aiBusy) return;
+    const spec = LLM_MODELS[0];
+    if (spec && llmInstalled(spec)) {
+      setAiBusy('clean');
+      setError(null);
+      try {
+        const cleaned = await cleanupWithLLM(spec, transcript);
+        setTranscript(cleaned);
+        if (lastHistoryId.current) setHistory(updateHistory(lastHistoryId.current, cleaned));
+      } catch (e: any) {
+        setError(e?.message ?? String(e));
+      } finally {
+        setAiBusy(null);
+      }
+      return;
+    }
     const cleaned = polish(transcript);
     setTranscript(cleaned);
     if (lastHistoryId.current) setHistory(updateHistory(lastHistoryId.current, cleaned));
-  }, [transcript]);
+  }, [transcript, aiBusy]);
 
-  const onSummarize = useCallback(() => {
+  const onSummarize = useCallback(async () => {
+    if (aiBusy) return;
+    const spec = LLM_MODELS[0];
+    if (spec && llmInstalled(spec)) {
+      setAiBusy('summary');
+      setError(null);
+      try {
+        const s = await summarizeWithLLM(spec, transcript);
+        setTranscript(s);
+        lastHistoryId.current = null;
+      } catch (e: any) {
+        setError(e?.message ?? String(e));
+      } finally {
+        setAiBusy(null);
+      }
+      return;
+    }
     const s = summarize(transcript);
     setTranscript(s);
     // Keep the full transcript in history — don't overwrite it with the gist.
     lastHistoryId.current = null;
-  }, [transcript]);
+  }, [transcript, aiBusy]);
 
   // Import an existing audio file and transcribe it with the selected model.
   // The built-in live engine can't read files, so this needs a downloaded or
@@ -775,6 +810,35 @@ export default function App() {
 
         <View style={styles.dottedDivider} />
 
+        <View style={[styles.segment, (active || recordBusy) && styles.disabled]}>
+          <Pressable
+            style={[styles.segmentItem, mode === 'dictate' && styles.segmentItemActive]}
+            onPress={() => !active && !busy && !recordBusy && setMode('dictate')}
+          >
+            <Text style={[styles.segmentText, mode === 'dictate' && styles.segmentTextActive]}>
+              Dictate
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.segmentItem, mode === 'record' && styles.segmentItemActive]}
+            onPress={() => !active && !busy && !recordBusy && setMode('record')}
+          >
+            <Text style={[styles.segmentText, mode === 'record' && styles.segmentTextActive]}>
+              Record
+            </Text>
+          </Pressable>
+        </View>
+
+        {mode === 'record' ? (
+          <RecordScreen
+            language={language}
+            recordModel={recordModel}
+            onPickModel={() => setModelsOpen(true)}
+            onSaved={() => setHistory(loadHistory())}
+            onBusyChange={setRecordBusy}
+          />
+        ) : (
+          <>
         <View style={styles.canvas} {...historyPan.panHandlers}>
           {active ? (
             <View style={styles.liveWrap}>
@@ -812,12 +876,38 @@ export default function App() {
                 scrollEnabled
               />
               <View style={styles.resultActions}>
-                <Pressable style={styles.resAction} onPress={onPolish} hitSlop={8}>
-                  <Ionicons name="sparkles-outline" size={20} color={theme.text} />
+                <Pressable
+                  style={styles.resAction}
+                  onPress={onPolish}
+                  hitSlop={8}
+                  disabled={!!aiBusy}
+                >
+                  {aiBusy === 'clean' ? (
+                    <ActivityIndicator size="small" color={theme.text} />
+                  ) : (
+                    <Ionicons
+                      name="sparkles-outline"
+                      size={20}
+                      color={aiBusy ? theme.textFaint : theme.text}
+                    />
+                  )}
                 </Pressable>
                 {transcript.trim().length > 160 && (
-                  <Pressable style={styles.resAction} onPress={onSummarize} hitSlop={8}>
-                    <Ionicons name="list-outline" size={20} color={theme.text} />
+                  <Pressable
+                    style={styles.resAction}
+                    onPress={onSummarize}
+                    hitSlop={8}
+                    disabled={!!aiBusy}
+                  >
+                    {aiBusy === 'summary' ? (
+                      <ActivityIndicator size="small" color={theme.text} />
+                    ) : (
+                      <Ionicons
+                        name="list-outline"
+                        size={20}
+                        color={aiBusy ? theme.textFaint : theme.text}
+                      />
+                    )}
                   </Pressable>
                 )}
                 <Pressable
@@ -897,6 +987,8 @@ export default function App() {
           {statusLine.length > 0 && <Text style={styles.status}>{statusLine}</Text>}
           {error && <Text style={styles.error}>{error}</Text>}
         </View>
+          </>
+        )}
       </SafeAreaView>
 
       <LanguagePicker
@@ -979,6 +1071,23 @@ const styles = StyleSheet.create({
     borderStyle: 'dotted',
     marginBottom: 4,
   },
+  segment: {
+    flexDirection: 'row',
+    backgroundColor: theme.surface,
+    borderRadius: 999,
+    padding: 3,
+    marginTop: 6,
+    marginBottom: 8,
+  },
+  segmentItem: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 999,
+    alignItems: 'center',
+  },
+  segmentItemActive: { backgroundColor: theme.surfaceAlt },
+  segmentText: { color: theme.textDim, fontSize: 14, fontWeight: '600' },
+  segmentTextActive: { color: theme.text },
   canvas: { flex: 1, overflow: 'hidden' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 20 },
   liveWrap: { flex: 1, gap: 16, paddingTop: 8 },

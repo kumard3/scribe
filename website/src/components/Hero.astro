@@ -1,0 +1,54 @@
+---
+import { REPO, RELEASES } from '../consts';
+
+const N = 44;
+const bars = Array.from({ length: N }, (_, i) => {
+  const center = 1 - Math.abs(i - N / 2) / (N / 2);
+  return {
+    h: 14 + center * 56 + (i % 3) * 4,
+    delay: -((i % 11) * 0.13),
+    dur: 1.05 + (i % 5) * 0.12,
+    opacity: (0.4 + center * 0.6).toFixed(2),
+  };
+});
+---
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <span class="eyebrow"><span class="dot"></span>100% on-device · free forever</span>
+      <h1>Your voice,<br>transcribed.<br><span class="muted">Nothing leaves<br>your device.</span></h1>
+      <p class="lede">Scribe turns speech into text entirely on your phone, Mac, or PC. No account, no servers, no listening in. Dictate, record meetings, label speakers, and translate. All offline.</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary btn-lg" href={RELEASES}>Download for Android</a>
+        <a class="btn btn-ghost btn-lg" href={REPO}>View source</a>
+      </div>
+      <p class="hero-note">// also on macOS &amp; Windows · iOS soon · no telemetry, ever</p>
+    </div>
+
+    <div class="device reveal">
+      <div class="device-top">
+        <div class="seg"><span>Dictate</span><span class="on">Record</span></div>
+        <div class="rec-pill"><span class="live"></span>02:14 · on-device</div>
+      </div>
+      <div class="wave" aria-hidden="true">
+        {bars.map((b) => (
+          <i style={`height:${b.h}px;animation-delay:${b.delay}s;animation-duration:${b.dur}s;opacity:${b.opacity}`}></i>
+        ))}
+      </div>
+      <div class="transcript">
+        <div class="turn">
+          <span class="spk"><span class="swatch" style="background:#f5f5f7"></span>Speaker 1</span>
+          <p>Let's ship the <b>beta</b> this week. Everything runs locally, so we don't owe anyone a privacy review.</p>
+        </div>
+        <div class="turn">
+          <span class="spk"><span class="swatch" style="background:#8e8e96"></span>Speaker 2</span>
+          <p>Agreed. And the recording kept going with the screen off. The <b>background capture</b> works.</p>
+        </div>
+        <div class="turn">
+          <span class="spk"><span class="swatch" style="background:#5b5b62"></span>Speaker 1</span>
+          <p>Translate it to Hindi for the notes and we're done.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

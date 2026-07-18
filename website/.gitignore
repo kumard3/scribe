@@ -1,0 +1,14 @@
+# build output
+dist/
+# dependencies
+node_modules/
+# astro
+.astro/
+# cloudflare
+.wrangler/
+.dev.vars
+# logs
+*.log
+npm-debug.log*
+# macos
+.DS_Store

@@ -6,6 +6,8 @@ import {
   isModelDownloadedByCategory,
   getLocalModelPathByCategory,
 } from 'react-native-sherpa-onnx/download';
+import type { TimedUnit } from './types';
+import { unitsFromTokens } from './units';
 
 function stripScheme(uri: string): string {
   return uri.replace(/^file:\/\//, '');
@@ -78,7 +80,7 @@ export async function downloadSherpa(
 let engine: SttEngine | null = null;
 let loadedId: string | null = null;
 
-export async function transcribeWithSherpa(spec: SherpaModelSpec, wavUri: string): Promise<string> {
+async function ensureEngine(spec: SherpaModelSpec): Promise<SttEngine> {
   const id = await resolveCatalogId(spec);
   if (!id) throw new Error(`${spec.label}: not in catalog`);
   if (loadedId !== spec.id || !engine) {
@@ -95,8 +97,25 @@ export async function transcribeWithSherpa(spec: SherpaModelSpec, wavUri: string
     });
     loadedId = spec.id;
   }
-  const res = await engine.transcribeFile(stripScheme(wavUri));
+  return engine;
+}
+
+export async function transcribeWithSherpa(spec: SherpaModelSpec, wavUri: string): Promise<string> {
+  const e = await ensureEngine(spec);
+  const res = await e.transcribeFile(stripScheme(wavUri));
   return (res.text ?? '').trim();
+}
+
+export async function transcribeDetailedWithSherpa(
+  spec: SherpaModelSpec,
+  wavUri: string
+): Promise<{ text: string; units: TimedUnit[] }> {
+  const e = await ensureEngine(spec);
+  const res = await e.transcribeFile(stripScheme(wavUri));
+  return {
+    text: (res.text ?? '').trim(),
+    units: unitsFromTokens(res.tokens ?? [], res.timestamps ?? []),
+  };
 }
 
 export async function unloadSherpa(): Promise<void> {

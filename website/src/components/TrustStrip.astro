@@ -1,0 +1,11 @@
+---
+import Icon from './Icon.astro';
+const chips = ['No account', 'Zero servers', 'No telemetry', 'Works on airplane mode', 'Free & open'];
+---
+<div class="strip">
+  <div class="wrap row">
+    {chips.map((c) => (
+      <span class="chip"><span class="cico"><Icon name="shield" /></span>{c}</span>
+    ))}
+  </div>
+</div>

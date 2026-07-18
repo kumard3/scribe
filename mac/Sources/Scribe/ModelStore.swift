@@ -32,7 +32,10 @@ final class ModelStore: NSObject, ObservableObject {
   func refreshInstalled() {
     var ids: Set<String> = []
     for spec in ModelCatalog.all where spec.kind != .appleSystem {
-      if Self.tokensFile(in: Self.dir(for: spec)) != nil { ids.insert(spec.id) }
+      let marker = spec.kind == .llm
+        ? Self.ggufFile(in: Self.dir(for: spec))
+        : Self.tokensFile(in: Self.dir(for: spec))
+      if marker != nil { ids.insert(spec.id) }
     }
     installedIds = ids
   }
@@ -46,10 +49,11 @@ final class ModelStore: NSObject, ObservableObject {
   }
 
   func download(_ spec: ModelSpec) {
-    guard tasks[spec.id] == nil, !spec.archive.isEmpty else { return }
+    guard tasks[spec.id] == nil else { return }
+    let urlString = spec.directURL ?? (spec.archive.isEmpty ? nil : "\(ModelCatalog.releases)/\(spec.archive)")
+    guard let urlString, let url = URL(string: urlString) else { return }
     errors[spec.id] = nil
     progress[spec.id] = 0
-    let url = URL(string: "\(ModelCatalog.releases)/\(spec.archive)")!
     let task = session.downloadTask(with: url)
     task.taskDescription = spec.id
     tasks[spec.id] = task
@@ -64,6 +68,7 @@ final class ModelStore: NSObject, ObservableObject {
   }
 
   func delete(_ spec: ModelSpec) {
+    if spec.kind == .llm { LLMRuntime.shared.release() }
     try? FileManager.default.removeItem(at: Self.dir(for: spec))
     refreshInstalled()
     if Settings.shared.activeModelId == spec.id {
@@ -87,6 +92,16 @@ final class ModelStore: NSObject, ObservableObject {
     tokensFile(in: dir(for: spec))?.deletingLastPathComponent()
   }
 
+  /// The .gguf file for a single-file LLM model (install marker / load path).
+  nonisolated static func ggufFile(in dir: URL) -> URL? {
+    guard let e = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil)
+    else { return nil }
+    for case let url as URL in e where url.pathExtension == "gguf" {
+      return url
+    }
+    return nil
+  }
+
   /// Picks a model file whose name contains `needle`, preferring (or
   /// avoiding) int8 quantized variants.
   nonisolated static func find(_ needle: String, in dir: URL, preferInt8: Bool = true) -> URL? {
@@ -97,6 +112,42 @@ final class ModelStore: NSObject, ObservableObject {
     let int8 = onnx.first { $0.lastPathComponent.contains("int8") }
     let plain = onnx.first { !$0.lastPathComponent.contains("int8") }
     return preferInt8 ? (int8 ?? plain) : (plain ?? int8)
+  }
+
+  /// Single-file install for the LLM GGUF: move it into the model dir verbatim
+  /// (no archive extraction). Tolerant size check — HF/CDN length can drift.
+  nonisolated private func installGGUF(spec: ModelSpec, tempFile: URL) {
+    let fm = FileManager.default
+    let dir = Self.dir(for: spec)
+    var failure: String?
+    do {
+      let size = (try? fm.attributesOfItem(atPath: tempFile.path)[.size] as? Int64) ?? 0
+      guard size > Int64(Double(spec.sizeBytes) * 0.99) else {
+        throw NSError(domain: "Scribe", code: 1, userInfo: [
+          NSLocalizedDescriptionKey:
+            "Download incomplete (\(Int(Double(size) / 1e6)) of \(spec.sizeLabel)) — try again."
+        ])
+      }
+      try? fm.removeItem(at: dir)
+      try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+      let name = spec.fileName.isEmpty ? "model.gguf" : spec.fileName
+      try fm.moveItem(at: tempFile, to: dir.appendingPathComponent(name))
+    } catch {
+      try? fm.removeItem(at: dir)
+      failure = error.localizedDescription
+    }
+    try? fm.removeItem(at: tempFile)
+    DispatchQueue.main.async {
+      self.progress[spec.id] = nil
+      self.tasks[spec.id] = nil
+      if let failure {
+        self.errors[spec.id] = failure
+        dlog("llm install failed \(spec.id): \(failure)")
+      } else {
+        self.refreshInstalled()
+        dlog("llm installed \(spec.id)")
+      }
+    }
   }
 
   nonisolated private func extract(spec: ModelSpec, tempFile: URL) {
@@ -168,13 +219,18 @@ extension ModelStore: URLSessionDownloadDelegate {
     guard let id = downloadTask.taskDescription,
           let spec = ModelCatalog.spec(id) else { return }
     // The temp file dies when this delegate returns — move it out first.
+    let ext = spec.kind == .llm ? "gguf" : "tar.bz2"
     let kept = FileManager.default.temporaryDirectory
-      .appendingPathComponent("scribe-\(id).tar.bz2")
+      .appendingPathComponent("scribe-\(id).\(ext)")
     try? FileManager.default.removeItem(at: kept)
     try? FileManager.default.moveItem(at: location, to: kept)
     DispatchQueue.main.async { self.progress[id] = 0.98 }
     DispatchQueue.global(qos: .userInitiated).async {
-      self.extract(spec: spec, tempFile: kept)
+      if spec.kind == .llm {
+        self.installGGUF(spec: spec, tempFile: kept)
+      } else {
+        self.extract(spec: spec, tempFile: kept)
+      }
     }
   }
 

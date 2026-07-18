@@ -1,0 +1,28 @@
+---
+const cases = [
+  { who: 'Journalists', title: 'Protect your sources', body: 'Transcribe sensitive interviews without a third party ever hearing a second of audio. There is nothing to subpoena from a vendor, because there is no vendor.' },
+  { who: 'Doctors & therapists', title: 'Notes that stay confidential', body: "Dictate about patients without routing their words through someone else's cloud. Privacy by architecture, not by a policy page." },
+  { who: 'Lawyers', title: 'Privilege stays privileged', body: 'Privileged conversations never leave the device, so there is no copy sitting on a server waiting to be discovered.' },
+  { who: 'Developers', title: 'Dictate into your editor', body: 'Talk comments, commit messages, and prompts straight into Cursor or VS Code, fully offline, even on a plane.' },
+  { who: 'Students & researchers', title: 'Capture every lecture', body: 'Record and transcribe lectures or field interviews with no signal and no upload, then translate the notes on device.' },
+  { who: 'Anyone off-grid', title: 'Works at zero bars', body: 'Flights, trains, basements, dead zones. Transcription that never waits for a connection it cannot get.' },
+];
+---
+<section class="block" id="use-cases" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker">Who it's for</div>
+      <h2>Built for people who can't send their voice to the cloud.</h2>
+      <p>Cloud dictation answers "where does my audio go?" with a compliance badge. Scribe answers it with architecture: it never leaves.</p>
+    </div>
+    <div class="cases">
+      {cases.map((c) => (
+        <div class="case reveal">
+          <div class="who">{c.who}</div>
+          <h3>{c.title}</h3>
+          <p>{c.body}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

@@ -1,0 +1,20 @@
+---
+const stats = [
+  { big: '100%', label: 'On-device. Your audio is processed where it is spoken.' },
+  { big: '0', label: 'Servers, accounts, or trackers. Nothing to breach.' },
+  { big: '59', label: 'Languages for offline, on-device translation.' },
+  { big: '$0', label: 'Forever. Free and open source, no subscription.' },
+];
+---
+<section class="block" style="padding:64px 0">
+  <div class="wrap">
+    <div class="stats">
+      {stats.map((s) => (
+        <div class="stat reveal">
+          <div class="stat-num">{s.big}</div>
+          <div class="stat-label">{s.label}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

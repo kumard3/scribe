@@ -1,0 +1,64 @@
+---
+import Base from '../layouts/Base.astro';
+import Icon from '../components/Icon.astro';
+import { webSiteSchema, breadcrumbSchema } from '../lib/seo';
+
+const schemas = [
+  webSiteSchema,
+  breadcrumbSchema([
+    { name: 'Home', path: '/' },
+    { name: 'Privacy', path: '/privacy' },
+  ]),
+];
+---
+<Base
+  title="Privacy Policy · Scribe"
+  description="Scribe runs on your device. No server, no account, no analytics, no tracking. Here's exactly what it processes and where."
+  anchors={false}
+  schemas={schemas}
+>
+  <main class="wrap prose">
+    <div class="kicker">Privacy</div>
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated: 2026-06-14</p>
+
+    <p>Scribe is a speech-to-text app that runs <strong>on your device</strong>. We do not operate a server, we have no account system, and we do not collect, sell, or share your personal data. There is no analytics SDK, no advertising, and no tracking.</p>
+
+    <h2>What Scribe processes, and where</h2>
+    <ul>
+      <li><strong>Your voice (microphone audio).</strong> Audio is transcribed locally on your device by an on-device speech model. It is not uploaded to us and we never receive it. Audio is held only in memory during a recording and is discarded afterward.</li>
+      <li><strong>Your transcripts.</strong> Saved transcription history is stored <strong>only on your device</strong>. You can delete any item, or wipe everything, from Settings → Data.</li>
+      <li><strong>Custom vocabulary and settings.</strong> Stored locally on your device.</li>
+    </ul>
+
+    <h2>Optional features that contact third parties</h2>
+    <p>These are <strong>off by default</strong> and only run if you turn them on:</p>
+    <ul>
+      <li><strong>Cloud transcription (bring-your-own-key).</strong> If you add your own API key and endpoint in Settings, the audio for that request is sent to <strong>the provider you chose</strong> (e.g. OpenAI), governed by that provider's privacy policy. Scribe does not see or proxy this traffic. Leave it off to stay fully offline.</li>
+      <li><strong>Translation language packs (Google ML Kit).</strong> The first time you translate into a language, the on-device translation model for that language is downloaded from Google's servers. This downloads model files only. Your text is <strong>not</strong> sent anywhere; translation runs locally once the model is present.</li>
+    </ul>
+
+    <h2>Device permissions</h2>
+    <ul>
+      <li><strong>Microphone</strong>: to hear what you dictate.</li>
+      <li><strong>Speech recognition</strong>: for on-device transcription.</li>
+      <li><strong>Display over other apps</strong> (Android, optional): for the floating Flow Bubble.</li>
+      <li><strong>Accessibility</strong> (Android, optional): only to paste dictated text into the field you're typing in. Scribe does not read, log, or transmit screen content.</li>
+      <li><strong>Storage</strong>: to save downloaded models and your local history.</li>
+    </ul>
+
+    <h2>Data retention and deletion</h2>
+    <p>All Scribe data lives on your device. Uninstalling the app, or using Settings → Data → Delete all data, removes your history and downloaded models.</p>
+
+    <h2>Children's privacy</h2>
+    <p>Scribe is not directed at children and does not knowingly collect data from them (we don't collect personal data from anyone).</p>
+
+    <h2>Changes</h2>
+    <p>If this policy changes, the "Last updated" date above will change.</p>
+
+    <h2>Contact</h2>
+    <p>Questions? Open an issue on <a href="https://github.com/kumard3/localvoice">GitHub</a>.</p>
+
+    <a class="back" href="/"><Icon name="back" /> Back to home</a>
+  </main>
+</Base>

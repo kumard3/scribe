@@ -9,6 +9,14 @@ enum ModelKind: String {
   case whisper
   case dolphinCtc
   case onlineTransducer
+  case nemotronTransducer
+  case llm
+}
+
+enum ModelQuality: String {
+  case best = "BEST"
+  case good = "GOOD"
+  case basic = "BASIC"
 }
 
 struct ModelSpec: Identifiable, Equatable {
@@ -20,10 +28,16 @@ struct ModelSpec: Identifiable, Equatable {
   let sizeBytes: Int64
   /// true = streams partial text while you speak; false = transcribes on release.
   let live: Bool
+  var quality: ModelQuality = .good
   /// Locale for the Apple engine (appleSystem kind only).
   var locale: String = "en-US"
   /// Romanize Devanagari output to Latin "Hinglish" (appleSystem hi-IN only).
   var romanize: Bool = false
+  /// Full download URL for single-file models (the LLM GGUF). When set, the file
+  /// is saved verbatim — no archive extraction.
+  var directURL: String? = nil
+  /// Saved file name for directURL downloads (the LLM kind only).
+  var fileName: String = ""
 
   var sizeLabel: String {
     sizeBytes == 0 ? "No download" : "\(Int((Double(sizeBytes) / 1e6).rounded())) MB"
@@ -58,14 +72,14 @@ enum ModelCatalog {
       id: "system-hinglish", kind: .appleSystem,
       label: "Built-in · Hinglish (Roman)",
       note: "Same speech, written in English letters — “main kal miting mein aaunga”. Phonetic, so English words spell by sound.",
-      archive: "", sizeBytes: 0, live: true, locale: "hi-IN", romanize: true
+      archive: "", sizeBytes: 0, live: true, quality: .basic, locale: "hi-IN", romanize: true
     ),
     ModelSpec(
       id: "moonshine-tiny-en", kind: .moonshine,
       label: "Moonshine Tiny · English",
       note: "Useful Sensors · tiny · transcribes on release",
       archive: "sherpa-onnx-moonshine-tiny-en-quantized-2026-02-27.tar.bz2",
-      sizeBytes: 29_858_559, live: false
+      sizeBytes: 29_858_559, live: false, quality: .basic
     ),
     ModelSpec(
       id: "moonshine-base-en", kind: .moonshine,
@@ -86,14 +100,14 @@ enum ModelCatalog {
       label: "Parakeet 0.6B v2 · English",
       note: "NVIDIA · best English accuracy",
       archive: "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2",
-      sizeBytes: 482_468_385, live: false
+      sizeBytes: 482_468_385, live: false, quality: .best
     ),
     ModelSpec(
       id: "nemo-parakeet-tdt-0.6b-v3-multi", kind: .nemoTransducer,
       label: "Parakeet 0.6B v3 · Multilingual",
       note: "NVIDIA · 25 languages",
       archive: "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
-      sizeBytes: 487_170_055, live: false
+      sizeBytes: 487_170_055, live: false, quality: .best
     ),
     ModelSpec(
       id: "nemo-canary-180m-multi", kind: .canary,
@@ -107,7 +121,7 @@ enum ModelCatalog {
       label: "Whisper Tiny · Auto-language",
       note: "OpenAI · auto-detects 99 languages · quick",
       archive: "sherpa-onnx-whisper-tiny.tar.bz2",
-      sizeBytes: 116_200_000, live: false
+      sizeBytes: 116_200_000, live: false, quality: .basic
     ),
     ModelSpec(
       id: "whisper-small-multi", kind: .whisper,
@@ -121,7 +135,7 @@ enum ModelCatalog {
       label: "Whisper Turbo · Auto-language",
       note: "OpenAI large-v3-turbo · best auto-detect accuracy",
       archive: "sherpa-onnx-whisper-turbo.tar.bz2",
-      sizeBytes: 563_800_000, live: false
+      sizeBytes: 563_800_000, live: false, quality: .best
     ),
     ModelSpec(
       id: "dolphin-base-multi", kind: .dolphinCtc,
@@ -135,11 +149,36 @@ enum ModelCatalog {
       label: "Zipformer Streaming · English",
       note: "Live partial text while you speak",
       archive: "sherpa-onnx-streaming-zipformer-en-2023-06-21-mobile.tar.bz2",
-      sizeBytes: 365_748_162, live: true
+      sizeBytes: 365_748_162, live: true, quality: .basic
+    ),
+    ModelSpec(
+      id: "nemotron-3.5-streaming-multi", kind: .nemotronTransducer,
+      label: "Nemotron 3.5 Streaming · Multilingual",
+      note: "NVIDIA · live · 40 languages · auto-detect · punctuated",
+      archive: "sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11.tar.bz2",
+      sizeBytes: 473_894_907, live: true
+    ),
+    ModelSpec(
+      id: "nemotron-streaming-en", kind: .nemotronTransducer,
+      label: "Nemotron Streaming · English",
+      note: "NVIDIA · live · instant · punctuated",
+      archive: "sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25.tar.bz2",
+      sizeBytes: 463_945_051, live: true
+    ),
+    ModelSpec(
+      id: "gemma-4-e2b", kind: .llm,
+      label: "Gemma 4 · E2B",
+      note: "Google · on-device AI cleanup & summary · offline",
+      archive: "", sizeBytes: 3_110_000_000, live: false,
+      directURL: "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf",
+      fileName: "gemma-4-E2B-it-Q4_K_M.gguf"
     ),
   ]
 
   static func spec(_ id: String) -> ModelSpec? {
     all.first { $0.id == id }
   }
+
+  /// The single on-device LLM (post-processor, not a transcription engine).
+  static var llmModel: ModelSpec { all.first { $0.kind == .llm }! }
 }

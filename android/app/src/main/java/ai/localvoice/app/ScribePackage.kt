@@ -1,0 +1,14 @@
+package ai.localvoice.app
+
+import com.facebook.react.ReactPackage
+import com.facebook.react.bridge.NativeModule
+import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.uimanager.ViewManager
+
+class ScribePackage : ReactPackage {
+  override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> =
+    listOf(RecorderModule(reactContext), DiarizationModule(reactContext))
+
+  override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> =
+    emptyList()
+}

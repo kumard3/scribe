@@ -1,6 +1,6 @@
 {
   "name": "localvoice",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "main": "index.ts",
   "dependencies": {
     "@dr.pogodin/react-native-fs": "^2.38.2",
@@ -19,6 +19,7 @@
     "expo-quick-actions": "^6.0.2",
     "expo-speech-recognition": "^56.0.1",
     "expo-status-bar": "~56.0.4",
+    "llama.rn": "^0.12.4",
     "react": "19.2.3",
     "react-native": "0.85.3",
     "react-native-sherpa-onnx": "^0.4.3",

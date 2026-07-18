@@ -1,0 +1,31 @@
+---
+const rows = [
+  { name: 'Audio stays on device', scribe: 'Always', flow: { v: 'Cloud', ok: false }, sw: { v: 'Mostly', ok: true } },
+  { name: 'Price', scribe: 'Free', flow: { v: '$$ / mo', ok: false }, sw: { v: '$$', ok: false } },
+  { name: 'Account required', scribe: 'No', flow: { v: 'Yes', ok: false }, sw: { v: 'Yes', ok: false } },
+  { name: 'Speaker labels', scribe: 'Yes', flow: { v: 'No', ok: false }, sw: { v: 'No', ok: false } },
+  { name: 'Android', scribe: 'Yes', flow: { v: 'Yes', ok: true }, sw: { v: 'No', ok: false } },
+  { name: 'Open source', scribe: 'Yes', flow: { v: 'No', ok: false }, sw: { v: 'No', ok: false } },
+];
+---
+<section class="block" id="compare" style="padding-top:0">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker">Honestly compared</div>
+      <h2>Same job. Different deal.</h2>
+    </div>
+    <div class="compare reveal">
+      <div class="crow head">
+        <div>&nbsp;</div><div class="scribe">Scribe</div><div>Wispr Flow</div><div>Superwhisper</div>
+      </div>
+      {rows.map((r) => (
+        <div class="crow">
+          <div class="feature-name">{r.name}</div>
+          <div class="yes scribe">{r.scribe}</div>
+          <div class={r.flow.ok ? 'yes' : 'no'}>{r.flow.v}</div>
+          <div class={r.sw.ok ? 'yes' : 'no'}>{r.sw.v}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

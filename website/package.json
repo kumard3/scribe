@@ -1,0 +1,20 @@
+{
+  "name": "scribe-site",
+  "type": "module",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "deploy": "astro build && wrangler deploy",
+    "cf:dev": "astro build && wrangler dev"
+  },
+  "dependencies": {
+    "@astrojs/sitemap": "^3.7.3",
+    "astro": "^6.4.7"
+  },
+  "devDependencies": {
+    "wrangler": "^4.100.0"
+  }
+}

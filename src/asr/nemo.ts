@@ -1,7 +1,10 @@
 import { Directory, File, Paths, DownloadTask } from 'expo-file-system';
-import { createSTT, type SttEngine, type STTModelType } from 'react-native-sherpa-onnx/stt';
+import { createSTT, createStreamingSTT, type SttEngine, type STTModelType } from 'react-native-sherpa-onnx/stt';
 import { listBundledArchives, extractArchive } from 'react-native-sherpa-onnx/extraction';
 import { listModelsAtPath } from 'react-native-sherpa-onnx';
+import type { TimedUnit } from './types';
+import { unitsFromTokens } from './units';
+import { decodeWavTo16kMono } from '../audio/wav';
 
 // NVIDIA NeMo (Parakeet / Canary) models, hosted by k2-fsa as prebuilt
 // sherpa-onnx archives. We download + extract them directly: the library's
@@ -39,6 +42,26 @@ export const NEMO_MODELS: NemoModelSpec[] = [
     archive: 'sherpa-onnx-streaming-zipformer-en-2023-06-21-mobile.tar.bz2',
     sizeBytes: 365748162,
     modelType: 'transducer',
+    live: true,
+  },
+  {
+    id: 'nemotron-3.5-streaming-multi',
+    label: 'Nemotron 3.5 Streaming · Multilingual',
+    note: 'NVIDIA · live · 40 languages · auto-detect · punctuated',
+    languages: 'Multilingual (40 locales)',
+    archive: 'sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8-2026-06-11.tar.bz2',
+    sizeBytes: 473894907,
+    modelType: 'auto',
+    live: true,
+  },
+  {
+    id: 'nemotron-streaming-en',
+    label: 'Nemotron Streaming · English',
+    note: 'NVIDIA · live · instant · punctuated',
+    languages: 'English',
+    archive: 'sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25.tar.bz2',
+    sizeBytes: 463945051,
+    modelType: 'auto',
     live: true,
   },
   // ---- Offline / batch (record → transcribe) ----
@@ -206,7 +229,7 @@ export async function downloadNemo(
 let engine: SttEngine | null = null;
 let loadedId: string | null = null;
 
-export async function transcribeWithNemo(spec: NemoModelSpec, wavUri: string): Promise<string> {
+async function ensureEngine(spec: NemoModelSpec): Promise<SttEngine> {
   const dir = modelDirFor(spec);
   if (!dir.exists) throw new Error(`${spec.label}: download it in Models first.`);
   if (loadedId !== spec.id || !engine) {
@@ -224,8 +247,63 @@ export async function transcribeWithNemo(spec: NemoModelSpec, wavUri: string): P
     });
     loadedId = spec.id;
   }
-  const res = await engine.transcribeFile(abs(wavUri));
+  return engine;
+}
+
+// Streaming-only models have no offline recognizer, so a recorded file is
+// decoded and pushed through the online stream; trailing silence flushes the tail.
+async function transcribeFileStreaming(spec: NemoModelSpec, wavUri: string): Promise<string> {
+  const dir = await nemoModelDir(spec);
+  if (!dir) throw new Error(`${spec.label}: download it in Models first.`);
+  const eng = await createStreamingSTT({
+    modelPath: { type: 'file', path: dir },
+    modelType: spec.modelType,
+    numThreads: 2,
+    enableEndpoint: true,
+  });
+  const stream = await eng.createStream();
+  try {
+    const samples = await decodeWavTo16kMono(wavUri);
+    let committed = '';
+    const CHUNK = 8000; // 0.5 s @ 16 kHz
+    for (let i = 0; i < samples.length; i += CHUNK) {
+      const slice = samples.subarray(i, Math.min(i + CHUNK, samples.length));
+      const { result, isEndpoint } = await stream.processAudioChunk(slice, 16000);
+      if (isEndpoint) {
+        const partial = (result.text ?? '').trim();
+        if (partial) committed = (committed + ' ' + partial).trim();
+        await stream.reset();
+      }
+    }
+    const { result } = await stream.processAudioChunk(new Float32Array(8000), 16000);
+    const partial = (result.text ?? '').trim();
+    return (committed + ' ' + partial).trim();
+  } finally {
+    try { await stream.release(); } catch {}
+    try { await eng.destroy(); } catch {}
+  }
+}
+
+export async function transcribeWithNemo(spec: NemoModelSpec, wavUri: string): Promise<string> {
+  if (spec.live) return transcribeFileStreaming(spec, wavUri);
+  const e = await ensureEngine(spec);
+  const res = await e.transcribeFile(abs(wavUri));
   return (res.text ?? '').trim();
+}
+
+export async function transcribeDetailedWithNemo(
+  spec: NemoModelSpec,
+  wavUri: string
+): Promise<{ text: string; units: TimedUnit[] }> {
+  if (spec.live) {
+    return { text: await transcribeFileStreaming(spec, wavUri), units: [] };
+  }
+  const e = await ensureEngine(spec);
+  const res = await e.transcribeFile(abs(wavUri));
+  return {
+    text: (res.text ?? '').trim(),
+    units: unitsFromTokens(res.tokens ?? [], res.timestamps ?? []),
+  };
 }
 
 export function deleteNemo(spec: NemoModelSpec): void {

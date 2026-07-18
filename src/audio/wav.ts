@@ -85,6 +85,57 @@ export function resampleTo16k(input: Float32Array, inRate: number): Float32Array
   return resample(input, inRate || 16000, TARGET_RATE);
 }
 
+/**
+ * Decodes a PCM WAV file to mono Float32 samples at 16 kHz, for feeding a
+ * streaming recognizer that has no offline file path. Walks the RIFF chunks
+ * (fmt + data), downmixes channels, and resamples if the source isn't 16 kHz.
+ */
+export async function decodeWavTo16kMono(uri: string): Promise<Float32Array> {
+  const bytes = await new File(uri).bytes();
+  if (bytes.length < 44) return new Float32Array(0);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const tag = (o: number) =>
+    String.fromCharCode(bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]);
+
+  let channels = 1;
+  let sampleRate = TARGET_RATE;
+  let bits = 16;
+  let dataOff = -1;
+  let dataLen = 0;
+  let off = 12; // skip RIFF<size>WAVE
+  while (off + 8 <= bytes.length) {
+    const id = tag(off);
+    const size = view.getUint32(off + 4, true);
+    const body = off + 8;
+    if (id === 'fmt ') {
+      channels = view.getUint16(body + 2, true) || 1;
+      sampleRate = view.getUint32(body + 4, true) || TARGET_RATE;
+      bits = view.getUint16(body + 14, true) || 16;
+    } else if (id === 'data') {
+      dataOff = body;
+      dataLen = Math.min(size, bytes.length - body);
+      break;
+    }
+    off = body + size + (size & 1); // chunks are word-aligned
+  }
+  if (dataOff < 0) return new Float32Array(0);
+
+  const bytesPerSample = Math.max(1, bits >> 3);
+  const frames = Math.floor(dataLen / (bytesPerSample * channels));
+  const mono = new Float32Array(frames);
+  for (let i = 0; i < frames; i++) {
+    let acc = 0;
+    for (let c = 0; c < channels; c++) {
+      const p = dataOff + (i * channels + c) * bytesPerSample;
+      if (bits === 16) acc += view.getInt16(p, true) / 0x8000;
+      else if (bits === 32) acc += view.getInt32(p, true) / 0x80000000;
+      else acc += (bytes[p] - 128) / 128; // 8-bit unsigned
+    }
+    mono[i] = acc / channels;
+  }
+  return sampleRate === TARGET_RATE ? mono : resample(mono, sampleRate, TARGET_RATE);
+}
+
 export function float32ToInt16Bytes(samples: Float32Array): Uint8Array {
   const out = new Uint8Array(samples.length * 2);
   const view = new DataView(out.buffer);

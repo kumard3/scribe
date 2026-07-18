@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace Scribe;
@@ -7,9 +8,47 @@ sealed class Settings
   public int HoldKeyVk { get; set; } = 0xA3; // Right Ctrl
   public bool TapHandsFree { get; set; } = true;
   public string ModelId { get; set; } = "zipformer-streaming-en";
+  public string Language { get; set; } = DefaultLanguage();
   public bool FirstRun { get; set; } = true;
   public bool SaveHistory { get; set; } = true;
   public List<string> History { get; set; } = new();
+
+  public static readonly (string Label, string Code)[] Languages =
+  {
+    ("Auto-detect", "auto"),
+    ("English", "en"),
+    ("Hindi", "hi"),
+    ("Spanish", "es"),
+    ("French", "fr"),
+    ("German", "de"),
+    ("Portuguese", "pt"),
+    ("Italian", "it"),
+    ("Dutch", "nl"),
+    ("Russian", "ru"),
+    ("Arabic", "ar"),
+    ("Turkish", "tr"),
+    ("Indonesian", "id"),
+    ("Chinese", "zh"),
+    ("Japanese", "ja"),
+    ("Korean", "ko"),
+    ("Bengali", "bn"),
+    ("Tamil", "ta"),
+    ("Telugu", "te"),
+    ("Marathi", "mr"),
+    ("Gujarati", "gu"),
+    ("Kannada", "kn"),
+    ("Malayalam", "ml"),
+    ("Punjabi", "pa"),
+    ("Urdu", "ur"),
+  };
+
+  // Whisper's own language detection misfires on accented speech — it will read
+  // accented English as Hindi/Urdu and emit garbage — so default to the OS language.
+  static string DefaultLanguage()
+  {
+    var code = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
+    return Languages.Any(l => l.Code == code) ? code : "auto";
+  }
 
   public static readonly (string Label, int Vk)[] HoldKeys =
   {

@@ -1,0 +1,100 @@
+---
+import '../styles/global.css';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+import { SITE_TITLE, SITE_DESC, SITE_NAME, SITE_URL, OG_IMAGE, KEYWORDS, AUTHOR } from '../consts';
+
+interface Props {
+  title?: string;
+  description?: string;
+  anchors?: boolean;
+  schemas?: object[];
+  ogImage?: string;
+}
+const {
+  title = SITE_TITLE,
+  description = SITE_DESC,
+  anchors = true,
+  schemas = [],
+  ogImage = OG_IMAGE,
+} = Astro.props;
+
+const base = Astro.site ?? new URL(SITE_URL);
+const canonical = new URL(Astro.url.pathname, base).href;
+const ogImageUrl = new URL(ogImage, base).href;
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title}</title>
+  <meta name="description" content={description} />
+  <meta name="keywords" content={KEYWORDS.join(', ')} />
+  <meta name="author" content={AUTHOR} />
+  <meta name="robots" content="index, follow, max-image-preview:large" />
+  <meta name="application-name" content={SITE_NAME} />
+  <meta name="apple-mobile-web-app-title" content={SITE_NAME} />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <meta name="theme-color" content="#000000" />
+
+  <link rel="canonical" href={canonical} />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="sitemap" href="/sitemap-index.xml" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content={SITE_NAME} />
+  <meta property="og:title" content={title} />
+  <meta property="og:description" content={description} />
+  <meta property="og:url" content={canonical} />
+  <meta property="og:image" content={ogImageUrl} />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Scribe — voice to text that never leaves your device" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content={title} />
+  <meta name="twitter:description" content={description} />
+  <meta name="twitter:image" content={ogImageUrl} />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  {schemas.map((s) => (
+    <script type="application/ld+json" set:html={JSON.stringify(s)} />
+  ))}
+</head>
+<body>
+  <Nav anchors={anchors} />
+  <slot />
+  <Footer />
+
+  <script>
+    const hdr = document.getElementById('hdr');
+    if (hdr) {
+      const onScroll = () => hdr.classList.toggle('scrolled', window.scrollY > 8);
+      addEventListener('scroll', onScroll, { passive: true });
+      onScroll();
+    }
+
+    const reveals = document.querySelectorAll('.reveal');
+    if (reveals.length) {
+      const io = new IntersectionObserver((entries) => {
+        entries.forEach((e, i) => {
+          if (e.isIntersecting) {
+            const el = e.target as HTMLElement;
+            el.style.transitionDelay = Math.min(i * 60, 240) + 'ms';
+            el.classList.add('in');
+            io.unobserve(el);
+          }
+        });
+      }, { threshold: 0.14, rootMargin: '0px 0px -8% 0px' });
+      reveals.forEach((el) => io.observe(el));
+    }
+  </script>
+</body>
+</html>
