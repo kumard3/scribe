@@ -135,6 +135,8 @@ struct DashboardView: View {
       Text("Auto-detect misreads accented speech. Naming your language is the biggest accuracy win.")
         .font(.caption).foregroundColor(Mono.textFaint)
 
+      Toggle("Write Hindi in English letters (Hinglish)", isOn: $settings.romanizeHindi)
+        .font(.system(size: 13))
       Toggle("Use GPU acceleration (CoreML)", isOn: $settings.useGpu)
         .font(.system(size: 13))
       Text("Runs downloaded models on the GPU/Neural Engine when the build supports it. Falls back to CPU otherwise.")

@@ -520,7 +520,10 @@ final class DictationManager: ObservableObject {
   }
 
   private func finish(with text: String) {
-    let finalText = VoiceCommands.apply(text)
+    var finalText = VoiceCommands.apply(text)
+    if Settings.shared.romanizeHindi {
+      finalText = Romanizer.mixed(finalText)
+    }
     dlog("finish text=\(finalText.count) chars")
     lastText = finalText
     guard !finalText.isEmpty else {

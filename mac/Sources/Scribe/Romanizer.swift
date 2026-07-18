@@ -5,6 +5,19 @@ import Foundation
 /// Latin script. It's phonetic, not perfect — English words come back
 /// spelled by sound (office→ophis) since their identity is lost in Devanagari.
 enum Romanizer {
+  /// Romanizes only the Devanagari words in mixed-script text, leaving
+  /// English (or any Latin) untouched — hinglish()'s schwa-deletion would
+  /// otherwise clip English words ("extra" → "extr").
+  static func mixed(_ s: String) -> String {
+    guard s.unicodeScalars.contains(where: { (0x0900...0x097F).contains($0.value) })
+    else { return s }
+    return s.split(separator: " ", omittingEmptySubsequences: false).map { tok in
+      tok.unicodeScalars.contains(where: { (0x0900...0x097F).contains($0.value) })
+        ? hinglish(String(tok))
+        : String(tok)
+    }.joined(separator: " ")
+  }
+
   static func hinglish(_ s: String) -> String {
     guard !s.isEmpty else { return s }
     var latin = transform(s, kCFStringTransformToLatin)

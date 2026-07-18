@@ -192,6 +192,9 @@ final class Settings: ObservableObject {
   @AppStorage("useGpu") var useGpu: Bool = false {
     willSet { objectWillChange.send() }
   }
+  @AppStorage("romanizeHindi") var romanizeHindi: Bool = true {
+    willSet { objectWillChange.send() }
+  }
 
   // sherpa-onnx execution provider. "coreml" needs a CoreML-enabled build; on a
   // CPU-only lib sherpa logs a warning and falls back to CPU, so this is safe.
