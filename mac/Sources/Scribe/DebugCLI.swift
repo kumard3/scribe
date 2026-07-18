@@ -10,6 +10,7 @@ enum DebugCLI {
   static func runIfRequested() {
     if CommandLine.arguments.contains("--selftest-commands") {
       VoiceCommands.selfTest()
+      Romanizer.selfTest()
       exit(0)
     }
     runQwenAsrIfRequested()

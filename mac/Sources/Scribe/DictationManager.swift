@@ -60,6 +60,8 @@ final class DictationManager: ObservableObject {
   private var onBufferCurrent: ((AVAudioPCMBuffer) -> Void)?
   private var configObserver: NSObjectProtocol?
   private var poppedSinceStart = false
+  private var maxLevel: Float = 0
+  private var silenceRestarts = 0
   private let sherpaQueue = DispatchQueue(label: "ai.scribe.sherpa")
   // ~15 min at 48 kHz; past this we stop buffering rather than grow unbounded
   private let maxBufferedSamples = 48_000 * 900
@@ -181,7 +183,10 @@ final class DictationManager: ObservableObject {
           var sum: Float = 0
           for i in 0..<n { sum += ch[i] * ch[i] }
           let rms = n > 0 ? sqrtf(sum / Float(n)) : 0
-          DispatchQueue.main.async { self.level = min(1, rms * 14) }
+          DispatchQueue.main.async {
+            self.level = min(1, rms * 14)
+            self.maxLevel = max(self.maxLevel, rms)
+          }
         }
       }
       self.engine.prepare()
@@ -208,12 +213,32 @@ final class DictationManager: ObservableObject {
     return Int(hw.sampleRate)
   }
 
+  // After the Bluetooth HFP flip the renegotiated input occasionally comes up
+  // muted — frames arrive but they're all zeros (flat waveform, empty
+  // transcript). Watchdog: if nothing above the noise floor ~1.5s in, restart
+  // capture once or twice.
+  private func armSilenceWatchdog() {
+    let attempt = silenceRestarts
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+      guard let self, self.isRecording, self.silenceRestarts == attempt else { return }
+      if self.maxLevel < 0.0005, self.silenceRestarts < 2 {
+        self.silenceRestarts += 1
+        dlog("input silent (peak rms \(self.maxLevel)) — restarting capture (\(self.silenceRestarts))")
+        self.restartCapture()
+        self.armSilenceWatchdog()
+      }
+    }
+  }
+
   private func markListening() {
     lastText = ""
     isRecording = true
     phase = .listening
     set("Listening…")
     HUD.shared.show()
+    maxLevel = 0
+    silenceRestarts = 0
+    armSilenceWatchdog()
     if wantsStop {
       wantsStop = false
       stop()
@@ -483,10 +508,12 @@ final class DictationManager: ObservableObject {
       let rate = hwRate
       let language = Settings.shared.language
       let provider = Settings.shared.sherpaProvider
+      let peak = maxLevel
       sherpaQueue.async { [weak self] in
         guard let self else { return }
         let samples = self.sherpaSamples
         self.sherpaSamples = []
+        dlog("offline stop: \(samples.count) samples @\(rate)Hz peak rms \(peak)")
         guard let engine = SherpaEngineCache.shared.engine(
           for: spec, language: language, provider: provider,
         ) else {
