@@ -86,7 +86,10 @@ enum VoiceCommands {
         continue
       }
 
-      if k == "bullet" {
+      // "bullet" as a noun stays prose: "like bullet points", "the first bullet"
+      if k == "bullet", key(i + 1) != "points",
+         !["a", "an", "the", "first", "second", "third", "this", "that",
+           "each", "every", "my", "your"].contains(i > 0 ? key(i - 1) : "") {
         freshLine()
         out += "- "
         i += key(i + 1) == "point" ? 2 : 1
@@ -116,6 +119,8 @@ enum VoiceCommands {
     eq("wrong scratch that right", "right")
     eq("delete last line", "")
     eq("the point of it all", "the point of it all") // "point" without a number is prose
+    eq("can you have like bullet points in there", "can you have like bullet points in there")
+    eq("the first bullet will be a 470 MB model", "the first bullet will be a 470 MB model")
     print("VoiceCommands selftest ok")
   }
 }
