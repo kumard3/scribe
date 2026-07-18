@@ -54,6 +54,7 @@ final class DictationManager: ObservableObject {
 
   private var sherpa: SherpaEngine?
   private var qwenSpec: ModelSpec?
+  private var offlineSpec: ModelSpec?
   private var sherpaSamples: [Float] = []
   private var hwRate = 16000
   private var onBufferCurrent: ((AVAudioPCMBuffer) -> Void)?
@@ -138,7 +139,7 @@ final class DictationManager: ObservableObject {
     engine.stop()
     guard let rate = startEngine(onBuffer: onBuffer) else { return }
     if rate != hwRate {
-      if sherpa != nil || qwenSpec != nil {
+      if sherpa != nil || qwenSpec != nil || offlineSpec != nil {
         dlog("hw rate changed \(hwRate) → \(rate), dropping \(sherpaSamples.count) buffered samples")
         sherpaSamples.removeAll()
       }
@@ -365,12 +366,33 @@ final class DictationManager: ObservableObject {
     }
     request = nil
     task = nil
+    let language = Settings.shared.language
+    let provider = Settings.shared.sherpaProvider
+
+    // Offline models don't need the engine until release — open the mic
+    // NOW (instant listening + waveform) and warm the engine in parallel.
+    // The warm load and the stop-time transcribe share the serial
+    // sherpaQueue, so transcription naturally waits for the load.
+    if !spec.live {
+      offlineSpec = spec
+      sherpaSamples = []
+      guard let rate = startEngine(onBuffer: { [weak self] buffer in
+        self?.consumeSherpa(buffer)
+      }) else { return }
+      hwRate = rate
+      markListening()
+      sherpaQueue.async {
+        _ = SherpaEngineCache.shared.engine(for: spec, language: language, provider: provider)
+      }
+      return
+    }
+
+    // Live models stream into the engine as audio arrives, so the load has
+    // to finish before capture starts.
     set("Loading \(spec.label)…")
     sherpaQueue.async { [weak self] in
       let loaded = SherpaEngineCache.shared.engine(
-        for: spec,
-        language: Settings.shared.language,
-        provider: Settings.shared.sherpaProvider,
+        for: spec, language: language, provider: provider,
       )
       DispatchQueue.main.async {
         guard let self else { return }
@@ -381,9 +403,7 @@ final class DictationManager: ObservableObject {
         guard !self.isRecording else { return }
         self.sherpa = loaded
         self.sherpaSamples = []
-        if spec.live {
-          self.sherpaQueue.async { loaded.startStream() }
-        }
+        self.sherpaQueue.async { loaded.startStream() }
         guard let rate = self.startEngine(onBuffer: { [weak self] buffer in
           self?.consumeSherpa(buffer)
         }) else { return }
@@ -431,11 +451,13 @@ final class DictationManager: ObservableObject {
     guard let ch = buffer.floatChannelData?[0] else { return }
     let samples = [Float](UnsafeBufferPointer(start: ch, count: Int(buffer.frameLength)))
     sherpaQueue.async { [weak self] in
-      guard let self, let sherpa = self.sherpa else { return }
-      if sherpa.spec.live {
+      guard let self else { return }
+      if let sherpa = self.sherpa, sherpa.spec.live {
         let text = sherpa.feed(samples, sampleRate: self.hwRate)
         DispatchQueue.main.async { self.lastText = text }
       } else if self.sherpaSamples.count < self.maxBufferedSamples {
+        // Offline capture buffers independently of the engine, which may
+        // still be warming on this queue.
         self.sherpaSamples.append(contentsOf: samples)
       }
     }
@@ -453,6 +475,37 @@ final class DictationManager: ObservableObject {
     releaseEngine()
     isRecording = false
     level = 0
+
+    if let spec = offlineSpec {
+      offlineSpec = nil
+      phase = .transcribing
+      set("Transcribing…")
+      let rate = hwRate
+      let language = Settings.shared.language
+      let provider = Settings.shared.sherpaProvider
+      sherpaQueue.async { [weak self] in
+        guard let self else { return }
+        let samples = self.sherpaSamples
+        self.sherpaSamples = []
+        guard let engine = SherpaEngineCache.shared.engine(
+          for: spec, language: language, provider: provider,
+        ) else {
+          DispatchQueue.main.async {
+            self.set("Couldn’t load \(spec.label) — re-download it in the Dashboard")
+            self.phase = .idle
+            HUD.shared.hide()
+          }
+          return
+        }
+        let text = engine.transcribe(samples, sampleRate: rate)
+        dlog("sherpa transcribed \(text.count) chars from \(samples.count) samples")
+        DispatchQueue.main.async {
+          self.set("Ready")
+          self.finish(with: text)
+        }
+      }
+      return
+    }
 
     if let spec = qwenSpec {
       qwenSpec = nil

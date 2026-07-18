@@ -242,17 +242,35 @@ final class SherpaEngineCache {
   static let shared = SherpaEngineCache()
   private var engine: SherpaEngine?
   private let lock = NSLock()
+  private var evict: DispatchWorkItem?
 
   // Language and provider are baked into the recognizer config at creation, so a
   // change to either has to rebuild the engine, not reuse the cached one.
   func engine(for spec: ModelSpec, language: String, provider: String) -> SherpaEngine? {
     lock.lock()
     defer { lock.unlock() }
+    scheduleEvictLocked()
     if let engine, engine.spec.id == spec.id, engine.language == language,
        engine.provider == provider { return engine }
     engine = nil // release the old model's memory before loading the next
     engine = SherpaEngine(spec: spec, language: language, provider: provider)
     return engine
+  }
+
+  // The big Parakeet checkpoints hold ~0.5-1.5 GB resident; drop the cache
+  // after idle — callers keep their own strong reference mid-transcription,
+  // so an in-flight decode is never torn down.
+  private func scheduleEvictLocked() {
+    evict?.cancel()
+    let w = DispatchWorkItem { [weak self] in
+      guard let self else { return }
+      self.lock.lock()
+      self.engine = nil
+      self.lock.unlock()
+      dlog("sherpa engine evicted after idle")
+    }
+    evict = w
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 300, execute: w)
   }
 
   func unload() {
