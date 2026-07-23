@@ -25,7 +25,7 @@ const BG = `
   <rect x="2" y="2" width="${S - 4}" height="${S - 4}" rx="${R - 2}" ry="${R - 2}"
         fill="none" stroke="#2A2A2E" stroke-width="3"/>`;
 
-// A — Waveform: three bold rounded bars (voice / equalizer)
+// A, Waveform: three bold rounded bars (voice / equalizer)
 function glyphA() {
   const bw = 116, gap = 76, h = [320, 540, 400];
   const total = bw * 3 + gap * 2;
@@ -40,14 +40,14 @@ function glyphA() {
     .join('');
 }
 
-// B — V mark: bold rounded "V" monogram
+// B, V mark: bold rounded "V" monogram
 function glyphB() {
   return `<path d="M 300 312 L 512 712 L 724 312"
     fill="none" stroke="#FFFFFF" stroke-width="120"
     stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
-// C — Listening orb: solid capsule + concentric pulse ring
+// C, Listening orb: solid capsule + concentric pulse ring
 function glyphC() {
   return `
     <circle cx="${S / 2}" cy="${S / 2}" r="300" fill="none" stroke="#FFFFFF" stroke-opacity="0.28" stroke-width="22"/>

@@ -50,7 +50,7 @@ class FlowBubbleAccessibilityService : AccessibilityService() {
     val focused = findFocusedEditable()
     if (focused == null) {
       copyToClipboard(text)
-      Toast.makeText(this, "Copied — tap a text field and paste", Toast.LENGTH_SHORT).show()
+      Toast.makeText(this, "Copied, tap a text field and paste", Toast.LENGTH_SHORT).show()
       return false
     }
     // Prefer paste (inserts at cursor, keeps surrounding text). Fall back to

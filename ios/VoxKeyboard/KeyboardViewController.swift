@@ -88,7 +88,7 @@ class KeyboardViewController: UIInputViewController {
   }
 
   // A keyboard extension can't call UIApplication.open directly, so walk the
-  // responder chain to whoever responds to openURL: — the standard workaround.
+  // responder chain to whoever responds to openURL:, the standard workaround.
   private func openContainingApp(_ url: URL) {
     let selector = sel_registerName("openURL:")
     var responder: UIResponder? = self

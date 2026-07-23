@@ -127,7 +127,7 @@ enum Paster {
     up?.post(tap: .cghidEventTap)
     dlog("insert: pasted \(text.count) chars")
 
-    // The transcript stays on the clipboard by default — restoring the old
+    // The transcript stays on the clipboard by default, restoring the old
     // clipboard is opt-in, and skipped if anything else copied meanwhile.
     guard Settings.shared.restoreClipboard, !saved.isEmpty else { return true }
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {

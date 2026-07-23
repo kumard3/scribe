@@ -10,7 +10,7 @@ sealed class KeyHook
   public Action? Press;
   public Action<TimeSpan>? Release;
   /// When set, the next keydown is delivered here (and swallowed) instead of
-  /// being treated as the hold key — used by "press any key" capture.
+  /// being treated as the hold key, used by "press any key" capture.
   public Action<int>? CaptureNext;
 
   const int WH_KEYBOARD_LL = 13;

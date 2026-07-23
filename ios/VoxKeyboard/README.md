@@ -1,4 +1,4 @@
-# Vox Voice — iOS keyboard extension
+# Vox Voice, iOS keyboard extension
 
 iOS forbids keyboard extensions from using the microphone (even with Full Access),
 so this keyboard hands off to the main Vox app to record **on-device**, then inserts
@@ -8,7 +8,7 @@ the result. Same pattern Wispr Flow uses, minus the cloud.
 `scripts/add-ios-keyboard.rb`). Files: `KeyboardViewController.swift`, `Info.plist`,
 `VoxKeyboard.entitlements`. Bundle id `ai.localvoice.app.VoxKeyboard`.
 
-## How the handoff works (clipboard-based — no App Group)
+## How the handoff works (clipboard-based, no App Group)
 
 1. In any app, switch to **Vox Voice** and tap **🎤 Dictate**.
 2. The keyboard opens the Vox app via `vox://dictate-session`.

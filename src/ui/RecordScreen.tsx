@@ -47,7 +47,14 @@ import {
   DIARIZATION_SIZE_LABEL,
 } from '../asr/diarize';
 import { translateText, translateTargetLabel, TRANSLATE_TARGETS } from '../asr/translate';
-import { getCloud, getAutoPolish, getDiarizationEnabled, setDiarizationEnabled } from '../asr/settings';
+import {
+  getCloud,
+  getAutoPolish,
+  getDiarizationEnabled,
+  setDiarizationEnabled,
+  getDiarizationSpeakers,
+  setDiarizationSpeakers,
+} from '../asr/settings';
 import { polish } from '../util/polish';
 import { addHistory } from '../history';
 import { deleteFileSafe } from '../util/files';
@@ -90,6 +97,7 @@ export function RecordScreen({ language, recordModel, onPickModel, onSaved, onBu
   const [pickTarget, setPickTarget] = useState(false);
 
   const [diarize, setDiarize] = useState(getDiarizationEnabled());
+  const [diarizeSpeakers, setDiarizeSpeakers] = useState(getDiarizationSpeakers());
 
   const startedAt = useRef(0);
   const pausedAccum = useRef(0);
@@ -175,7 +183,7 @@ export function RecordScreen({ language, recordModel, onPickModel, onSaved, onBu
     }
     const perm = await requestRecordingPermissionsAsync();
     if (!perm.granted) {
-      setError('Microphone permission denied — enable it in Settings.');
+      setError('Microphone permission denied. Enable it in Settings.');
       return;
     }
     try {
@@ -232,7 +240,7 @@ export function RecordScreen({ language, recordModel, onPickModel, onSaved, onBu
           setProgress(0);
         }
         setStatus('Identifying speakers');
-        const segs = await diarizeFile(uri, { numSpeakers: 0 });
+        const segs = await diarizeFile(uri, { numSpeakers: diarizeSpeakers });
         nSpeakers = Math.max(1, speakerCount(segs));
         result = buildSpeakerTurns(baseText, detailed.units, segs);
       } else {
@@ -257,7 +265,7 @@ export function RecordScreen({ language, recordModel, onPickModel, onSaved, onBu
       setStatus('');
       setProgress(0);
     }
-  }, [recordModel, language, diarize, ensureModelReady, reset, onSaved]);
+  }, [recordModel, language, diarize, diarizeSpeakers, ensureModelReady, reset, onSaved]);
 
   const onCancel = useCallback(async () => {
     await cancelRecorder();
@@ -293,6 +301,11 @@ export function RecordScreen({ language, recordModel, onPickModel, onSaved, onBu
     setDiarizationEnabled(v);
   }, []);
 
+  const onPickSpeakers = useCallback((n: number) => {
+    setDiarizeSpeakers(n);
+    setDiarizationSpeakers(n);
+  }, []);
+
   const view = showOriginal || !translated ? turns : translated;
   const fullText = view.length ? turnsToText(view) : edited;
   const multi = speakers > 1;
@@ -305,7 +318,7 @@ export function RecordScreen({ language, recordModel, onPickModel, onSaved, onBu
         <View style={styles.recTop}>
           <Text style={styles.timer}>{fmtTime(elapsed)}</Text>
           <Text style={styles.recHint}>
-            {paused ? 'Paused' : recorderBackgroundCapable ? 'Recording — you can leave the app' : 'Recording'}
+            {paused ? 'Paused' : recorderBackgroundCapable ? 'Recording, you can leave the app' : 'Recording'}
           </Text>
         </View>
         <View style={styles.center}>
@@ -476,6 +489,24 @@ export function RecordScreen({ language, recordModel, onPickModel, onSaved, onBu
           </View>
         )}
 
+        {diarizationSupported && diarize && (
+          <View style={styles.spkRow}>
+            <Text style={styles.spkLabel}>Speakers</Text>
+            {[0, 2, 3, 4, 5, 6].map((n) => (
+              <Pressable
+                key={n}
+                onPress={() => onPickSpeakers(n)}
+                style={[styles.spkChip, diarizeSpeakers === n && styles.spkChipOn]}
+                hitSlop={4}
+              >
+                <Text style={[styles.spkChipText, diarizeSpeakers === n && styles.spkChipTextOn]}>
+                  {n === 0 ? 'Auto' : n}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
         {error && <Text style={styles.error}>{error}</Text>}
       </View>
     </View>
@@ -574,6 +605,19 @@ const styles = StyleSheet.create({
   diarLabel: { flexDirection: 'row', alignItems: 'center', gap: 12, flexShrink: 1 },
   diarTitle: { color: theme.text, fontSize: 15, fontWeight: '600' },
   diarSub: { color: theme.textFaint, fontSize: 12, marginTop: 1 },
+  spkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%', paddingHorizontal: 2 },
+  spkLabel: { color: theme.textFaint, fontSize: 13, marginRight: 2 },
+  spkChip: {
+    minWidth: 34,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: 999,
+    backgroundColor: theme.surface,
+    alignItems: 'center',
+  },
+  spkChipOn: { backgroundColor: theme.primary },
+  spkChipText: { color: theme.text, fontSize: 13, fontWeight: '600' },
+  spkChipTextOn: { color: theme.onPrimary },
 
   error: { color: theme.danger, textAlign: 'center', marginTop: 10, fontSize: 13 },
 });

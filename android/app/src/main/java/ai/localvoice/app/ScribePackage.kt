@@ -7,7 +7,7 @@ import com.facebook.react.uimanager.ViewManager
 
 class ScribePackage : ReactPackage {
   override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> =
-    listOf(RecorderModule(reactContext), DiarizationModule(reactContext))
+    listOf(RecorderModule(reactContext), DiarizationModule(reactContext), PunctuationModule(reactContext))
 
   override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> =
     emptyList()

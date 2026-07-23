@@ -184,6 +184,8 @@ PODS:
     - ExpoModulesCore
   - ExpoClipboard (56.0.4):
     - ExpoModulesCore
+  - ExpoDocumentPicker (56.0.4):
+    - ExpoModulesCore
   - ExpoDomWebView (56.0.5):
     - ExpoModulesCore
   - ExpoFileSystem (56.0.7):
@@ -231,12 +233,88 @@ PODS:
   - EXUpdatesInterface (56.0.2):
     - ExpoModulesCore
   - FBLazyVector (0.85.3)
+  - GoogleDataTransport (10.1.0):
+    - nanopb (~> 3.30910.0)
+    - PromisesObjC (~> 2.4)
+  - GoogleMLKit/LanguageID (8.0.0):
+    - GoogleMLKit/MLKitCore
+    - MLKitLanguageID (~> 8.0.0)
+  - GoogleMLKit/MLKitCore (8.0.0):
+    - MLKitCommon (~> 13.0.0)
+  - GoogleMLKit/Translate (8.0.0):
+    - GoogleMLKit/MLKitCore
+    - MLKitTranslate (~> 7.0.0)
+  - GoogleToolboxForMac/Defines (4.2.1)
+  - GoogleToolboxForMac/Logger (4.2.1):
+    - GoogleToolboxForMac/Defines (= 4.2.1)
+  - "GoogleToolboxForMac/NSData+zlib (4.2.1)":
+    - GoogleToolboxForMac/Defines (= 4.2.1)
+  - GoogleToolboxForMac/StringEncoding (4.2.1):
+    - GoogleToolboxForMac/Defines (= 4.2.1)
+  - GoogleUtilities/Environment (8.1.1):
+    - GoogleUtilities/Privacy
+  - GoogleUtilities/Logger (8.1.1):
+    - GoogleUtilities/Environment
+    - GoogleUtilities/Privacy
+  - GoogleUtilities/Privacy (8.1.1)
+  - GoogleUtilities/UserDefaults (8.1.1):
+    - GoogleUtilities/Logger
+    - GoogleUtilities/Privacy
+  - GTMSessionFetcher/Core (3.5.0)
   - hermes-engine (250829098.0.10):
     - hermes-engine/Pre-built (= 250829098.0.10)
   - hermes-engine/Pre-built (250829098.0.10)
+  - llama-rn (0.12.4):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React
+    - React-callinvoker
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
+  - MLKitCommon (13.0.0):
+    - GoogleDataTransport (~> 10.0)
+    - GoogleToolboxForMac/Logger (< 5.0, >= 4.2.1)
+    - "GoogleToolboxForMac/NSData+zlib (< 5.0, >= 4.2.1)"
+    - GoogleUtilities/Logger (~> 8.0)
+    - GoogleUtilities/UserDefaults (~> 8.0)
+    - GTMSessionFetcher/Core (< 4.0, >= 3.3.2)
+  - MLKitLanguageID (8.0.0):
+    - MLKitNaturalLanguage (~> 9.0)
+  - MLKitNaturalLanguage (9.0.0):
+    - GoogleToolboxForMac/Logger (< 5.0, >= 4.2.1)
+    - "GoogleToolboxForMac/NSData+zlib (< 5.0, >= 4.2.1)"
+    - GoogleToolboxForMac/StringEncoding (< 5.0, >= 4.2.1)
+    - GTMSessionFetcher/Core (< 4.0, >= 3.3.2)
+    - MLKitCommon (~> 13.0)
+  - MLKitTranslate (7.0.0):
+    - MLKitNaturalLanguage (~> 9.0)
+    - SSZipArchive (< 3.0, >= 2.5.5)
   - MMKV (2.4.0):
     - MMKVCore (~> 2.4.0)
   - MMKVCore (2.4.0)
+  - nanopb (3.30910.0):
+    - nanopb/decode (= 3.30910.0)
+    - nanopb/encode (= 3.30910.0)
+  - nanopb/decode (3.30910.0)
+  - nanopb/encode (3.30910.0)
+  - PromisesObjC (2.4.1)
   - RCTDeprecation (0.85.3)
   - RCTRequired (0.85.3)
   - RCTSwiftUI (0.85.3)
@@ -2066,6 +2144,12 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - RNMLKitIdentifyLanguages (2.0.0):
+    - GoogleMLKit/LanguageID (= 8.0.0)
+    - React
+  - RNMLKitTranslateText (0.5.0):
+    - GoogleMLKit/Translate (= 8.0.0)
+    - React
   - SherpaOnnx (0.4.3):
     - hermes-engine
     - RCTRequired
@@ -2088,6 +2172,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - SSZipArchive (2.6.0)
   - whisper-rn (0.6.0):
     - hermes-engine
     - RCTRequired
@@ -2126,11 +2211,12 @@ DEPENDENCIES:
   - ExpoAsset (from `../node_modules/expo-asset/ios`)
   - ExpoAudio (from `../node_modules/expo-audio/ios`)
   - ExpoClipboard (from `../node_modules/expo-clipboard/ios`)
-  - "ExpoDomWebView (from `../node_modules/expo/node_modules/@expo/dom-webview/ios`)"
+  - ExpoDocumentPicker (from `../node_modules/expo-document-picker/ios`)
+  - "ExpoDomWebView (from `../node_modules/@expo/dom-webview/ios`)"
   - ExpoFileSystem (from `../node_modules/expo-file-system/ios/ExpoFileSystem.podspec`)
   - ExpoFont (from `../node_modules/expo-font/ios/ExpoFont.podspec`)
   - ExpoKeepAwake (from `../node_modules/expo-keep-awake/ios`)
-  - "ExpoLogBox (from `../node_modules/expo/node_modules/@expo/log-box`)"
+  - "ExpoLogBox (from `../node_modules/@expo/log-box`)"
   - ExpoModulesCore (from `../node_modules/expo-modules-core/ExpoModulesCore.podspec`)
   - ExpoModulesJSI (from `../node_modules/expo-modules-jsi/apple`)
   - ExpoModulesWorklets (from `../node_modules/expo-modules-core/ExpoModulesWorklets.podspec`)
@@ -2139,6 +2225,7 @@ DEPENDENCIES:
   - EXUpdatesInterface (from `../node_modules/expo-updates-interface/ios`)
   - FBLazyVector (from `../node_modules/react-native/Libraries/FBLazyVector`)
   - hermes-engine (from `../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
+  - llama-rn (from `../node_modules/llama.rn`)
   - RCTDeprecation (from `../node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation`)
   - RCTRequired (from `../node_modules/react-native/Libraries/Required`)
   - RCTSwiftUI (from `../node_modules/react-native/ReactApple/RCTSwiftUI`)
@@ -2213,14 +2300,28 @@ DEPENDENCIES:
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
   - ReactNativeDependencies (from `../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec`)
   - "ReactNativeFs (from `../node_modules/@dr.pogodin/react-native-fs`)"
+  - "RNMLKitIdentifyLanguages (from `../node_modules/@react-native-ml-kit/identify-languages`)"
+  - "RNMLKitTranslateText (from `../node_modules/@react-native-ml-kit/translate-text`)"
   - SherpaOnnx (from `../node_modules/react-native-sherpa-onnx`)
   - whisper-rn (from `../node_modules/whisper.rn`)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
 
 SPEC REPOS:
   trunk:
+    - GoogleDataTransport
+    - GoogleMLKit
+    - GoogleToolboxForMac
+    - GoogleUtilities
+    - GTMSessionFetcher
+    - MLKitCommon
+    - MLKitLanguageID
+    - MLKitNaturalLanguage
+    - MLKitTranslate
     - MMKV
     - MMKVCore
+    - nanopb
+    - PromisesObjC
+    - SSZipArchive
 
 EXTERNAL SOURCES:
   EXConstants:
@@ -2245,8 +2346,10 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-audio/ios"
   ExpoClipboard:
     :path: "../node_modules/expo-clipboard/ios"
+  ExpoDocumentPicker:
+    :path: "../node_modules/expo-document-picker/ios"
   ExpoDomWebView:
-    :path: "../node_modules/expo/node_modules/@expo/dom-webview/ios"
+    :path: "../node_modules/@expo/dom-webview/ios"
   ExpoFileSystem:
     :podspec: "../node_modules/expo-file-system/ios/ExpoFileSystem.podspec"
   ExpoFont:
@@ -2254,7 +2357,7 @@ EXTERNAL SOURCES:
   ExpoKeepAwake:
     :path: "../node_modules/expo-keep-awake/ios"
   ExpoLogBox:
-    :path: "../node_modules/expo/node_modules/@expo/log-box"
+    :path: "../node_modules/@expo/log-box"
   ExpoModulesCore:
     :podspec: "../node_modules/expo-modules-core/ExpoModulesCore.podspec"
   ExpoModulesJSI:
@@ -2272,6 +2375,8 @@ EXTERNAL SOURCES:
   hermes-engine:
     :podspec: "../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec"
     :tag: hermes-v250829098.0.10
+  llama-rn:
+    :path: "../node_modules/llama.rn"
   RCTDeprecation:
     :path: "../node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation"
   RCTRequired:
@@ -2418,6 +2523,10 @@ EXTERNAL SOURCES:
     :podspec: "../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec"
   ReactNativeFs:
     :path: "../node_modules/@dr.pogodin/react-native-fs"
+  RNMLKitIdentifyLanguages:
+    :path: "../node_modules/@react-native-ml-kit/identify-languages"
+  RNMLKitTranslateText:
+    :path: "../node_modules/@react-native-ml-kit/translate-text"
   SherpaOnnx:
     :path: "../node_modules/react-native-sherpa-onnx"
   whisper-rn:
@@ -2437,6 +2546,7 @@ SPEC CHECKSUMS:
   ExpoAsset: c3045ed094105f5f2bf332e36ef1bd63401c948f
   ExpoAudio: 7774082d316ceecc2b26efeb10480bea2fa4d67e
   ExpoClipboard: 342ae52697ff1cf89b8849bee624a9a320e77d3c
+  ExpoDocumentPicker: caa9c7c1071dc31262d86a8fe48f51929d291a43
   ExpoDomWebView: 27205be8754f9992913b8a9a08e65019f2207075
   ExpoFileSystem: d730a1cb33f2c91dec01561f0d710054fda32ae9
   ExpoFont: 6fe496f2be617ed4367f159f215dcc4ba27d37d6
@@ -2449,9 +2559,21 @@ SPEC CHECKSUMS:
   ExpoSpeechRecognition: 119acf84448579e53f841d040aad76982f945e2d
   EXUpdatesInterface: 25408a97d682355eb9fb37e5aa6e22caece1881f
   FBLazyVector: 24e62c765683b8d89006a88a2c8f5cf019f0074d
+  GoogleDataTransport: aae35b7ea0c09004c3797d53c8c41f66f219d6a7
+  GoogleMLKit: ddd51d7dff36ff28defa69afedd9cdce684fd857
+  GoogleToolboxForMac: d1a2cbf009c453f4d6ded37c105e2f67a32206d8
+  GoogleUtilities: 4f2618a4a1e762a1ee134a1e2323bba9843e06da
+  GTMSessionFetcher: 5aea5ba6bd522a239e236100971f10cb71b96ab6
   hermes-engine: 4672d011d36df13233694b7f31590c7af6bdb045
+  llama-rn: 0aaa359b3042f69f5076ad738885fba9a895130b
+  MLKitCommon: 26b779f072a182c1603d4c88a101c350cac837b1
+  MLKitLanguageID: ca609e2c8706b01d1123f5d8c65f1ed7d3e385f3
+  MLKitNaturalLanguage: 4c5580068109aaea85809981b8c4cb4675b2100f
+  MLKitTranslate: ab71c9e4a67cc79756d4dae013e47edfca3b57cb
   MMKV: 86859fdfa2b0b21db1fd6e48788474a6416a2c77
   MMKVCore: 3d16ce9f7d411e135020915fde98a056859a1efa
+  nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
+  PromisesObjC: 752c3227f599e3467650e47ea36f433eeb10c273
   RCTDeprecation: a4c521821fab57cbb125b36effe84d897d0dfa12
   RCTRequired: 9f3a7e5645d4bc3f551593de7550bb66ab6e42bc
   RCTSwiftUI: 239ed2eb9e73de5a6f518810630f0c95e01c8702
@@ -2525,7 +2647,10 @@ SPEC CHECKSUMS:
   ReactCommon: 7dfc3250793bf36cf221096ff59e1179e13eef7f
   ReactNativeDependencies: 45fdecf2d2f68cba77a6198068b3ac5845871219
   ReactNativeFs: 21026144ac71a65acf6855c52b1a8eb31012bb5d
+  RNMLKitIdentifyLanguages: fa2f7b051e8cfe0e997042d36f2326f4fc15429d
+  RNMLKitTranslateText: c9cd425ef10f0e4d619c662b0231deb426f65067
   SherpaOnnx: fb574b4c8ecbfd074c70ffb84d06b1277042f338
+  SSZipArchive: 8a6ee5677c8e304bebc109e39cf0da91ccef22ea
   whisper-rn: 7a0e8aedccc760be11aa025cb24b76ec7c88769a
   Yoga: 77dfa8673de2874e1855002ae59c68b8be9b007b
 

@@ -118,7 +118,7 @@ class VoiceKeyboardService : InputMethodService(), RecognitionListener {
   }
 
   // Slim toolbar: language switch on the left, partial dictation text in the
-  // middle, a standard mic icon on the right — both icons monochrome.
+  // middle, a standard mic icon on the right, both icons monochrome.
   private fun buildToolbar(): View {
     val bar = LinearLayout(this).apply {
       orientation = LinearLayout.HORIZONTAL

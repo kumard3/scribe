@@ -10,6 +10,7 @@ import {
   Share,
   StatusBar as RNStatusBar,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -55,15 +56,39 @@ import { transcribeCloud } from './src/asr/cloud';
 import {
   getAutoPolish,
   getCloud,
+  getDiarizationEnabled,
+  getDiarizationSpeakers,
   getOnboarded,
   getRecordModelId,
   getSelectedModelId,
   getTranslateTarget,
   getVocab,
+  setDiarizationEnabled,
+  setDiarizationSpeakers,
 } from './src/asr/settings';
-import { canRecordWith } from './src/asr/recordTranscribe';
+import { Paths, File as CacheFile } from 'expo-file-system';
+import { convertAudioToWav16k } from 'react-native-sherpa-onnx/audio';
+import { canRecordWith, recordTranscribe } from './src/asr/recordTranscribe';
+import {
+  buildSpeakerTurns,
+  diarizationInstalled,
+  diarizationSupported,
+  diarizeFile,
+  downloadDiarizationModels,
+  turnsToText,
+  DIARIZATION_SIZE_LABEL,
+  type SpeakerTurn,
+} from './src/asr/diarize';
+import {
+  punctuate,
+  needsPunctuation,
+  punctuationSupported,
+  punctuationInstalled,
+  downloadPunctuationModel,
+} from './src/asr/punctuate';
 import { translateText, translateTargetLabel } from './src/asr/translate';
-import { polish } from './src/util/polish';
+import { polish, applyVoiceCommands } from './src/util/polish';
+import * as haptics from './src/util/haptics';
 import { summarize } from './src/util/summarize';
 import { LLM_MODELS, llmInstalled, cleanupWithLLM, summarizeWithLLM } from './src/asr/llm';
 import type { LanguageCode } from './src/asr/types';
@@ -94,6 +119,8 @@ export default function App() {
   const [selectedModelId, setSelectedModelId] = useState<string>(getSelectedModelId());
   const [language, setLanguage] = useState<LanguageCode>('en');
   const [translateTarget, setTranslateTarget] = useState(getTranslateTarget());
+  const [diarize, setDiarize] = useState(getDiarizationEnabled());
+  const [diarizeSpeakers, setDiarizeSpeakers] = useState(getDiarizationSpeakers());
   const [busy, setBusy] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -189,6 +216,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!error) return;
+    const t = setTimeout(() => setError(null), 5000);
+    return () => clearTimeout(t);
+  }, [error]);
+
+  useEffect(() => {
     if (!active) return;
     activateKeepAwakeAsync('localvoice');
     return () => {
@@ -204,7 +237,8 @@ export default function App() {
   // Finish a live (system) session: polish, translate to the target if one is
   // set, then show + save the result. Async so the ML Kit translate can run.
   const finalizeLive = useCallback(async (raw: string) => {
-    let text = getAutoPolish() ? polish(raw) : raw;
+    let text = applyVoiceCommands(raw);
+    if (getAutoPolish()) text = polish(text);
     const target = recTarget.current;
     if (target) {
       setBusy(true);
@@ -265,7 +299,7 @@ export default function App() {
   });
 
   useSpeechRecognitionEvent('error', (e) => {
-    // no-speech / aborted are normal pauses — let the 'end' handler decide whether to restart.
+    // no-speech / aborted are normal pauses, let the 'end' handler decide whether to restart.
     if (e.error === 'no-speech' || e.error === 'aborted') return;
     liveIntent.current = false;
     if (e.error === 'language-not-supported' || e.error === 'service-not-allowed') {
@@ -309,7 +343,7 @@ export default function App() {
 
   const onLivePress = useCallback(async () => {
     if (recognizing) {
-      liveIntent.current = false; // user-initiated stop — don't auto-restart
+      liveIntent.current = false; // user-initiated stop, don't auto-restart
       stopLive();
       return;
     }
@@ -321,7 +355,7 @@ export default function App() {
       }
       const mic = await requestRecordingPermissionsAsync();
       if (!mic.granted) {
-        setError('Microphone permission denied — enable it in Settings.');
+        setError('Microphone permission denied. Enable it in Settings.');
         return;
       }
       committed.current = '';
@@ -376,6 +410,7 @@ export default function App() {
           const res = await transcribeWithModel(uri, m.whisper, lang, false);
           text = res.text || '';
         }
+        text = applyVoiceCommands(text);
         if (getAutoPolish()) text = polish(text);
         if (target && text.trim()) text = await translateText(text, target, lang);
         setTranscript(text);
@@ -465,7 +500,7 @@ export default function App() {
       const target = recTarget.current;
       setBusy(true);
       try {
-        let text = await stopSherpaLive();
+        let text = applyVoiceCommands(await stopSherpaLive());
         if (getAutoPolish()) text = polish(text);
         if (target && text.trim()) text = await translateText(text, target, lang);
         setTranscript(text);
@@ -539,6 +574,11 @@ export default function App() {
       : selected.live
         ? onModelLivePress
         : onOfflinePress;
+
+  const onMicTap = useCallback(() => {
+    haptics.tap();
+    onMicPress();
+  }, [onMicPress]);
 
   const onCancel = useCallback(async () => {
     if (recognizing) {
@@ -660,7 +700,7 @@ export default function App() {
     }
     const s = summarize(transcript);
     setTranscript(s);
-    // Keep the full transcript in history — don't overwrite it with the gist.
+    // Keep the full transcript in history, don't overwrite it with the gist.
     lastHistoryId.current = null;
   }, [transcript, aiBusy]);
 
@@ -676,7 +716,7 @@ export default function App() {
         copyToCacheDirectory: true,
       });
       if (picked.canceled || !picked.assets?.[0]) return;
-      const uri = picked.assets[0].uri;
+      let uri = picked.assets[0].uri;
       const m = selected;
 
       if (m.kind === 'system') {
@@ -712,20 +752,69 @@ export default function App() {
         }
       }
 
-      let text = '';
-      if (m.kind === 'nemo' && m.nemo) {
-        text = await transcribeWithNemo(m.nemo, uri);
-      } else if (m.kind === 'sherpa' && m.sherpaId) {
-        const spec = sherpaModelById(m.sherpaId);
-        text = spec ? await transcribeWithSherpa(spec, uri) : '';
-      } else if (m.kind === 'cloud') {
-        text = await transcribeCloud(uri, getCloud(), language, false);
-      } else if (m.kind === 'whisper' && m.whisper) {
-        const res = await transcribeWithModel(uri, m.whisper, language, false);
-        text = res.text || '';
+      // Offline engines and the diarizer read WAV only; decode compressed
+      // imports (mp3/m4a/aac…) once via the bundled FFmpeg, then reuse for both.
+      if (m.kind !== 'cloud' && !uri.toLowerCase().endsWith('.wav')) {
+        const out = new CacheFile(Paths.cache, 'scribe-import-16k.wav');
+        if (out.exists) out.delete();
+        await convertAudioToWav16k(uri.replace(/^file:\/\//, ''), out.uri.replace(/^file:\/\//, ''));
+        uri = out.uri;
       }
-      if (getAutoPolish()) text = polish(text);
-      if (translateTarget && text.trim()) text = await translateText(text, translateTarget, language);
+
+      const detailed = await recordTranscribe(m, uri, language);
+
+      let turns: SpeakerTurn[] | null = null;
+      if (diarize && diarizationSupported && detailed.text.trim()) {
+        try {
+          if (!diarizationInstalled()) {
+            setDownloading(true);
+            setProgress(0);
+            await downloadDiarizationModels(setProgress);
+            setDownloading(false);
+          }
+          // ponytail: whole file loads into memory native-side; a 40-min call is
+          // ~150MB of samples. Chunk the diarizer if long imports OOM on device.
+          const segs = await diarizeFile(uri, { numSpeakers: diarizeSpeakers });
+          if (segs.length) turns = buildSpeakerTurns(detailed.text, detailed.units, segs);
+        } catch {
+          setDownloading(false); // keep the transcript; just skip speaker labels
+        }
+      }
+
+      const doPunct = punctuationSupported && needsPunctuation(m) && !!detailed.text.trim();
+      if (doPunct && !punctuationInstalled()) {
+        setDownloading(true);
+        setProgress(0);
+        try {
+          await downloadPunctuationModel(setProgress);
+        } catch {
+          /* punctuate() no-ops if the model is missing */
+        }
+        setDownloading(false);
+      }
+
+      let text: string;
+      if (turns && turns.length) {
+        if (getAutoPolish()) turns = turns.map((t) => ({ ...t, text: polish(t.text) }));
+        if (doPunct) {
+          const p: SpeakerTurn[] = [];
+          for (const t of turns) p.push({ speaker: t.speaker, text: await punctuate(t.text) });
+          turns = p;
+        }
+        if (translateTarget) {
+          const out: SpeakerTurn[] = [];
+          for (const t of turns) {
+            out.push({ speaker: t.speaker, text: await translateText(t.text, translateTarget, language) });
+          }
+          turns = out;
+        }
+        text = turnsToText(turns);
+      } else {
+        text = detailed.text;
+        if (getAutoPolish()) text = polish(text);
+        if (doPunct) text = await punctuate(text);
+        if (translateTarget && text.trim()) text = await translateText(text, translateTarget, language);
+      }
       setTranscript(text);
       setResultTarget(translateTarget || '');
       if (text.trim()) {
@@ -738,7 +827,7 @@ export default function App() {
         lastHistoryId.current = items[0]?.id ?? null;
         setHistory(items);
       } else {
-        setError('No speech found — for offline models the file must be a 16 kHz WAV; cloud models accept any format.');
+        setError('No speech found. For offline models the file must be a 16 kHz WAV; cloud models accept any format.');
       }
     } catch (e: any) {
       setError(e?.message ?? String(e));
@@ -746,7 +835,17 @@ export default function App() {
     } finally {
       setBusy(false);
     }
-  }, [busy, active, selected, language, translateTarget]);
+  }, [busy, active, selected, language, translateTarget, diarize, diarizeSpeakers]);
+
+  const onToggleDiarize = useCallback((v: boolean) => {
+    setDiarize(v);
+    setDiarizationEnabled(v);
+  }, []);
+
+  const onPickSpeakers = useCallback((n: number) => {
+    setDiarizeSpeakers(n);
+    setDiarizationSpeakers(n);
+  }, []);
 
   const statusLine = (() => {
     if (busy) return 'Transcribing…';
@@ -858,6 +957,7 @@ export default function App() {
               ) : (
                 <View style={styles.center}>
                   <Text style={styles.listening}>Listening…</Text>
+                  <Text style={styles.cmdHint}>Try “new line” or “scratch that”</Text>
                 </View>
               )}
             </View>
@@ -932,6 +1032,7 @@ export default function App() {
           ) : (
             <View style={styles.center}>
               <Text style={styles.bigHint}>Tap to speak</Text>
+              <Text style={styles.cmdHint}>Say “new line”, “bullet”, or “scratch that”</Text>
             </View>
           )}
         </View>
@@ -959,7 +1060,7 @@ export default function App() {
               <Pressable style={styles.cancelBtn} onPress={onCancel} hitSlop={10}>
                 <Text style={styles.cancelText}>Cancel</Text>
               </Pressable>
-              <RecordButton recording={active} busy={busy || downloading} onPress={onMicPress} />
+              <RecordButton recording={active} busy={busy || downloading} onPress={onMicTap} />
               {transcript.trim().length > 0 ? (
                 <Pressable
                   style={styles.copyBtn}
@@ -974,18 +1075,61 @@ export default function App() {
             </View>
           ) : (
             <View style={styles.idleDock}>
-              <RecordButton recording={active} busy={busy || downloading} onPress={onMicPress} />
+              <RecordButton recording={active} busy={busy || downloading} onPress={onMicTap} />
               {transcript.trim().length === 0 && (
                 <Pressable onPress={onImportFile} hitSlop={8} style={styles.importRow}>
                   <Ionicons name="document-attach-outline" size={16} color={theme.textFaint} />
                   <Text style={styles.importText}>Import audio file</Text>
                 </Pressable>
               )}
+              {transcript.trim().length === 0 && diarizationSupported && (
+                <View style={styles.diarRow}>
+                  <View style={styles.diarLabel}>
+                    <Ionicons name="people-outline" size={17} color={theme.textDim} />
+                    <View style={styles.diarTextWrap}>
+                      <Text style={styles.diarTitle}>Identify speakers</Text>
+                      <Text style={styles.diarSub}>
+                        {diarizationInstalled()
+                          ? 'Labels who said what in an imported recording'
+                          : `Labels who said what · adds a ${DIARIZATION_SIZE_LABEL} model`}
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={diarize}
+                    onValueChange={onToggleDiarize}
+                    trackColor={{ false: theme.border, true: theme.primary }}
+                    thumbColor={theme.onPrimary}
+                  />
+                </View>
+              )}
+              {transcript.trim().length === 0 && diarizationSupported && diarize && (
+                <View style={styles.spkRow}>
+                  <Text style={styles.spkLabel}>Speakers</Text>
+                  {[0, 2, 3, 4, 5, 6].map((n) => (
+                    <Pressable
+                      key={n}
+                      onPress={() => onPickSpeakers(n)}
+                      style={[styles.spkChip, diarizeSpeakers === n && styles.spkChipOn]}
+                      hitSlop={4}
+                    >
+                      <Text style={[styles.spkChipText, diarizeSpeakers === n && styles.spkChipTextOn]}>
+                        {n === 0 ? 'Auto' : n}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
             </View>
           )}
 
           {statusLine.length > 0 && <Text style={styles.status}>{statusLine}</Text>}
-          {error && <Text style={styles.error}>{error}</Text>}
+          {error && (
+            <View style={styles.toast}>
+              <Ionicons name="alert-circle-outline" size={15} color={theme.danger} />
+              <Text style={styles.toastText}>{error}</Text>
+            </View>
+          )}
         </View>
           </>
         )}
@@ -1103,6 +1247,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   bigHint: { color: theme.textFaint, fontSize: 18, fontWeight: '500' },
+  cmdHint: { color: theme.textFaint, fontSize: 13, marginTop: 10, textAlign: 'center', opacity: 0.7 },
   resultWrap: { flex: 1, paddingTop: 18 },
   transcript: {
     flex: 1,
@@ -1142,6 +1287,55 @@ const styles = StyleSheet.create({
   idleDock: { alignItems: 'center', gap: 16 },
   importRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   importText: { color: theme.textFaint, fontSize: 14, fontWeight: '500' },
+  diarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: theme.surface,
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    gap: 12,
+    alignSelf: 'stretch',
+    marginHorizontal: 20,
+  },
+  diarLabel: { flexDirection: 'row', alignItems: 'center', gap: 12, flexShrink: 1 },
+  diarTextWrap: { flexShrink: 1 },
+  diarTitle: { color: theme.text, fontSize: 15, fontWeight: '600' },
+  diarSub: { color: theme.textFaint, fontSize: 12, marginTop: 1 },
+  spkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    alignSelf: 'stretch',
+    marginHorizontal: 20,
+    marginTop: -6,
+  },
+  spkLabel: { color: theme.textFaint, fontSize: 13, marginRight: 2 },
+  spkChip: {
+    minWidth: 34,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: 999,
+    backgroundColor: theme.surface,
+    alignItems: 'center',
+  },
+  spkChipOn: { backgroundColor: theme.primary },
+  spkChipText: { color: theme.text, fontSize: 13, fontWeight: '600' },
+  spkChipTextOn: { color: theme.onPrimary },
   status: { color: theme.textDim, textAlign: 'center', marginTop: 14, fontSize: 13 },
   error: { color: theme.danger, textAlign: 'center', marginTop: 8, fontSize: 13 },
+  toast: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'center',
+    backgroundColor: theme.surface,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    marginTop: 10,
+    maxWidth: '90%',
+  },
+  toastText: { color: theme.textDim, fontSize: 13, flexShrink: 1 },
 });

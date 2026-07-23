@@ -3,7 +3,7 @@ import TranslateText, { TranslateLanguage } from '@react-native-ml-kit/translate
 import IdentifyLanguages from '@react-native-ml-kit/identify-languages';
 
 // On-device translation (Google ML Kit). Speak in any language, transcribe with
-// the normal STT, then translate the text to a single target the user picks —
+// the normal STT, then translate the text to a single target the user picks,
 // the way Wispr Flow does it on Android. Models download once per language and
 // then run fully offline. Both native modules expose a NativeModules entry; if
 // the build hasn't linked them yet, every call here degrades to a no-op so the
@@ -34,7 +34,7 @@ const POPULAR = ['en', 'es', 'hi', 'fr', 'de', 'zh', 'ar', 'pt', 'ru', 'ja'];
 
 // Every ML Kit language, built from the SDK enum so the list can't drift.
 export const TRANSLATE_TARGETS: { code: string; label: string }[] = [
-  { code: '', label: 'Off — no translation' },
+  { code: '', label: 'Off, no translation' },
   ...POPULAR.filter((c) => VALID.has(c)).map((c) => ({ code: c, label: LANG_LABELS[c] ?? c })),
   ...Object.values(TranslateLanguage)
     .filter((c) => !POPULAR.includes(c))

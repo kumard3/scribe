@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// Downloads model archives from k2-fsa releases into
 /// ~/Library/Application Support/Scribe/models/<id>/ and extracts them.
@@ -41,6 +42,10 @@ final class ModelStore: NSObject, ObservableObject {
         let fm = FileManager.default
         installed = fm.fileExists(atPath: dir.appendingPathComponent(spec.fileName).path)
           && fm.fileExists(atPath: dir.appendingPathComponent(spec.mmprojFileName).path)
+      case .whisperCpp:
+        installed = FileManager.default.fileExists(
+          atPath: dir.appendingPathComponent(spec.fileName).path
+        )
       default:
         installed = Self.tokensFile(in: dir) != nil
       }
@@ -86,7 +91,7 @@ final class ModelStore: NSObject, ObservableObject {
     }
   }
 
-  /// Every archive ships a tokens file next to its .onnx files — usually
+  /// Every archive ships a tokens file next to its .onnx files, usually
   /// tokens.txt, but Whisper archives prefix it (e.g. tiny-tokens.txt).
   nonisolated static func tokensFile(in dir: URL) -> URL? {
     guard let e = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil)
@@ -125,11 +130,11 @@ final class ModelStore: NSObject, ObservableObject {
   }
 
   /// Single-file install for a GGUF: move it into the model dir verbatim (no
-  /// archive extraction). Tolerant size check — HF/CDN length can drift.
+  /// archive extraction). Tolerant size check, HF/CDN length can drift.
   /// `wipe` clears the dir first (first file of a set); `isFinal` marks the
   /// spec installed when done. For qwenAsr the mmproj download is kicked off
   /// after the main model lands.
-  nonisolated private func installGGUF(
+  nonisolated private func installSingleFile(
     spec: ModelSpec, tempFile: URL, name: String, expectedBytes: Int64,
     wipe: Bool, isFinal: Bool
   ) {
@@ -141,8 +146,16 @@ final class ModelStore: NSObject, ObservableObject {
       guard expectedBytes <= 0 || size > Int64(Double(expectedBytes) * 0.99) else {
         throw NSError(domain: "Scribe", code: 1, userInfo: [
           NSLocalizedDescriptionKey:
-            "Download incomplete (\(Int(Double(size) / 1e6)) MB) — try again."
+            "Download incomplete (\(Int(Double(size) / 1e6)) MB), try again."
         ])
+      }
+      if name == spec.fileName, !spec.sha256.isEmpty {
+        let actual = try Self.sha256(of: tempFile)
+        guard actual == spec.sha256.lowercased() else {
+          throw NSError(domain: "Scribe", code: 4, userInfo: [
+            NSLocalizedDescriptionKey: "Model verification failed, delete the download and try again."
+          ])
+        }
       }
       if wipe { try? fm.removeItem(at: dir) }
       try fm.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -177,6 +190,16 @@ final class ModelStore: NSObject, ObservableObject {
     }
   }
 
+  nonisolated private static func sha256(of url: URL) throws -> String {
+    let handle = try FileHandle(forReadingFrom: url)
+    defer { try? handle.close() }
+    var hasher = SHA256()
+    while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty {
+      hasher.update(data: data)
+    }
+    return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+  }
+
   nonisolated private func extract(spec: ModelSpec, tempFile: URL) {
     let fm = FileManager.default
     let dir = Self.dir(for: spec)
@@ -186,7 +209,7 @@ final class ModelStore: NSObject, ObservableObject {
       guard size > Int64(Double(spec.sizeBytes) * 0.995) else {
         throw NSError(domain: "Scribe", code: 1, userInfo: [
           NSLocalizedDescriptionKey:
-            "Download incomplete (\(Int(Double(size) / 1e6)) of \(spec.sizeLabel)) — try again."
+            "Download incomplete (\(Int(Double(size) / 1e6)) of \(spec.sizeLabel)), try again."
         ])
       }
       try? fm.removeItem(at: dir)
@@ -199,7 +222,7 @@ final class ModelStore: NSObject, ObservableObject {
       tar.waitUntilExit()
       guard tar.terminationStatus == 0 else {
         throw NSError(domain: "Scribe", code: 2, userInfo: [
-          NSLocalizedDescriptionKey: "Archive extraction failed — try again."
+          NSLocalizedDescriptionKey: "Archive extraction failed, try again."
         ])
       }
       guard Self.tokensFile(in: dir) != nil else {
@@ -259,9 +282,9 @@ extension ModelStore: URLSessionDownloadDelegate {
     guard let desc = downloadTask.taskDescription else { return }
     let (id, mmproj) = Self.parse(desc)
     guard let spec = ModelCatalog.spec(id) else { return }
-    // The temp file dies when this delegate returns — move it out first.
-    let singleFile = spec.kind == .llm || spec.kind == .qwenAsr
-    let ext = singleFile ? "gguf" : "tar.bz2"
+    // The temp file dies when this delegate returns, move it out first.
+    let singleFile = spec.kind == .llm || spec.kind == .qwenAsr || spec.kind == .whisperCpp
+    let ext = spec.kind == .whisperCpp ? "bin" : (singleFile ? "gguf" : "tar.bz2")
     let kept = FileManager.default.temporaryDirectory
       .appendingPathComponent("scribe-\(id)\(mmproj ? "-mmproj" : "").\(ext)")
     try? FileManager.default.removeItem(at: kept)
@@ -269,17 +292,20 @@ extension ModelStore: URLSessionDownloadDelegate {
     DispatchQueue.global(qos: .userInitiated).async {
       switch spec.kind {
       case .llm:
-        self.installGGUF(spec: spec, tempFile: kept, name: spec.fileName,
-                         expectedBytes: spec.sizeBytes, wipe: true, isFinal: true)
+        self.installSingleFile(spec: spec, tempFile: kept, name: spec.fileName,
+                               expectedBytes: spec.sizeBytes, wipe: true, isFinal: true)
       case .qwenAsr:
         if mmproj {
-          self.installGGUF(spec: spec, tempFile: kept, name: spec.mmprojFileName,
-                           expectedBytes: spec.mmprojSizeBytes, wipe: false, isFinal: true)
+          self.installSingleFile(spec: spec, tempFile: kept, name: spec.mmprojFileName,
+                                 expectedBytes: spec.mmprojSizeBytes, wipe: false, isFinal: true)
         } else {
-          self.installGGUF(spec: spec, tempFile: kept, name: spec.fileName,
-                           expectedBytes: spec.sizeBytes - spec.mmprojSizeBytes,
-                           wipe: true, isFinal: false)
+          self.installSingleFile(spec: spec, tempFile: kept, name: spec.fileName,
+                                 expectedBytes: spec.sizeBytes - spec.mmprojSizeBytes,
+                                 wipe: true, isFinal: false)
         }
+      case .whisperCpp:
+        self.installSingleFile(spec: spec, tempFile: kept, name: spec.fileName,
+                               expectedBytes: spec.sizeBytes, wipe: true, isFinal: true)
       default:
         self.extract(spec: spec, tempFile: kept)
       }

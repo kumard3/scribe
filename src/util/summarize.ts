@@ -1,4 +1,4 @@
-// On-device extractive summary — no network, no LLM. Ranks sentences by the
+// On-device extractive summary, no network, no LLM. Ranks sentences by the
 // frequency of their meaningful words and returns the top few in original
 // order. Good enough to give a quick gist of a long dictation; it pulls out
 // real sentences rather than generating new text.

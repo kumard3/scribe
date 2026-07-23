@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-// pureMono — same palette as the mobile app (src/ui/themes.ts)
+// pureMono, same palette as the mobile app (src/ui/themes.ts)
 private enum Mono {
   static let bg = Color(hex: 0x000000)
   static let surface = Color(hex: 0x141416)
@@ -45,6 +45,7 @@ struct DashboardView: View {
   @ObservedObject var dictation = DictationManager.shared
   @ObservedObject var settings = Settings.shared
   @ObservedObject var models = ModelStore.shared
+  @ObservedObject var support = SupportModelStore.shared
   @State private var launchAtLogin = LoginItem.enabled
   @State private var axTrusted = AXIsProcessTrusted()
 
@@ -54,6 +55,7 @@ struct DashboardView: View {
         header
         hotkeysCard
         modelsCard
+        audioFileCard
         llmCard
         generalCard
         if !axTrusted { permissionCard }
@@ -115,7 +117,7 @@ struct DashboardView: View {
         ShortcutRecorder()
       }
       .font(.system(size: 13))
-      Text("Click the shortcut, then press any key combo you like. Start/stop — works even without Accessibility.")
+      Text("Click the shortcut, then press any key combo you like. Start/stop, works even without Accessibility.")
         .font(.caption).foregroundColor(Mono.textDim)
 
       if settings.holdKey == .fn {
@@ -137,6 +139,10 @@ struct DashboardView: View {
 
       Toggle("Write Hindi in English letters (Hinglish)", isOn: $settings.romanizeHindi)
         .font(.system(size: 13))
+      Toggle("Adaptive mic conditioning", isOn: $settings.conditionAudio)
+        .font(.system(size: 13))
+      Text("Reduces rumble and safely evens out quiet microphones. Accent recognition comes from the selected model.")
+        .font(.caption).foregroundColor(Mono.textFaint)
       Toggle("Use GPU acceleration (CoreML)", isOn: $settings.useGpu)
         .font(.system(size: 13))
       Text("Runs downloaded models on the GPU/Neural Engine when the build supports it. Falls back to CPU otherwise.")
@@ -152,12 +158,79 @@ struct DashboardView: View {
     }
   }
 
+  private var audioFileCard: some View {
+    section("Audio file") {
+      Text("Transcribe an existing recording (mp3, m4a, wav, aac) with your selected model, fully on this Mac. Pick a downloaded model above first.")
+        .font(.caption).foregroundColor(Mono.textDim)
+      Button("Transcribe an audio file…") { AudioImport.present() }
+        .font(.system(size: 12))
+
+      Divider().overlay(Mono.border)
+
+      Toggle("Separate speakers", isOn: $settings.diarizeImports)
+        .font(.system(size: 13))
+      if settings.diarizeImports {
+        Picker("Speakers", selection: $settings.diarizeSpeakers) {
+          Text("Auto").tag(0)
+          ForEach(2...6, id: \.self) { n in Text("\(n)").tag(n) }
+        }
+        .font(.system(size: 13))
+        Text("Auto over-segments long calls. Setting the real speaker count is the biggest accuracy win.")
+          .font(.caption).foregroundColor(Mono.textFaint)
+        supportModelRow(
+          "Speaker model", "pyannote + campplus, needed to separate speakers",
+          key: SupportModelStore.diarKey, size: SupportModelStore.diarSizeLabel
+        ) { support.downloadDiarization() }
+      }
+
+      supportModelRow(
+        "Punctuation model",
+        "Adds punctuation to engines that don't (Zipformer, Parakeet CTC, Dolphin)",
+        key: SupportModelStore.punctKey, size: SupportModelStore.punctSizeLabel
+      ) { support.downloadPunctuation() }
+    }
+  }
+
+  @ViewBuilder
+  private func supportModelRow(
+    _ title: String, _ note: String, key: String, size: String,
+    download: @escaping () -> Void
+  ) -> some View {
+    let installed = support.installed.contains(key)
+    let downloading = support.progress[key] != nil
+    VStack(alignment: .leading, spacing: 4) {
+      HStack(spacing: 10) {
+        Image(systemName: installed ? "checkmark.circle.fill" : "circle")
+          .font(.system(size: 14))
+          .foregroundColor(installed ? .white : Mono.textFaint)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(title).font(.system(size: 13)).foregroundColor(Mono.text)
+          Text(note).font(.system(size: 11)).foregroundColor(Mono.textDim)
+        }
+        Spacer()
+        if downloading {
+          ProgressView(value: support.progress[key] ?? 0)
+            .progressViewStyle(.linear).frame(width: 90)
+        } else if installed {
+          Button { support.delete(key) } label: { Image(systemName: "trash") }
+            .buttonStyle(.plain).foregroundColor(Mono.textFaint).help("Delete model files")
+        } else {
+          Button("Get · \(size)") { download() }.font(.system(size: 12))
+        }
+      }
+      if let err = support.errors[key] {
+        Text(err).font(.system(size: 11))
+          .foregroundColor(Color(hex: 0xFF453A)).padding(.leading, 24)
+      }
+    }
+  }
+
   private var llmCard: some View {
     let spec = ModelCatalog.llmModel
     let installed = models.isInstalled(spec)
     let downloading = models.progress[spec.id] != nil
     return section("AI Cleanup & Summary") {
-      Text("On-device AI (Gemma 4) that rewrites and summarizes your dictation. One-time download, fully offline.")
+      Text("Tiny on-device AI (Qwen 0.5B) that rewrites and summarizes your dictation. One-time download, fully offline.")
         .font(.caption).foregroundColor(Mono.textDim)
 
       HStack(alignment: .center, spacing: 10) {
@@ -273,6 +346,8 @@ struct DashboardView: View {
         .onChange(of: launchAtLogin) { LoginItem.set($0) }
       Button("Run setup guide again") { OnboardingController.shared.show() }
         .font(.system(size: 12))
+      Button("Check for Updates…") { UpdateManager.shared.checkForUpdates() }
+        .font(.system(size: 12))
       Toggle("Restore previous clipboard after inserting", isOn: $settings.restoreClipboard)
       Text("Off keeps the transcript on the clipboard so you can paste it again.")
         .font(.caption).foregroundColor(Mono.textDim)
@@ -309,8 +384,12 @@ struct DashboardView: View {
         Text("New dictations won’t be kept. Existing entries stay until you clear them.")
           .font(.caption).foregroundColor(Mono.textDim)
       }
+      Toggle("Keep only the latest recording for diagnostics",
+             isOn: $settings.keepLatestDiagnosticAudio)
+      Text("Off by default for privacy. When enabled, each offline dictation replaces the previous WAV; recordings never leave this Mac.")
+        .font(.caption).foregroundColor(Mono.textDim)
       if dictation.history.isEmpty {
-        Text("Nothing yet — hold \(settings.holdKey == .off ? "the toggle shortcut" : settings.holdKey.label) and speak.")
+        Text("Nothing yet, hold \(settings.holdKey == .off ? "the toggle shortcut" : settings.holdKey.label) and speak.")
           .font(.system(size: 13)).foregroundColor(Mono.textDim)
       } else {
         ForEach(Array(dictation.history.prefix(15).enumerated()), id: \.offset) { i, text in

@@ -68,7 +68,7 @@ export function startLive({ locale, onDevice, contextualStrings }: LiveStartOpti
     addsPunctuation: true,
     iosTaskHint: 'dictation',
     // Enable iOS voice processing (AGC + noise suppression). Without it the mic
-    // input is raw/quiet vs Android's processed pipeline — this is the main
+    // input is raw/quiet vs Android's processed pipeline, this is the main
     // reason iOS pickup felt weaker than Android.
     iosVoiceProcessingEnabled: true,
     iosCategory: {

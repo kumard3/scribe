@@ -48,7 +48,7 @@ sealed class WelcomeForm : Form
     });
     layout.Controls.Add(new Label
     {
-      Text = "Hold a key, speak, release — your words land in any app.\nEverything is transcribed on this PC.",
+      Text = "Hold a key, speak, release, your words land in any app.\nEverything is transcribed on this PC.",
       ForeColor = Mono.TextDim,
       AutoSize = true,
       Margin = new Padding(0, 0, 0, 14),

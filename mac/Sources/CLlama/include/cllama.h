@@ -2,7 +2,7 @@
 #define CLLAMA_H
 
 // Minimal C shim over llama.cpp for Scribe's on-device text AI (Gemma 4).
-// Keeps the churny llama.h surface out of Swift — Swift sees only these four
+// Keeps the churny llama.h surface out of Swift, Swift sees only these four
 // functions and an opaque handle.
 
 #ifdef __cplusplus

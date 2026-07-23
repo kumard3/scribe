@@ -2,11 +2,11 @@ import Foundation
 
 /// Devanagari → Latin "Hinglish" romanization for the Roman Hindi mode.
 /// Apple's hi-IN transcribes to Devanagari; this converts it to readable
-/// Latin script. It's phonetic, not perfect — English words come back
+/// Latin script. It's phonetic, not perfect, English words come back
 /// spelled by sound (office→ophis) since their identity is lost in Devanagari.
 enum Romanizer {
   /// Romanizes only the Devanagari words in mixed-script text, leaving
-  /// English (or any Latin) untouched — hinglish()'s schwa-deletion would
+  /// English (or any Latin) untouched, hinglish()'s schwa-deletion would
   /// otherwise clip English words ("extra" → "extr").
   static func mixed(_ s: String) -> String {
     guard s.unicodeScalars.contains(where: { (0x0900...0x097F).contains($0.value) })
@@ -30,7 +30,7 @@ enum Romanizer {
       latin = latin.replacingOccurrences(of: pair.0, with: pair.1)
     }
     latin = latin.replacingOccurrences(of: "\u{0310}", with: "n")
-    // The transform separates adjacent vowels with an apostrophe (li'ē) —
+    // The transform separates adjacent vowels with an apostrophe (li'ē),
     // pure noise in Hinglish.
     for apos in ["'", "\u{2019}", "\u{02BC}"] {
       latin = latin.replacingOccurrences(of: apos, with: "")
@@ -52,13 +52,13 @@ enum Romanizer {
       chars = glided
 
       // Word-final inherent 'a' after a consonant first: kala→kal,
-      // baṭana→baṭan — before the internal pass, so a doomed final 'a'
+      // baṭana→baṭan, before the internal pass, so a doomed final 'a'
       // can't count as the "following vowel" for an internal deletion.
       if chars.count >= 3, chars.last == "a", !vowels.contains(chars[chars.count - 2]) {
         chars.removeLast()
       }
       // Hindi schwa deletion, right to left: drop an inherent 'a' between two
-      // consonants when a vowel follows (isako→isko, badalane→badalne) —
+      // consonants when a vowel follows (isako→isko, badalane→badalne),
       // never the word's first vowel (yahān stays yahān, nayā stays nayā).
       let firstVowel = chars.firstIndex(where: { vowels.contains($0) })
       var i = chars.count - 2

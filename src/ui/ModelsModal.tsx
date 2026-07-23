@@ -98,7 +98,7 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
       else if (m.kind === 'nemo' && m.nemo) await downloadNemo(m.nemo, onR, ctrl.signal);
       else if (m.kind === 'llm' && m.llm) await downloadLLM(m.llm, onR, ctrl.signal);
       setInstalled((s) => ({ ...s, [m.id]: true }));
-      // The LLM is a post-processor, not a transcription engine — installing it
+      // The LLM is a post-processor, not a transcription engine, installing it
       // must not change the selected voice model.
       if (m.kind !== 'llm') choose(m);
     } catch (e: any) {
@@ -274,7 +274,7 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
             <Text style={styles.storage}>{storage} used</Text>
           </View>
           <Text style={styles.subtitle}>
-            Everything runs privately on your phone. Pick what fits how you’ll use it — you can
+            Everything runs privately on your phone. Pick what fits how you’ll use it. You can
             change this anytime.
           </Text>
 

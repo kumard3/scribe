@@ -1,5 +1,6 @@
-import { ReactElement, useRef, useState } from 'react';
+import { ReactElement, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   Dimensions,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -25,10 +26,31 @@ type Slide = {
 
 function WaveMark() {
   const bars = [26, 54, 80, 44, 30];
+  const scales = useRef(bars.map(() => new Animated.Value(0.55))).current;
+
+  useEffect(() => {
+    const anims = scales.map((v, i) =>
+      Animated.sequence([
+        Animated.delay(i * 130),
+        Animated.loop(
+          Animated.sequence([
+            Animated.timing(v, { toValue: 1, duration: 480, useNativeDriver: true }),
+            Animated.timing(v, { toValue: 0.35, duration: 480, useNativeDriver: true }),
+          ])
+        ),
+      ])
+    );
+    anims.forEach((a) => a.start());
+    return () => anims.forEach((a) => a.stop());
+  }, [scales]);
+
   return (
     <View style={styles.wave}>
       {bars.map((h, i) => (
-        <View key={i} style={[styles.bar, { height: h }]} />
+        <Animated.View
+          key={i}
+          style={[styles.bar, { height: h, transform: [{ scaleY: scales[i] }] }]}
+        />
       ))}
     </View>
   );
@@ -37,17 +59,17 @@ function WaveMark() {
 const SLIDES: Slide[] = [
   {
     title: BRAND,
-    body: 'Speak. See it as text. Instantly — and entirely on your phone.',
+    body: 'Speak. See it as text. Instantly. And entirely on your phone.',
     render: () => <WaveMark />,
   },
   {
     title: 'Private by design',
-    body: 'Transcription runs on-device. Your voice never leaves your phone — no servers, no accounts, no cloud.',
+    body: 'Transcription runs on-device. Your voice never leaves your phone: no servers, no accounts, no cloud.',
     render: () => <Ionicons name="shield-checkmark" size={84} color={theme.text} />,
   },
   {
     title: 'Two ways to capture',
-    body: 'Live for instant dictation as you talk. Offline runs a downloaded model — works in airplane mode and translates too.',
+    body: 'Live for instant dictation as you talk. Offline runs a downloaded model. Works in airplane mode and translates too.',
     render: () => <Ionicons name="flash" size={84} color={theme.text} />,
   },
   {
@@ -144,7 +166,7 @@ const styles = StyleSheet.create({
   },
   wave: { flexDirection: 'row', alignItems: 'center', gap: 9, height: 88 },
   bar: { width: 9, borderRadius: 5, backgroundColor: theme.text },
-  title: { color: theme.text, fontSize: 34, fontWeight: '800', letterSpacing: -0.5, marginBottom: 16 },
+  title: { color: theme.text, fontSize: 34, fontWeight: '800', letterSpacing: -0.5, marginBottom: 16, textAlign: 'center' },
   body: { color: theme.textDim, fontSize: 16, lineHeight: 24, textAlign: 'center' },
   footer: { paddingHorizontal: 28, paddingBottom: 54 },
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: 26 },

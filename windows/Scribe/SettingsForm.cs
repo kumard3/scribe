@@ -2,7 +2,7 @@ using System.Drawing.Drawing2D;
 
 namespace Scribe;
 
-// pureMono — same palette as the mobile app (src/ui/themes.ts)
+// pureMono, same palette as the mobile app (src/ui/themes.ts)
 static class Mono
 {
   public static readonly Color Bg = Color.FromArgb(0, 0, 0);
@@ -123,6 +123,21 @@ sealed class SettingsForm : Form
     ForeColor = Mono.Text,
   };
 
+  readonly CheckBox _diarize = new()
+  {
+    Text = "Label speakers in imported audio files",
+    AutoSize = true,
+    ForeColor = Mono.Text,
+  };
+  readonly ComboBox _speakers = new()
+  {
+    DropDownStyle = ComboBoxStyle.DropDownList,
+    Width = 160,
+    FlatStyle = FlatStyle.Flat,
+    BackColor = Mono.SurfaceAlt,
+    ForeColor = Mono.Text,
+  };
+
   readonly Button _captureKey = new()
   {
     Text = "Set any key…",
@@ -193,10 +208,14 @@ sealed class SettingsForm : Form
     layout.Controls.Add(Section("MODEL",
       Row("Speech model:", _model),
       _modelNote,
-      Note("Everything runs on this PC. Models download once on first use — live ones show text as you speak, the rest transcribe when you release."),
+      Note("Everything runs on this PC. Models download once on first use, live ones show text as you speak, the rest transcribe when you release."),
       Row("Language:", _language),
-      Note("Auto-detect misreads accented speech — naming your language is the single biggest accuracy win. Whisper models only.")));
+      Note("Auto-detect misreads accented speech, naming your language is the single biggest accuracy win. Whisper models only.")));
     layout.Controls.Add(Section("GENERAL", _startup));
+    layout.Controls.Add(Section("AUDIO FILE IMPORT",
+      _diarize,
+      Row("Speakers:", _speakers),
+      Note("“Transcribe audio file…” in the tray menu copies a transcript to the clipboard. Label speakers to tag who said what. Auto detects the count, or set it if auto over-splits.")));
 
     var copyBtn = new Button
     {
@@ -225,6 +244,8 @@ sealed class SettingsForm : Form
 
     foreach (var m in ModelCatalog.All) _model.Items.Add($"{m.Label}{(m.Live ? "  · LIVE" : "")}");
     foreach (var l in Settings.Languages) _language.Items.Add(l.Label);
+    _speakers.Items.Add("Auto");
+    for (int n = 2; n <= 6; n++) _speakers.Items.Add(n.ToString());
 
     Load += (_, _) => Sync();
     _holdKey.SelectedIndexChanged += (_, _) =>
@@ -283,6 +304,18 @@ sealed class SettingsForm : Form
       Settings.Instance.Save();
     };
     _startup.CheckedChanged += (_, _) => _setStartup(_startup.Checked);
+    _diarize.CheckedChanged += (_, _) =>
+    {
+      if (_syncing) return;
+      Settings.Instance.DiarizeImport = _diarize.Checked;
+      Settings.Instance.Save();
+    };
+    _speakers.SelectedIndexChanged += (_, _) =>
+    {
+      if (_syncing || _speakers.SelectedIndex < 0) return;
+      Settings.Instance.DiarizeSpeakers = _speakers.SelectedIndex == 0 ? 0 : _speakers.SelectedIndex + 1;
+      Settings.Instance.Save();
+    };
 
     FormClosing += (_, e) =>
     {
@@ -314,6 +347,9 @@ sealed class SettingsForm : Form
     UpdateModelNote(ModelCatalog.All[_model.SelectedIndex]);
     var lIdx = Array.FindIndex(Settings.Languages, l => l.Code == Settings.Instance.Language);
     _language.SelectedIndex = lIdx >= 0 ? lIdx : 0;
+    _diarize.Checked = Settings.Instance.DiarizeImport;
+    var spk = Settings.Instance.DiarizeSpeakers;
+    _speakers.SelectedIndex = spk >= 2 && spk <= 6 ? spk - 1 : 0;
     _history.Items.Clear();
     foreach (var t in Settings.Instance.History) _history.Items.Add(t);
     _syncing = false;
@@ -321,8 +357,8 @@ sealed class SettingsForm : Form
 
   void UpdateModelNote(ModelSpec spec) =>
     _modelNote.Text = ModelStore.IsInstalled(spec)
-      ? $"{spec.Note} — downloaded."
-      : $"{spec.Note} — downloads {spec.SizeLabel} on first use.";
+      ? $"{spec.Note}, downloaded."
+      : $"{spec.Note}, downloads {spec.SizeLabel} on first use.";
 
   static Control Header()
   {

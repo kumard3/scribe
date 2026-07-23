@@ -32,7 +32,7 @@ export async function transcribeFile(
   translateToEnglish: boolean
 ): Promise<TranscriptionResult> {
   const model = resolveModel(language);
-  if (!isInstalled(model)) throw new Error('Model not installed — call prepare() first');
+  if (!isInstalled(model)) throw new Error('Model not installed, call prepare() first');
   const engine = engineFor(model);
   if (engine.loadedModelId() !== model.id) {
     await engine.load(model, localFile(model).uri);
@@ -54,7 +54,7 @@ export async function transcribeWithModel(
   language: LanguageCode,
   translateToEnglish: boolean
 ): Promise<TranscriptionResult> {
-  if (!isInstalled(model)) throw new Error('Model not installed — download it in Models first.');
+  if (!isInstalled(model)) throw new Error('Model not installed. Download it in Models first.');
   const engine = engineFor(model);
   if (engine.loadedModelId() !== model.id) {
     await engine.load(model, localFile(model).uri);

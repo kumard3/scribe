@@ -9,9 +9,9 @@
   <key>CFBundleIdentifier</key>
   <string>ai.scribe.mac</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>2</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.2.0</string>
+  <string>1.3.0</string>
   <key>CFBundleExecutable</key>
   <string>Scribe</string>
   <key>CFBundleIconFile</key>
@@ -28,5 +28,13 @@
   <string>Scribe uses on-device speech recognition to turn your voice into text.</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>SUFeedURL</key>
+  <string>https://github.com/kumard3/scribe/releases/download/scribe-macos-updates/appcast.xml</string>
+  <key>SUEnableAutomaticChecks</key>
+  <true/>
+  <key>SUAllowsAutomaticUpdates</key>
+  <true/>
+  <key>SUPublicEDKey</key>
+  <string>392y2U3Mwui9AdO4Ze4yCcq3rat3zy71xgwIr2+dygw=</string>
 </dict>
 </plist>

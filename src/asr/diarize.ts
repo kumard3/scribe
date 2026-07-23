@@ -6,7 +6,7 @@ import type { TimedUnit } from './types';
 // On-device speaker diarization (who-said-what). Native side calls sherpa-onnx
 // OfflineSpeakerDiarization (pyannote segmentation + speaker embedding +
 // clustering). Models are pulled from k2-fsa's public releases the same way the
-// NeMo models are (the library's own catalog release is dead — see nemo.ts).
+// NeMo models are (the library's own catalog release is dead, see nemo.ts).
 
 type Native = {
   isAvailable(): Promise<boolean>;
@@ -121,7 +121,7 @@ export async function downloadDiarizationModels(
     });
     if (!res.success) {
       if (dir.exists) dir.delete();
-      throw new Error(res.reason ?? 'Segmentation model extraction failed — try again.');
+      throw new Error(res.reason ?? 'Segmentation model extraction failed. Try again.');
     }
     if (archiveFile.exists) archiveFile.delete();
   }
@@ -228,7 +228,7 @@ export function buildSpeakerTurns(
     return turns.map((t) => ({ ...t, text: collapse(t.text) }));
   }
 
-  // No timings — split words across turns by duration share.
+  // No timings, split words across turns by duration share.
   const words = text.trim().split(/\s+/).filter(Boolean);
   if (!words.length) return [];
   const ordered = [...diar].sort((a, b) => a.start - b.start);

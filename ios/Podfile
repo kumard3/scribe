@@ -60,5 +60,22 @@ target 'Vox' do
       :mac_catalyst_enabled => false,
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
+
+    # ScribeDiarizer/ScribePunctuator call the sherpa C API from the app target; the
+    # SherpaOnnx pod only puts its xcframework headers on its own target, not ours.
+    sherpa_xcframework = File.join(__dir__, '..', 'node_modules', 'react-native-sherpa-onnx', 'ios', 'Frameworks', 'sherpa_onnx.xcframework')
+    installer.aggregate_targets.each do |agg|
+      agg.user_project.native_targets.each do |t|
+        next unless t.name == 'Vox'
+        t.build_configurations.each do |cfg|
+          paths = cfg.build_settings['HEADER_SEARCH_PATHS'] || ['$(inherited)']
+          paths = [paths] unless paths.is_a?(Array)
+          paths << "\"#{sherpa_xcframework}/ios-arm64/Headers\""
+          paths << "\"#{sherpa_xcframework}/ios-arm64_x86_64-simulator/Headers\""
+          cfg.build_settings['HEADER_SEARCH_PATHS'] = paths.uniq
+        end
+      end
+      agg.user_project.save
+    end
   end
 end

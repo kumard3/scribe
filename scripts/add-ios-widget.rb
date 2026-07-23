@@ -9,7 +9,7 @@ app_target = project.targets.find { |t| t.name == 'Vox' }
 abort('Vox app target not found') unless app_target
 
 if project.targets.any? { |t| t.name == 'VoxWidget' }
-  puts 'VoxWidget target already exists — nothing to do.'
+  puts 'VoxWidget target already exists, nothing to do.'
   exit 0
 end
 

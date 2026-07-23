@@ -1,5 +1,23 @@
 import SwiftUI
 import AppKit
+import Sparkle
+
+/// Owns Sparkle for the process lifetime. The feed and EdDSA public key live
+/// in Info.plist; releases are verified before Sparkle installs them.
+final class UpdateManager {
+  static let shared = UpdateManager()
+  let controller: SPUStandardUpdaterController
+
+  private init() {
+    controller = SPUStandardUpdaterController(
+      startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil
+    )
+  }
+
+  func checkForUpdates() {
+    controller.checkForUpdates(nil)
+  }
+}
 
 @main
 struct ScribeApp: App {
@@ -28,6 +46,7 @@ struct ScribeApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
   private var stoppedOnHoldPress = false
+  private let updates = UpdateManager.shared
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
@@ -90,16 +109,28 @@ struct MenuContent: View {
         pb.clearContents()
         pb.setString(dictation.lastText, forType: .string)
       }
+      if !dictation.lastRawText.isEmpty,
+         dictation.lastRawText != dictation.lastText {
+        Button("Copy raw transcript (before cleanup)") {
+          let pb = NSPasteboard.general
+          pb.clearContents()
+          pb.setString(dictation.lastRawText, forType: .string)
+        }
+      }
     }
 
     Divider()
     // No .keyboardShortcut here: the Carbon hotkey already covers the combo
     // globally. Registering it on the menu item too made both fire when the
-    // app was active — an instant start-then-stop that looked like a dead mic.
+    // app was active, an instant start-then-stop that looked like a dead mic.
     Button(dictation.isRecording
       ? "Stop dictation (\(settings.toggleLabel))"
       : "Start dictation (\(settings.toggleLabel))") {
       dictation.toggle()
+    }
+
+    Button("Transcribe audio file…") {
+      AudioImport.present()
     }
 
     Button("Dashboard…") {
@@ -109,6 +140,10 @@ struct MenuContent: View {
 
     Button("Setup guide…") {
       OnboardingController.shared.show()
+    }
+
+    Button("Check for Updates…") {
+      UpdateManager.shared.checkForUpdates()
     }
 
     if !AXIsProcessTrusted() {
@@ -123,6 +158,8 @@ struct MenuContent: View {
     Text(dictation.status).font(.caption)
 
     Divider()
+    Text("Scribe \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
+      .font(.caption)
     Button("Quit Scribe") { NSApp.terminate(nil) }
       .keyboardShortcut("q")
   }

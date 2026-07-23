@@ -1,25 +1,25 @@
 # Scribe for Windows
 
 System-wide local dictation, same design as the Mac app: hold a key, speak,
-release — the text is typed into whatever app has focus. 100% offline
+release, the text is typed into whatever app has focus. 100% offline
 (sherpa-onnx streaming zipformer, runs on CPU).
 
 ## How it works
 
-- **Hold Right Ctrl** (configurable) — push-to-talk: record while held,
+- **Hold Right Ctrl** (configurable), push-to-talk: record while held,
   release to insert.
-- **Tap Right Ctrl** — hands-free: keeps recording until the next tap
+- **Tap Right Ctrl**, hands-free: keeps recording until the next tap
   (can be turned off in the dashboard).
 - A black pill at the bottom of the screen shows live levels + partial text,
   then "Inserted" when the text lands.
 - Inserting uses Ctrl+V but **restores your previous clipboard** afterwards.
 - **Dashboard** (tray icon double-click or menu): pureMono black UI matching
-  the mobile app — change the hold key (Right Ctrl / Right Alt / Caps Lock /
+  the mobile app, change the hold key (Right Ctrl / Right Alt / Caps Lock /
   F8 / Scroll Lock / Pause), hands-free toggle, launch at startup, and a
   recent-transcripts list. Settings persist in
   `%LOCALAPPDATA%\Scribe\settings.json`.
 - First launch downloads the speech model once (~370 MB) to
-  `%LOCALAPPDATA%\Scribe\models` — the pill shows progress.
+  `%LOCALAPPDATA%\Scribe\models`, the pill shows progress.
 
 ## Build (on Windows)
 

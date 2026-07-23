@@ -28,12 +28,12 @@ export type CatalogModel = {
 export const SYSTEM_MODEL_ID = 'system';
 export const CLOUD_MODEL_ID = 'cloud';
 
-// What a normal person actually wants to choose between — by purpose, no model
+// What a normal person actually wants to choose between, by purpose, no model
 // names. Keyed by namespaced catalog id.
 const DISPLAY: Record<string, Pick<CatalogModel, 'title' | 'tagline' | 'chip' | 'featured'>> = {
   system: {
     title: 'Instant',
-    tagline: 'No download. Works the moment you start — best for quick notes and messages.',
+    tagline: 'No download. Works the moment you start. Best for quick notes and messages.',
     chip: 'Recommended',
     featured: true,
   },
@@ -68,7 +68,7 @@ export function buildCatalog(): CatalogModel[] {
     id: SYSTEM_MODEL_ID,
     kind: 'system',
     label: 'Built-in · Fast',
-    note: 'Instant streaming, no download — uses your phone’s on-device speech engine.',
+    note: 'Instant streaming, no download. Uses your phone’s on-device speech engine.',
     sizeLabel: 'No download',
     live: true,
   };
@@ -81,7 +81,7 @@ export function buildCatalog(): CatalogModel[] {
     live: !!m.live,
     nemo: m,
   }));
-  // Whisper has no streaming interface — faking one by re-transcribing a rolling
+  // Whisper has no streaming interface, faking one by re-transcribing a rolling
   // slice is both slow and less accurate than one whole-utterance decode.
   const whisper: CatalogModel[] = MODELS.map((m) => ({
     id: `whisper:${m.id}`,
@@ -108,7 +108,7 @@ export function buildCatalog(): CatalogModel[] {
     id: CLOUD_MODEL_ID,
     kind: 'cloud',
     label: 'Your API key',
-    note: 'OpenAI-compatible cloud transcription. Audio leaves your phone — highest accuracy.',
+    note: 'OpenAI-compatible cloud transcription. Audio leaves your phone. Highest accuracy.',
     sizeLabel: 'BYOK',
     live: false,
   };

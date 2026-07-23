@@ -25,6 +25,6 @@ export async function registerQuickActions(): Promise<void> {
   try {
     await QuickActions.setItems(ITEMS);
   } catch {
-    // best effort — long-press shortcuts are a nicety, not load-bearing
+    // best effort, long-press shortcuts are a nicety, not load-bearing
   }
 }

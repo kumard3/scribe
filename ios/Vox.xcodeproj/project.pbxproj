@@ -22,6 +22,10 @@
 		F4389D07B33E03A963898C64 /* VoxWidget.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 68F0F44637F442C7DE01944A /* VoxWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		FAF08C3216C96379A24E2DFE /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7592543FF7AB3898C35C773B /* Foundation.framework */; };
 		FB7D202F3B9C2B95B471FB6D /* ScribeAudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 234EA5ACA23F299A3CE544CB /* ScribeAudioRecorder.swift */; };
+		6AED75C2C937B4FD7AE92F6B /* ScribeDiarizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E55B36976B3B6E9B6A562212 /* ScribeDiarizer.swift */; };
+		193B9E8B10AA05C819F3D0F6 /* ScribeDiarizer.m in Sources */ = {isa = PBXBuildFile; fileRef = 7E064E5F0FD083A2091949F6 /* ScribeDiarizer.m */; };
+		D12327D6474C3242B8B9CA5B /* ScribePunctuator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D82000AA54A861AB38981438 /* ScribePunctuator.swift */; };
+		AE8A3BC31178C7A13EACB65D /* ScribePunctuator.m in Sources */ = {isa = PBXBuildFile; fileRef = 3DFA58FA4818535D63D18BE7 /* ScribePunctuator.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -71,6 +75,10 @@
 		8677F4910564783E6AD79E07 /* Pods-Vox.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Vox.debug.xcconfig"; path = "Target Support Files/Pods-Vox/Pods-Vox.debug.xcconfig"; sourceTree = "<group>"; };
 		86F875C7B44EA5AE46AF9FEA /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Vox/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		973129AD6B2D5DAF9F650632 /* ScribeAudioRecorder.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = Vox/ScribeAudioRecorder.m; sourceTree = "<group>"; };
+		E55B36976B3B6E9B6A562212 /* ScribeDiarizer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Vox/ScribeDiarizer.swift; sourceTree = "<group>"; };
+		7E064E5F0FD083A2091949F6 /* ScribeDiarizer.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = Vox/ScribeDiarizer.m; sourceTree = "<group>"; };
+		D82000AA54A861AB38981438 /* ScribePunctuator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Vox/ScribePunctuator.swift; sourceTree = "<group>"; };
+		3DFA58FA4818535D63D18BE7 /* ScribePunctuator.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = Vox/ScribePunctuator.m; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = Vox/SplashScreen.storyboard; sourceTree = "<group>"; };
 		B31C6F80831412E57FCDD907 /* VoxKeyboard.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; name = VoxKeyboard.entitlements; path = VoxKeyboard/VoxKeyboard.entitlements; sourceTree = "<group>"; };
 		B3CBF8D737AB5DEEE466ACA3 /* libPods-Vox.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Vox.a"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -122,6 +130,10 @@
 				E746C1635D988015E967FA34 /* PrivacyInfo.xcprivacy */,
 				234EA5ACA23F299A3CE544CB /* ScribeAudioRecorder.swift */,
 				973129AD6B2D5DAF9F650632 /* ScribeAudioRecorder.m */,
+				E55B36976B3B6E9B6A562212 /* ScribeDiarizer.swift */,
+				7E064E5F0FD083A2091949F6 /* ScribeDiarizer.m */,
+				D82000AA54A861AB38981438 /* ScribePunctuator.swift */,
+				3DFA58FA4818535D63D18BE7 /* ScribePunctuator.m */,
 			);
 			name = Vox;
 			sourceTree = "<group>";
@@ -303,17 +315,17 @@
 			attributes = {
 				LastUpgradeCheck = 1130;
 				TargetAttributes = {
-					13B07F861A680F5B00A75B9A = {
-						LastSwiftMigration = 1250;
-						DevelopmentTeam = "DBJ6KVSZ88";
+					0FBCBA2D26275230EAFEA6D4 = {
+						DevelopmentTeam = Q84L632A4A;
 						ProvisioningStyle = Automatic;
 					};
-					0FBCBA2D26275230EAFEA6D4 = {
-						DevelopmentTeam = "DBJ6KVSZ88";
+					13B07F861A680F5B00A75B9A = {
+						DevelopmentTeam = Q84L632A4A;
+						LastSwiftMigration = 1250;
 						ProvisioningStyle = Automatic;
 					};
 					2E0A245C143BA07067D5AE4C = {
-						DevelopmentTeam = "DBJ6KVSZ88";
+						DevelopmentTeam = Q84L632A4A;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -445,6 +457,7 @@
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/React-Core-prebuilt/React.framework/React",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ReactNativeDependencies/ReactNativeDependencies.framework/ReactNativeDependencies",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/hermes-engine/Pre-built/hermesvm.framework/hermesvm",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/llama-rn/rnllama.framework/rnllama",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/whisper-rn/rnwhisper.framework/rnwhisper",
 			);
 			name = "[CP] Embed Pods Frameworks";
@@ -457,6 +470,7 @@
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/React.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ReactNativeDependencies.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermesvm.framework",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/rnllama.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/rnwhisper.framework",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -474,26 +488,44 @@
 				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/EXConstants.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/ExpoConstants_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoFileSystem/ExpoFileSystem_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/GTMSessionFetcher/GTMSessionFetcher_Core_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/GoogleDataTransport/GoogleDataTransport_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/GoogleToolboxForMac/GoogleToolboxForMac_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/GoogleToolboxForMac/GoogleToolboxForMac_Logger_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/GoogleUtilities/GoogleUtilities_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/MLKitTranslate/MLKitTranslate_resource.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/MMKV/MMKV_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/PromisesObjC/FBLPromises_Privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/React-Core/React-Core_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/React-cxxreact/React-cxxreact_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ReactNativeFs/RNFS_PrivacyInfo.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/SSZipArchive/SSZipArchive.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/SherpaOnnx/SherpaOnnxResources.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/expo-dev-launcher/EXDevLauncher.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/expo-dev-menu/EXDevMenu.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/nanopb/nanopb_Privacy.bundle",
 			);
 			name = "[CP] Copy Pods Resources";
 			outputPaths = (
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXConstants.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoConstants_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoFileSystem_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GTMSessionFetcher_Core_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleDataTransport_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleToolboxForMac_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleToolboxForMac_Logger_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleUtilities_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/MLKitTranslate_resource.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/MMKV_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/FBLPromises_Privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-Core_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-cxxreact_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RNFS_PrivacyInfo.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/SSZipArchive.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/SherpaOnnxResources.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXDevLauncher.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXDevMenu.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/nanopb_Privacy.bundle",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -525,6 +557,10 @@
 				09EC01419DE8CBF4C3AF4AFB /* ExpoModulesProvider.swift in Sources */,
 				FB7D202F3B9C2B95B471FB6D /* ScribeAudioRecorder.swift in Sources */,
 				CE2C3D5DADE206B3B14507B5 /* ScribeAudioRecorder.m in Sources */,
+				6AED75C2C937B4FD7AE92F6B /* ScribeDiarizer.swift in Sources */,
+				193B9E8B10AA05C819F3D0F6 /* ScribeDiarizer.m in Sources */,
+				D12327D6474C3242B8B9CA5B /* ScribePunctuator.swift in Sources */,
+				AE8A3BC31178C7A13EACB65D /* ScribePunctuator.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -568,7 +604,9 @@
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = VoxKeyboard/VoxKeyboard.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = Q84L632A4A;
 				INFOPLIST_FILE = VoxKeyboard/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -585,8 +623,6 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
-				DEVELOPMENT_TEAM = "DBJ6KVSZ88";
-				CODE_SIGN_IDENTITY = "Apple Development";
 			};
 			name = Release;
 		};
@@ -597,7 +633,10 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Vox/Vox.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Q84L632A4A;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -619,14 +658,15 @@
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
 				PRODUCT_BUNDLE_IDENTIFIER = ai.localvoice.app;
 				PRODUCT_NAME = Vox;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../node_modules/react-native-sherpa-onnx/ios/Frameworks/sherpa_onnx.xcframework/ios-arm64/Headers",
+				);
 				SWIFT_OBJC_BRIDGING_HEADER = "Vox/Vox-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
-				DEVELOPMENT_TEAM = "DBJ6KVSZ88";
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
 			};
 			name = Debug;
 		};
@@ -637,7 +677,10 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Vox/Vox.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Q84L632A4A;
 				INFOPLIST_FILE = Vox/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -654,13 +697,14 @@
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = ai.localvoice.app;
 				PRODUCT_NAME = Vox;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../node_modules/react-native-sherpa-onnx/ios/Frameworks/sherpa_onnx.xcframework/ios-arm64/Headers",
+				);
 				SWIFT_OBJC_BRIDGING_HEADER = "Vox/Vox-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
-				DEVELOPMENT_TEAM = "DBJ6KVSZ88";
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
 			};
 			name = Release;
 		};
@@ -670,7 +714,9 @@
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = VoxKeyboard/VoxKeyboard.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = Q84L632A4A;
 				INFOPLIST_FILE = VoxKeyboard/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -686,8 +732,6 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				DEVELOPMENT_TEAM = "DBJ6KVSZ88";
-				CODE_SIGN_IDENTITY = "Apple Development";
 			};
 			name = Debug;
 		};
@@ -830,7 +874,9 @@
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = Q84L632A4A;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = VoxWidget/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
@@ -847,8 +893,6 @@
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				DEVELOPMENT_TEAM = "DBJ6KVSZ88";
-				CODE_SIGN_IDENTITY = "Apple Development";
 			};
 			name = Debug;
 		};
@@ -857,7 +901,9 @@
 			buildSettings = {
 				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = NO;
 				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = Q84L632A4A;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = VoxWidget/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
@@ -875,8 +921,6 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
-				DEVELOPMENT_TEAM = "DBJ6KVSZ88";
-				CODE_SIGN_IDENTITY = "Apple Development";
 			};
 			name = Release;
 		};

@@ -7,7 +7,7 @@ const config = getDefaultConfig(__dirname);
 // target is a directory; Metro's package-exports resolver won't index it, so
 // `whisper.rn/realtime-transcription` fails to resolve. Point it at the built
 // module file directly. (The `/adapters` subpath needs @fugood, which we don't
-// install — the index re-exports only the transcriber + helpers, not adapters.)
+// install, the index re-exports only the transcriber + helpers, not adapters.)
 const baseResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName === 'whisper.rn/realtime-transcription') {

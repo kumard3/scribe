@@ -1,6 +1,6 @@
 import Foundation
 
-/// Deterministic spoken-command pass over a finished transcript. No model —
+/// Deterministic spoken-command pass over a finished transcript. No model,
 /// instant, zero memory, never hallucinates. Runs in finish() before LLM
 /// cleanup and insertion.
 ///
@@ -12,7 +12,7 @@ import Foundation
 ///   "cancel the last line" / "delete last line" / "scratch that"
 ///                                       → drop the current line, continue fresh
 ///
-/// ponytail: commands edit only the current dictation buffer — editing text
+/// ponytail: commands edit only the current dictation buffer, editing text
 /// already inserted into the target app would need Accessibility keystrokes.
 enum VoiceCommands {
   private static let numbers: [String: Int] = {
@@ -28,8 +28,44 @@ enum VoiceCommands {
 
   private static let strip = CharacterSet(charactersIn: ".,!?;:…")
 
-  static func apply(_ raw: String) -> String {
-    let tokens = raw.split(whereSeparator: \.isWhitespace).map(String.init)
+  /// Spoken punctuation → symbols. Formatting, so applied everywhere (live and
+  /// imported). Longest phrase first, mirroring the mobile polish.ts.
+  private static let punctuationWords: [(pattern: String, symbol: String)] = [
+    ("\\b(?:open paren|open parenthesis)\\b", "("),
+    ("\\b(?:close paren|close parenthesis)\\b", ")"),
+    ("\\b(?:open quote|quote)\\b", "\u{201C}"),
+    ("\\b(?:close quote|unquote|end quote)\\b", "\u{201D}"),
+    ("\\b(?:exclamation mark|exclamation point)\\b", "!"),
+    ("\\bquestion mark\\b", "?"),
+    ("\\b(?:full stop|period)\\b", "."),
+    ("\\bcomma\\b", ","),
+    ("\\bcolon\\b", ":"),
+    ("\\bsemicolon\\b", ";"),
+    ("\\b(?:hyphen|dash)\\b", "-"),
+  ]
+
+  private static func applyPunctuationWords(_ text: String) -> String {
+    var t = text
+    for (pattern, symbol) in punctuationWords {
+      t = t.replacingOccurrences(
+        of: pattern, with: symbol, options: [.regularExpression, .caseInsensitive]
+      )
+    }
+    return t
+  }
+
+  private static func tidySpacing(_ text: String) -> String {
+    var t = text.replacingOccurrences(of: "[ \\t]+([,.!?;:])", with: "$1", options: .regularExpression)
+    t = t.replacingOccurrences(of: "[ \\t]{2,}", with: " ", options: .regularExpression)
+    t = t.replacingOccurrences(of: "[ \\t]*\\n[ \\t]*", with: "\n", options: .regularExpression)
+    t = t.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
+    return t.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  /// `allowDestructive` false (imported recordings) keeps "scratch that" and the
+  /// delete-last-line/word edits as spoken words instead of executing them.
+  static func apply(_ raw: String, allowDestructive: Bool = true) -> String {
+    let tokens = applyPunctuationWords(raw).split(whereSeparator: \.isWhitespace).map(String.init)
     var out = ""
     var i = 0
 
@@ -53,6 +89,11 @@ enum VoiceCommands {
         out = ""
       }
     }
+    func cancelLastWord() {
+      rtrimSpaces()
+      while let last = out.last, last != " ", last != "\n" { out.removeLast() }
+      rtrimSpaces()
+    }
 
     while i < tokens.count {
       let k = key(i)
@@ -64,18 +105,25 @@ enum VoiceCommands {
         continue
       }
 
-      if k == "scratch", key(i + 1) == "that" {
-        cancelLastLine()
-        i += 2
-        continue
-      }
-      if k == "cancel" || k == "delete" {
-        var j = i + 1
-        if key(j) == "the" { j += 1 }
-        if key(j) == "last", key(j + 1) == "line" {
+      if allowDestructive {
+        if ["scratch", "strike", "cross", "delete"].contains(k), key(i + 1) == "that" {
           cancelLastLine()
-          i = j + 2
+          i += 2
           continue
+        }
+        if ["cancel", "delete", "scratch", "cross"].contains(k) {
+          var j = i + 1
+          if key(j) == "the" { j += 1 }
+          if key(j) == "last", key(j + 1) == "line" {
+            cancelLastLine()
+            i = j + 2
+            continue
+          }
+          if key(j) == "last", key(j + 1) == "word" {
+            cancelLastWord()
+            i = j + 2
+            continue
+          }
         }
       }
 
@@ -100,13 +148,17 @@ enum VoiceCommands {
       out += tokens[i]
       i += 1
     }
-    return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    return tidySpacing(out)
   }
 
   static func selfTest() {
     func eq(_ input: String, _ want: String, _ line: Int = #line) {
       let got = apply(input)
       assert(got == want, "line \(line): apply(\(input)) = \(got.debugDescription), want \(want.debugDescription)")
+    }
+    func eqImport(_ input: String, _ want: String, _ line: Int = #line) {
+      let got = apply(input, allowDestructive: false)
+      assert(got == want, "line \(line): apply(\(input), destructive:false) = \(got.debugDescription), want \(want.debugDescription)")
     }
     eq("hello world", "hello world")
     eq("hello next line, world", "hello\nworld")
@@ -117,10 +169,17 @@ enum VoiceCommands {
     eq("first line next line wrong stuff cancel the last line right stuff",
        "first line\nright stuff")
     eq("wrong scratch that right", "right")
+    eq("wrong strike that right", "right")
+    eq("hello world delete last word", "hello")
     eq("delete last line", "")
     eq("the point of it all", "the point of it all") // "point" without a number is prose
     eq("can you have like bullet points in there", "can you have like bullet points in there")
     eq("the first bullet will be a 470 MB model", "the first bullet will be a 470 MB model")
+    eq("hello comma world period", "hello, world.")
+    eq("say quote hello unquote please", "say “ hello ” please")
+    // Formatting applies to imports; destructive edits do not.
+    eqImport("hello comma world", "hello, world")
+    eqImport("keep this scratch that text", "keep this scratch that text")
     print("VoiceCommands selftest ok")
   }
 }

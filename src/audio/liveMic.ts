@@ -1,6 +1,6 @@
 import { createPcmLiveStream, type PcmLiveStreamHandle } from 'react-native-sherpa-onnx/audio';
 
-// Native mic capture with native resampling — always delivers Float32 PCM at
+// Native mic capture with native resampling, always delivers Float32 PCM at
 // the requested rate (16k for STT). Far more reliable for live streaming than
 // feeding JS buffers from expo-audio.
 let handle: PcmLiveStreamHandle | null = null;

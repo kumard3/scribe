@@ -11,6 +11,8 @@ sealed class Settings
   public string Language { get; set; } = DefaultLanguage();
   public bool FirstRun { get; set; } = true;
   public bool SaveHistory { get; set; } = true;
+  public bool DiarizeImport { get; set; } = false;
+  public int DiarizeSpeakers { get; set; } = 0; // 0 = Auto
   public List<string> History { get; set; } = new();
 
   public static readonly (string Label, string Code)[] Languages =
@@ -42,8 +44,8 @@ sealed class Settings
     ("Urdu", "ur"),
   };
 
-  // Whisper's own language detection misfires on accented speech — it will read
-  // accented English as Hindi/Urdu and emit garbage — so default to the OS language.
+  // Whisper's own language detection misfires on accented speech, it will read
+  // accented English as Hindi/Urdu and emit garbage, so default to the OS language.
   static string DefaultLanguage()
   {
     var code = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
@@ -62,7 +64,7 @@ sealed class Settings
 
   // Non-modifier keys are swallowed by the hook so they don't also do their
   // normal action (e.g. Caps Lock toggling caps, a letter key typing).
-  // Modifiers (Shift/Ctrl/Alt/Win) pass through — apps expect to see them.
+  // Modifiers (Shift/Ctrl/Alt/Win) pass through, apps expect to see them.
   public static bool ShouldSwallow(int vk) =>
     vk is not (>= 0xA0 and <= 0xA5) and not (0x5B or 0x5C) and not (0x10 or 0x11 or 0x12);
 

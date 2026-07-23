@@ -11,6 +11,7 @@ enum ModelKind: String {
   case onlineTransducer
   case nemotronTransducer
   case qwenAsr
+  case whisperCpp
   case llm
 }
 
@@ -35,7 +36,7 @@ struct ModelSpec: Identifiable, Equatable {
   /// Romanize Devanagari output to Latin "Hinglish" (appleSystem hi-IN only).
   var romanize: Bool = false
   /// Full download URL for single-file models (the LLM GGUF). When set, the file
-  /// is saved verbatim — no archive extraction.
+  /// is saved verbatim, no archive extraction.
   var directURL: String? = nil
   /// Saved file name for directURL downloads (the LLM kind only).
   var fileName: String = ""
@@ -44,6 +45,8 @@ struct ModelSpec: Identifiable, Equatable {
   var mmprojURL: String? = nil
   var mmprojFileName: String = ""
   var mmprojSizeBytes: Int64 = 0
+  /// Optional SHA-256 for a directly downloaded model artifact.
+  var sha256: String = ""
 
   var sizeLabel: String {
     sizeBytes == 0 ? "No download" : "\(Int((Double(sizeBytes) / 1e6).rounded())) MB"
@@ -59,7 +62,7 @@ enum ModelCatalog {
     ModelSpec(
       id: systemId, kind: .appleSystem,
       label: "Built-in · English",
-      note: "Apple on-device speech — instant, streaming, no download.",
+      note: "Apple on-device speech, instant, streaming, no download.",
       archive: "", sizeBytes: 0, live: true
     ),
     ModelSpec(
@@ -77,7 +80,7 @@ enum ModelCatalog {
     ModelSpec(
       id: "system-hinglish", kind: .appleSystem,
       label: "Built-in · Hinglish (Roman)",
-      note: "Same speech, written in English letters — “main kal miting mein aaunga”. Phonetic, so English words spell by sound.",
+      note: "Same speech, written in English letters, “main kal miting mein aaunga”. Phonetic, so English words spell by sound.",
       archive: "", sizeBytes: 0, live: true, quality: .basic, locale: "hi-IN", romanize: true
     ),
     ModelSpec(
@@ -183,12 +186,22 @@ enum ModelCatalog {
       mmprojSizeBytes: 378_576_480
     ),
     ModelSpec(
-      id: "gemma-4-e2b", kind: .llm,
-      label: "Gemma 4 · E2B",
-      note: "Google · on-device AI cleanup & summary · offline",
-      archive: "", sizeBytes: 3_110_000_000, live: false,
-      directURL: "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf",
-      fileName: "gemma-4-E2B-it-Q4_K_M.gguf"
+      id: "apex-hinglish-q5", kind: .whisperCpp,
+      label: "Apex Q5 · Hinglish",
+      note: "Whisper Turbo · Indian accents · Roman Hinglish · under 1 GB peak",
+      archive: "", sizeBytes: 574_041_195, live: false, quality: .best,
+      directURL: "https://huggingface.co/Marquestra/Whisper-Hindi2Hinglish-Apex-GGML/resolve/main/ggml-apex-hinglish-q5_0.bin",
+      fileName: "ggml-apex-hinglish-q5_0.bin",
+      sha256: "9d877151b15cec1feb9110cfbc0a3162cf377bcc0ab1935174226f461cf60f13"
+    ),
+    ModelSpec(
+      id: "qwen-cleanup-0.5b", kind: .llm,
+      label: "Qwen 2.5 · 0.5B",
+      note: "Tiny on-device cleanup & summary · offline · under 1 GB peak",
+      archive: "", sizeBytes: 491_400_032, live: false,
+      directURL: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      fileName: "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      sha256: "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"
     ),
   ]
 

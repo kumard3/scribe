@@ -186,7 +186,7 @@ export async function downloadNemo(
   const file = await task.downloadAsync();
   if (!file) throw new Error(`Download of ${spec.label} did not complete`);
 
-  // Reject truncated downloads — a partial archive fails to extract with an
+  // Reject truncated downloads, a partial archive fails to extract with an
   // opaque "failed to open archive file". Make the user retry instead.
   const expected = total > 0 ? total : spec.sizeBytes;
   if (expected > 0 && file.size < expected * 0.995) {
@@ -219,7 +219,7 @@ export async function downloadNemo(
   }
   if (!res.success) {
     if (dir.exists) dir.delete();
-    throw new Error(res.reason ?? `${spec.label}: extraction failed — tap Get to retry.`);
+    throw new Error(res.reason ?? `${spec.label}: extraction failed. Tap Get to retry.`);
   }
 
   if (archiveFile.exists) archiveFile.delete();
@@ -239,7 +239,7 @@ async function ensureEngine(spec: NemoModelSpec): Promise<SttEngine> {
       loadedId = null;
     }
     const folder = await resolveModelFolder(dir);
-    if (!folder) throw new Error(`${spec.label}: model files missing — re-download.`);
+    if (!folder) throw new Error(`${spec.label}: model files missing. Re-download.`);
     engine = await createSTT({
       modelPath: { type: 'file', path: folder },
       modelType: spec.modelType,

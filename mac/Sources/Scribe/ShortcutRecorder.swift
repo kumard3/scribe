@@ -55,7 +55,7 @@ struct ShortcutRecorder: View {
         || [kVK_F13, kVK_F14, kVK_F15, kVK_F16, kVK_F17, kVK_F18, kVK_F19, kVK_F20]
           .contains(Int(e.keyCode))
       guard mods != 0 || isFKey else {
-        hint = "Add a modifier (⌃⌥⇧⌘) — or use an F-key alone"
+        hint = "Add a modifier (⌃⌥⇧⌘), or use an F-key alone"
         return nil
       }
       settings.setToggle(keyCode: Int(e.keyCode), mods: Int(mods))

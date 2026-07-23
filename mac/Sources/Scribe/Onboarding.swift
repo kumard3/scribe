@@ -79,7 +79,7 @@ private struct WelcomeStep: View {
       Text("Welcome to Scribe")
         .font(.system(size: 28, weight: .bold))
         .foregroundColor(.white)
-      Text("Hold a key, speak, release — your words land in any app.\nEverything is transcribed on this Mac.")
+      Text("Hold a key, speak, release, your words land in any app.\nEverything is transcribed on this Mac.")
         .font(.system(size: 14))
         .foregroundColor(OMono.dim)
         .multilineTextAlignment(.center)
@@ -154,7 +154,7 @@ private struct PermissionsStep: View {
       }
       .buttonStyle(.plain)
       if !ax {
-        Text("Without Accessibility the hold key won’t work — only the toggle shortcut.")
+        Text("Without Accessibility the hold key won’t work, only the toggle shortcut.")
           .font(.caption)
           .foregroundColor(OMono.dim)
       }
@@ -217,7 +217,7 @@ private struct HotkeyStep: View {
         Divider().overlay(OMono.border)
 
         VStack(alignment: .leading, spacing: 6) {
-          Text("TOGGLE SHORTCUT — CLICK TO SET ANY COMBO")
+          Text("TOGGLE SHORTCUT, CLICK TO SET ANY COMBO")
             .font(.system(size: 10, weight: .semibold))
             .foregroundColor(OMono.dim)
             .kerning(1)
@@ -233,7 +233,7 @@ private struct HotkeyStep: View {
       .tint(.white)
 
       VStack(spacing: 6) {
-        Text("Try it now — hold \(settings.holdKey.label) and say something")
+        Text("Try it now, hold \(settings.holdKey.label) and say something")
           .font(.system(size: 12.5))
           .foregroundColor(OMono.dim)
         Text(dictation.isRecording

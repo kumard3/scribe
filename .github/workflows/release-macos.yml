@@ -1,0 +1,111 @@
+name: Release notarized macOS app
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    env:
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+      SCRIBE_REQUIRE_DEVELOPER_ID: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate tag and version
+        shell: bash
+        run: |
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" mac/Info.plist)
+          test "v${VERSION}" = "$GITHUB_REF_NAME"
+
+      - name: Import Developer ID certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.BUILD_KEYCHAIN_PASSWORD }}
+        shell: bash
+        run: |
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/scribe-signing.keychain-db"
+          printf '%s' "$CERTIFICATE_P12" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+      - name: Build universal signed app
+        working-directory: mac
+        run: ./build.sh release
+
+      - name: Verify Developer ID and hardened runtime
+        shell: bash
+        run: |
+          codesign --verify --deep --strict --verbose=2 mac/Scribe.app
+          codesign -dv --verbose=4 mac/Scribe.app 2>&1 | grep "Developer ID Application"
+          codesign -dv --verbose=4 mac/Scribe.app 2>&1 | grep "runtime"
+
+      - name: Notarize and staple
+        shell: bash
+        run: |
+          mkdir -p dist
+          ditto -c -k --keepParent mac/Scribe.app dist/Scribe-notarization.zip
+          xcrun notarytool submit dist/Scribe-notarization.zip \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
+          xcrun stapler staple mac/Scribe.app
+          xcrun stapler validate mac/Scribe.app
+
+      - name: Create signed Sparkle feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" mac/Info.plist)
+          rm -f dist/Scribe-notarization.zip
+          ditto -c -k --keepParent mac/Scribe.app "dist/Scribe-macOS-${VERSION}.zip"
+          gh release download scribe-macos-updates --pattern appcast.xml \
+            --dir dist --repo "$GITHUB_REPOSITORY" || true
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | \
+            mac/.build/artifacts/sparkle/Sparkle/bin/generate_appcast \
+              --account ai.scribe.mac.updates \
+              --ed-key-file - \
+              --download-url-prefix \
+                "https://github.com/kumard3/scribe/releases/download/${GITHUB_REF_NAME}" \
+              --link "https://github.com/kumard3/scribe" \
+              --phased-rollout-interval 86400 \
+              --maximum-versions 5 \
+              dist
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/Scribe-macOS-*.zip dist/appcast.xml \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Scribe $GITHUB_REF_NAME" \
+            --generate-notes
+          if gh release view scribe-macos-updates --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload scribe-macos-updates dist/appcast.xml \
+              --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create scribe-macos-updates dist/appcast.xml \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Scribe macOS update feed" \
+              --notes "Stable Sparkle update feed. Managed by release automation." \
+              --latest=false
+          fi

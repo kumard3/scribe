@@ -199,7 +199,7 @@ char *cllama_asr_transcribe(cllama_asr *h, const float *samples, int n_samples,
     pcm = resampled;
   }
 
-  // Fresh KV state per utterance — one-shot transcription, no chat history.
+  // Fresh KV state per utterance, one-shot transcription, no chat history.
   llama_memory_clear(llama_get_memory(h->lctx), true);
 
   char *out = NULL;

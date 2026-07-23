@@ -39,19 +39,19 @@ async function render(svgStr, size, out) {
 }
 
 const A = 'assets';
-// iOS app icon — full-bleed dark, teal V + bright-teal accent
+// iOS app icon, full-bleed dark, teal V + bright-teal accent
 await render(svg({ S: 1024, bg: DARK, color: TEAL, accent: TEAL_HI, scale: 1 }), 1024, `${A}/icon.png`);
-// Android adaptive foreground — transparent, mark in the safe zone
+// Android adaptive foreground, transparent, mark in the safe zone
 await render(svg({ S: 1024, bg: 'none', color: TEAL, accent: TEAL_HI, scale: 0.62 }), 1024, `${A}/android-icon-foreground.png`);
-// Android adaptive background — solid dark
+// Android adaptive background, solid dark
 await render(
   `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"><rect width="1024" height="1024" fill="${DARK}"/></svg>`,
   1024,
   `${A}/android-icon-background.png`
 );
-// Android monochrome — white
+// Android monochrome, white
 await render(svg({ S: 1024, bg: 'none', color: '#ffffff', accent: '#ffffff', scale: 0.62 }), 1024, `${A}/android-icon-monochrome.png`);
-// Splash mark — transparent so it sits on the splash background color
+// Splash mark, transparent so it sits on the splash background color
 await render(svg({ S: 1024, bg: 'none', color: TEAL, accent: TEAL_HI, scale: 0.7 }), 1024, `${A}/splash-icon.png`);
 // Web favicon
 await render(svg({ S: 512, bg: DARK, color: TEAL, accent: TEAL_HI, scale: 1 }), 64, `${A}/favicon.png`);

@@ -1,7 +1,7 @@
 import { Directory, File, Paths, DownloadTask } from 'expo-file-system';
 import { initLlama, releaseAllLlama, type LlamaContext } from 'llama.rn';
 
-// On-device LLM (Gemma 4 E2B) for post-processing transcripts — AI Cleanup and
+// On-device LLM (Gemma 4 E2B) for post-processing transcripts, AI Cleanup and
 // Summary. It is a POST-PROCESSOR, never a transcription engine: it is install/
 // delete only and is invoked on a finished transcript. Inference runs through
 // llama.rn (llama.cpp); the GGUF is a single file pulled from Hugging Face.

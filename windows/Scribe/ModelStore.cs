@@ -6,8 +6,11 @@ namespace Scribe;
 /// Downloads + extracts model archives into %LOCALAPPDATA%\Scribe\models\<id>.
 static class ModelStore
 {
-  public static string Root => Path.Combine(
-    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Scribe", "models");
+  static string Base => Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Scribe");
+
+  public static string Root => Path.Combine(Base, "models");
+  public static string AuxRoot => Path.Combine(Base, "aux");
 
   public static string DirFor(ModelSpec spec) => Path.Combine(Root, spec.Id);
 
@@ -42,51 +45,10 @@ static class ModelStore
     status($"Downloading {spec.Label} ({spec.SizeLabel}, one time)…");
     try
     {
-      using (var http = new HttpClient())
-      using (var res = await http.GetAsync(
-        $"{ModelCatalog.Releases}/{spec.Archive}", HttpCompletionOption.ResponseHeadersRead))
-      {
-        res.EnsureSuccessStatusCode();
-        long total = res.Content.Headers.ContentLength ?? spec.SizeBytes;
-        await using var src = await res.Content.ReadAsStreamAsync();
-        await using var dst = File.Create(tmp);
-        var buf = new byte[1 << 16];
-        long done = 0;
-        int lastPct = -1;
-        int n;
-        while ((n = await src.ReadAsync(buf)) > 0)
-        {
-          await dst.WriteAsync(buf.AsMemory(0, n));
-          done += n;
-          if (total > 0)
-          {
-            int pct = (int)(done * 100 / total);
-            if (pct != lastPct)
-            {
-              lastPct = pct;
-              status($"Downloading {spec.Label}… {pct}%");
-            }
-          }
-        }
-        if (total > 0 && done < total)
-          throw new IOException("Model download was incomplete — check your connection and retry.");
-      }
-
+      await DownloadTo($"{ModelCatalog.Releases}/{spec.Archive}", tmp, spec.SizeBytes,
+        pct => status($"Downloading {spec.Label}… {pct}%"));
       status($"Extracting {spec.Label}…");
-      await Task.Run(() =>
-      {
-        using var stream = File.OpenRead(tmp);
-        using var reader = ReaderFactory.OpenReader(stream, new ReaderOptions());
-        while (reader.MoveToNextEntry())
-        {
-          if (!reader.Entry.IsDirectory)
-            reader.WriteEntryToDirectory(dir, new ExtractionOptions
-            {
-              ExtractFullPath = true,
-              Overwrite = true,
-            });
-        }
-      });
+      await Task.Run(() => ExtractArchive(tmp, dir));
     }
     catch
     {
@@ -99,6 +61,47 @@ static class ModelStore
     }
 
     return ModelDir(spec) ?? throw new IOException("Model archive did not contain a model folder.");
+  }
+
+  public static async Task DownloadTo(string url, string dest, long sizeHint, Action<int>? onPercent)
+  {
+    using var http = new HttpClient();
+    using var res = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
+    res.EnsureSuccessStatusCode();
+    long total = res.Content.Headers.ContentLength ?? sizeHint;
+    await using var src = await res.Content.ReadAsStreamAsync();
+    await using var dst = File.Create(dest);
+    var buf = new byte[1 << 16];
+    long done = 0;
+    int lastPct = -1;
+    int n;
+    while ((n = await src.ReadAsync(buf)) > 0)
+    {
+      await dst.WriteAsync(buf.AsMemory(0, n));
+      done += n;
+      if (total > 0)
+      {
+        int pct = (int)(done * 100 / total);
+        if (pct != lastPct) { lastPct = pct; onPercent?.Invoke(pct); }
+      }
+    }
+    if (total > 0 && done < total)
+      throw new IOException("Download was incomplete, check your connection and retry.");
+  }
+
+  public static void ExtractArchive(string archivePath, string destDir)
+  {
+    using var stream = File.OpenRead(archivePath);
+    using var reader = ReaderFactory.OpenReader(stream, new ReaderOptions());
+    while (reader.MoveToNextEntry())
+    {
+      if (!reader.Entry.IsDirectory)
+        reader.WriteEntryToDirectory(destDir, new ExtractionOptions
+        {
+          ExtractFullPath = true,
+          Overwrite = true,
+        });
+    }
   }
 
   /// Picks a model file whose name contains `needle`, preferring (or

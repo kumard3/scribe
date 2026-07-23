@@ -11,6 +11,7 @@ type Settings = {
   cloudBaseUrl: string;
   cloudModel: string;
   diarizationEnabled: boolean;
+  diarizationSpeakers: number;
   recordModelId: string;
 };
 
@@ -25,6 +26,7 @@ const DEFAULT: Settings = {
   cloudBaseUrl: 'https://api.openai.com/v1',
   cloudModel: 'whisper-1',
   diarizationEnabled: false,
+  diarizationSpeakers: 0,
   recordModelId: '',
 };
 
@@ -104,6 +106,17 @@ export function getDiarizationEnabled(): boolean {
 
 export function setDiarizationEnabled(diarizationEnabled: boolean): void {
   persist({ ...load(), diarizationEnabled });
+}
+
+// Expected speaker count for diarization. 0 = auto-detect, which over-clusters
+// badly on long real-world calls (a 42-min call auto-detected 116 speakers), so
+// letting the user pin a count is the practical fix.
+export function getDiarizationSpeakers(): number {
+  return load().diarizationSpeakers;
+}
+
+export function setDiarizationSpeakers(diarizationSpeakers: number): void {
+  persist({ ...load(), diarizationSpeakers });
 }
 
 // Model used in Record Mode (must be file-capable). Falls back to the live

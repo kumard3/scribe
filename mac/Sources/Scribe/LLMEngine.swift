@@ -1,12 +1,15 @@
 import Foundation
 import CLlama
 
-/// One loaded GGUF model behind the llama.cpp shim. Not thread-safe — only the
+/// One loaded GGUF model behind the llama.cpp shim. Not thread-safe, only the
 /// LLMRuntime serial queue touches it.
 final class LLMEngine {
   private let handle: OpaquePointer
 
-  init?(modelPath: String, nCtx: Int32 = 2048, nGpuLayers: Int32 = 999) {
+  // CPU is intentional for the 0.5B model. Current llama.cpp Metal residency
+  // sets can assert during backend teardown, which would terminate Scribe.
+  // The tiny model remains comfortably real-time without GPU offload.
+  init?(modelPath: String, nCtx: Int32 = 2048, nGpuLayers: Int32 = 0) {
     guard let h = cllama_load(modelPath, nCtx, nGpuLayers) else { return nil }
     handle = h
   }
@@ -38,8 +41,7 @@ final class LLMRuntime: @unchecked Sendable {
   private var loadedPath: String?
   private var evict: DispatchWorkItem?
 
-  // Gemma resident is ~2.3 GB; keeping it loaded forever is the app's whole
-  // memory footprint. Evict after idle — next cleanup pays the reload (~2-3s).
+  // Even the small cleanup model should not inflate Scribe while it is idle.
   private func scheduleEvict() {
     evict?.cancel()
     let w = DispatchWorkItem { [weak self] in
@@ -49,7 +51,7 @@ final class LLMRuntime: @unchecked Sendable {
       dlog("llm evicted after idle")
     }
     evict = w
-    queue.asyncAfter(deadline: .now() + 300, execute: w)
+    queue.asyncAfter(deadline: .now() + 30, execute: w)
   }
 
   private func ensure(_ path: String) -> LLMEngine? {
@@ -71,8 +73,8 @@ final class LLMRuntime: @unchecked Sendable {
         DispatchQueue.main.async { completion(nil) }
         return
       }
-      // Gemma has no system role — fold the instruction into the user turn.
-      let prompt = "<start_of_turn>user\n\(instruction)\n\n---\n\(text)<end_of_turn>\n<start_of_turn>model\n"
+      let prompt = "<|im_start|>system\n\(instruction)<|im_end|>\n" +
+        "<|im_start|>user\n\(text)<|im_end|>\n<|im_start|>assistant\n"
       let out = e.generate(prompt: prompt, maxTokens: maxTokens, temperature: 0.2)
         .trimmingCharacters(in: .whitespacesAndNewlines)
       self.scheduleEvict()

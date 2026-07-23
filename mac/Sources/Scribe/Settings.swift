@@ -155,8 +155,8 @@ let speechLanguages: [SpeechLanguage] = [
   .init(code: "ur", label: "Urdu"),
 ]
 
-// Whisper's own language detection misfires on accented speech — it will read
-// accented English as Hindi/Urdu and emit garbage — so default to the Mac's language.
+// Whisper's own language detection misfires on accented speech, it will read
+// accented English as Hindi/Urdu and emit garbage, so default to the Mac's language.
 func defaultSpeechLanguage() -> String {
   let code = Locale.current.language.languageCode?.identifier ?? ""
   return speechLanguages.contains { $0.code == code } ? code : "auto"
@@ -183,6 +183,9 @@ final class Settings: ObservableObject {
   @AppStorage("saveHistory") var saveHistory: Bool = true {
     willSet { objectWillChange.send() }
   }
+  @AppStorage("keepLatestDiagnosticAudio") var keepLatestDiagnosticAudio: Bool = false {
+    willSet { objectWillChange.send() }
+  }
   @AppStorage("activeModel") var activeModelId: String = ModelCatalog.systemId {
     willSet { objectWillChange.send() }
   }
@@ -195,10 +198,29 @@ final class Settings: ObservableObject {
   @AppStorage("romanizeHindi") var romanizeHindi: Bool = true {
     willSet { objectWillChange.send() }
   }
+  @AppStorage("conditionAudio") var conditionAudio: Bool = true {
+    willSet { objectWillChange.send() }
+  }
+  @AppStorage("diarizeImports") var diarizeImports: Bool = false {
+    willSet { objectWillChange.send() }
+  }
+  // Speakers to cluster imported audio into. 0 = Auto (over-segments long calls).
+  @AppStorage("diarizeSpeakers") var diarizeSpeakers: Int = 0 {
+    willSet { objectWillChange.send() }
+  }
 
   // sherpa-onnx execution provider. "coreml" needs a CoreML-enabled build; on a
   // CPU-only lib sherpa logs a warning and falls back to CPU, so this is safe.
   var sherpaProvider: String { useGpu ? "coreml" : "cpu" }
+
+  /// Provider choice is model-specific. The dynamic-shape NeMo CTC graph is
+  /// substantially faster and uses about half the peak memory on ORT's CPU EP
+  /// than through ORT's on-the-fly CoreML conversion. Purpose-built Core ML
+  /// models use their own backend and are not affected by this routing.
+  func sherpaProvider(for spec: ModelSpec) -> String {
+    if spec.kind == .nemoCtc { return "cpu" }
+    return sherpaProvider
+  }
   @AppStorage("autoCleanLLM") var autoCleanLLM: Bool = false {
     willSet { objectWillChange.send() }
   }
@@ -207,6 +229,14 @@ final class Settings: ObservableObject {
   }
 
   private init() {
+    // Qwen 0.5B cleanup shipped before output-preservation checks existed.
+    // Turn the unsafe old preference off once; users can opt back in now that
+    // every rewrite passes through TranscriptCleanupValidator.
+    let defaults = UserDefaults.standard
+    if !defaults.bool(forKey: "cleanupSafetyMigrationV1") {
+      defaults.set(false, forKey: "autoCleanLLM")
+      defaults.set(true, forKey: "cleanupSafetyMigrationV1")
+    }
     // migrate from the old preset-enum storage
     if let old = UserDefaults.standard.string(forKey: "toggleHotkey"),
        let preset = ToggleHotkey(rawValue: old) {
@@ -225,7 +255,7 @@ final class Settings: ObservableObject {
     set { holdKeyRaw = newValue.rawValue }
   }
 
-  /// "⌃⌥Space" — or "Off" when disabled.
+  /// "⌃⌥Space", or "Off" when disabled.
   var toggleLabel: String {
     toggleKeyCode < 0
       ? "Off"

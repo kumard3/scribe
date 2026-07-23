@@ -11,7 +11,7 @@
 -keep class com.swmansion.reanimated.** { *; }
 -keep class com.facebook.react.turbomodule.** { *; }
 
-# Native STT/translation libs reached over JNI/reflection — keep so R8 can't
+# Native STT/translation libs reached over JNI/reflection, keep so R8 can't
 # strip classes the .so layers call into. Required before enabling minify.
 -keep class com.k2fsa.sherpa.onnx.** { *; }
 -keep class com.rnwhisper.** { *; }

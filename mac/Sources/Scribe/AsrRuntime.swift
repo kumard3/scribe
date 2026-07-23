@@ -22,7 +22,7 @@ final class AsrRuntime: @unchecked Sendable {
       dlog("qwen-asr evicted after idle")
     }
     evict = w
-    queue.asyncAfter(deadline: .now() + 300, execute: w)
+    queue.asyncAfter(deadline: .now() + 30, execute: w)
   }
 
   /// Transcribes mono float PCM; `completion` on the main queue, nil on failure.
@@ -55,15 +55,16 @@ final class AsrRuntime: @unchecked Sendable {
     }
   }
 
-  func release() {
+  func release(completion: (() -> Void)? = nil) {
     queue.async {
       if let h = self.handle { cllama_asr_free(h) }
       self.handle = nil
       self.loadedKey = ""
+      if let completion { DispatchQueue.main.async(execute: completion) }
     }
   }
 
-  /// Qwen3-ASR wraps its transcript in a structured header —
+  /// Qwen3-ASR wraps its transcript in a structured header,
   /// "language …<asr_text>the text</asr_text>". Keep only the text.
   static func cleanOutput(_ raw: String) -> String {
     var s = raw

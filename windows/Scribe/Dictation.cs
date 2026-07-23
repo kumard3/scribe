@@ -213,17 +213,8 @@ sealed class Dictation : IDisposable
       var samples = toTranscribe;
       Task.Run(() =>
       {
-        string result = "";
-        lock (_lock)
-        {
-          if (_offline != null && samples.Length > 0)
-          {
-            using var s = _offline.CreateStream();
-            s.AcceptWaveform(16000, samples);
-            _offline.Decode(s);
-            result = s.Result.Text.Trim();
-          }
-        }
+        string result;
+        lock (_lock) result = DecodeOffline(samples);
         if (result.Length > 0) _overlay.ShowInserted();
         else _overlay.HideOverlay();
         Finished?.Invoke(result);
@@ -235,6 +226,44 @@ sealed class Dictation : IDisposable
     else _overlay.HideOverlay();
     Finished?.Invoke(text);
   }
+
+  string DecodeOffline(float[] samples)
+  {
+    if (_offline == null || samples.Length == 0) return "";
+    using var s = _offline.CreateStream();
+    s.AcceptWaveform(16000, samples);
+    _offline.Decode(s);
+    return s.Result.Text.Trim();
+  }
+
+  string DecodeOnlineFull(float[] samples)
+  {
+    if (_online == null || samples.Length == 0) return "";
+    using var s = _online.CreateStream();
+    s.AcceptWaveform(16000, samples);
+    s.InputFinished();
+    string committed = "";
+    while (_online.IsReady(s))
+    {
+      _online.Decode(s);
+      if (_online.IsEndpoint(s))
+      {
+        var seg = _online.GetResult(s).Text.Trim();
+        if (seg.Length > 0) committed = (committed + " " + seg).Trim();
+        _online.Reset(s);
+      }
+    }
+    var last = _online.GetResult(s).Text.Trim();
+    var text = (committed + " " + last).Trim();
+    while (text.Contains("  ")) text = text.Replace("  ", " ");
+    return text;
+  }
+
+  public Task<string> TranscribeSamplesAsync(float[] samples) => Task.Run(() =>
+  {
+    lock (_lock)
+      return _offline != null ? DecodeOffline(samples) : DecodeOnlineFull(samples);
+  });
 
   void OnAudio(object? sender, WaveInEventArgs e)
   {
