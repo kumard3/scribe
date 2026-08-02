@@ -37,5 +37,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web"
   },
+  "trustedDependencies": [
+    "llama.rn"
+  ],
   "private": true
 }

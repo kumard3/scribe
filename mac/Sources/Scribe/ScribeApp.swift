@@ -133,6 +133,12 @@ struct MenuContent: View {
       AudioImport.present()
     }
 
+    if FileManager.default.fileExists(atPath: DiagnosticAudioStore.latestURL.path) {
+      Button("Retry last recording") {
+        AudioImport.run(url: DiagnosticAudioStore.latestURL)
+      }
+    }
+
     Button("Dashboard…") {
       openWindow(id: "dashboard")
       NSApp.activate(ignoringOtherApps: true)

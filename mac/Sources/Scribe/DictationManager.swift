@@ -3,6 +3,7 @@ import AVFoundation
 import Speech
 import AppKit
 import ObjCCatch
+import FluidAudio
 
 func dlog(_ s: String) {
   let url = FileManager.default.homeDirectoryForCurrentUser
@@ -57,7 +58,9 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
   private var sherpa: SherpaEngine?
   private var qwenSpec: ModelSpec?
   private var offlineSpec: ModelSpec?
+  private var fluidSpec: ModelSpec?
   private var sherpaSamples: [Float] = []
+  private var hitCaptureLimit = false
   private var hwRate = 16000
   private var onBufferCurrent: ((AVAudioPCMBuffer) -> Void)?
   private var configObserver: NSObjectProtocol?
@@ -98,6 +101,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
         switch spec.kind {
         case .qwenAsr: self.beginQwen(spec)
         case .whisperCpp: self.beginWhisperCpp(spec)
+        case .fluidParakeet: self.beginFluid(spec)
         default: self.beginSherpa(spec)
         }
       }
@@ -248,6 +252,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     HUD.shared.show()
     maxLevel = 0
     silenceRestarts = 0
+    sherpaQueue.async { self.hitCaptureLimit = false }
     armSilenceWatchdog()
     if wantsStop {
       wantsStop = false
@@ -517,6 +522,23 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     markListening()
   }
 
+  private func beginFluid(_ spec: ModelSpec) {
+    guard !isRecording else { return }
+    SherpaEngineCache.shared.unload()
+    AsrRuntime.shared.release()
+    LLMRuntime.shared.release()
+    recognizer = nil
+    request = nil
+    task = nil
+    fluidSpec = spec
+    sherpaSamples = []
+    guard let rate = startEngine(onBuffer: { [weak self] buffer in
+      self?.consumeSherpa(buffer)
+    }) else { return }
+    hwRate = rate
+    markListening()
+  }
+
   private func beginWhisperCpp(_ spec: ModelSpec) {
     guard !isRecording else { return }
     let model = ModelStore.dir(for: spec).appendingPathComponent(spec.fileName)
@@ -567,7 +589,16 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
   /// Called only on sherpaQueue.
   private func appendCaptured(_ samples: [Float]) {
     let remaining = maxBufferedSamples - sherpaSamples.count
-    guard remaining > 0 else { return }
+    guard remaining > 0 else {
+      // Dropping audio silently made a long recording look like it simply
+      // stopped transcribing halfway.
+      if !hitCaptureLimit {
+        hitCaptureLimit = true
+        set("\(TranscriptionLimits.maxCapturedSeconds / 60) min limit reached, "
+          + "stop now to transcribe what was captured")
+      }
+      return
+    }
     sherpaSamples.append(contentsOf: samples.prefix(remaining))
   }
 
@@ -593,6 +624,42 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
         guard let self else { return }
         self.set("Ready")
         self.finish(with: text)
+      }
+      return
+    }
+
+    if let spec = fluidSpec {
+      fluidSpec = nil
+      phase = .transcribing
+      set("Transcribing…")
+      let rate = hwRate
+      let version: AsrModelVersion = spec.id.contains("v3") ? .v3 : .v2
+      sherpaQueue.async { [weak self] in
+        guard let self else { return }
+        let samples = self.sherpaSamples
+        self.sherpaSamples = []
+        if Settings.shared.keepLatestRecording {
+          DiagnosticAudioStore.saveLatest(samples: samples, sampleRate: rate)
+        }
+        Task {
+          do {
+            let text = try await FluidEngine.shared.transcribe(
+              samples, sampleRate: rate, version: version
+            )
+            dlog("fluid transcribed \(text.count) chars from \(samples.count) samples")
+            await MainActor.run {
+              self.set("Ready")
+              self.finish(with: text)
+            }
+          } catch {
+            dlog("fluid failed: \(error.localizedDescription)")
+            await MainActor.run {
+              self.set("\(error.localizedDescription), audio kept, use Retry last recording")
+              self.phase = .idle
+              HUD.shared.hide()
+            }
+          }
+        }
       }
       return
     }
@@ -775,9 +842,8 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
 
   private func insertAndFinalize(_ text: String) {
     lastText = text
-    let pasted = Paster.insert(text)
-    if !pasted {
-      set("Copied to clipboard, grant Accessibility for auto-paste")
+    Paster.insert(text) { outcome in
+      if case .copiedOnly(let why) = outcome { self.set(why) }
     }
     if Settings.shared.saveHistory {
       history.insert(text, at: 0)

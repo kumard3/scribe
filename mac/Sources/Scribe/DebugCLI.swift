@@ -13,6 +13,9 @@ enum DebugCLI {
       VoiceCommands.selfTest()
       Diarizer.selfTest()
       Romanizer.selfTest()
+      Paster.selfTest()
+      Vocabulary.selfTest()
+      CorrectionWatcher.selfTest()
       exit(0)
     }
     if CommandLine.arguments.contains("--selftest-transcription-safety") {
@@ -86,6 +89,11 @@ enum DebugCLI {
   }
 
   private static func transcriptionSafetySelfTest() {
+    // A short clip keeps the flat floor; a long one must not be reaped early.
+    precondition(TranscriptionLimits.workerTimeout(audioSeconds: 5) == 180)
+    precondition(TranscriptionLimits.workerTimeout(audioSeconds: 60) == 240)
+    precondition(TranscriptionLimits.workerTimeout(audioSeconds: 20 * 60) == 4800)
+
     precondition(TranscriptMerger.merge([
       "one two three", "two three four", "four five",
     ]) == "one two three four five")
@@ -126,6 +134,32 @@ enum DebugCLI {
       cleaned: "Check the memory results now."
     )
     precondition(!lostAcronym.accepted)
+    // Punctuating and capitalizing is the whole job, and is allowed.
+    precondition(TranscriptCleanupValidator.choose(
+      raw: "hey john how are you doing today",
+      cleaned: "Hey John, how are you doing today?"
+    ).accepted)
+    // Spoken numbers may become digits.
+    precondition(TranscriptCleanupValidator.choose(
+      raw: "can we meet at three thirty p m today",
+      cleaned: "Can we meet at 3:30 PM today?"
+    ).accepted)
+    // Hinglish must survive untranslated.
+    precondition(TranscriptCleanupValidator.choose(
+      raw: "main kal miting mein aaunga",
+      cleaned: "Main kal miting mein aaunga."
+    ).accepted)
+    precondition(!TranscriptCleanupValidator.choose(
+      raw: "main kal miting mein aaunga",
+      cleaned: "I will come to the meeting tomorrow."
+    ).accepted)
+    // Dropping a trailing sentence used to pass at the old 72% threshold.
+    let truncated = TranscriptCleanupValidator.choose(
+      raw: "first we ship the parser then we ship the encoder and after that we review everything",
+      cleaned: "First we ship the parser, then we ship the encoder."
+    )
+    precondition(!truncated.accepted)
+    precondition(truncated.text.contains("review everything"))
     let silence = AudioConditioner.process16k(Array(repeating: 0, count: 16_000))
     precondition(silence.allSatisfy { $0 == 0 })
     let loud = (0..<16_000).map { i in
@@ -204,7 +238,7 @@ enum DebugCLI {
     let resampled = SileroVAD.resampleTo16k(source, from: rate)
     let audio = Settings.shared.conditionAudio
       ? AudioConditioner.process16k(resampled) : resampled
-    let maxN = SileroVAD.maxSegmentSamples
+    let maxN = SileroVAD.maxSegmentSamples(for: .qwenAsr)
     let detected = SileroVAD.shared?.segments16k(audio) ?? []
     let base = detected.isEmpty ? [audio] : detected
     let windows = base.flatMap {

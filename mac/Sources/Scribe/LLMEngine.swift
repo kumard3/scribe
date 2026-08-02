@@ -28,10 +28,14 @@ final class LLMEngine {
 final class LLMRuntime: @unchecked Sendable {
   static let shared = LLMRuntime()
 
+  // "Rewrite" and "remove false starts" gave a 0.5B model licence to delete
+  // sentences, which it did. Punctuation and casing only.
   static let cleanupInstruction =
-    "Rewrite the following transcript with correct punctuation and capitalization. " +
-    "Remove filler words and false starts. Keep all of the meaning and the original " +
-    "language (including Hindi or Hinglish). Output only the rewritten text, nothing else."
+    "Add punctuation, capitalization and paragraph breaks to the following transcript. " +
+    "Keep every word exactly as it is. Do not rewrite, shorten, summarize, reorder or " +
+    "translate anything. Only filler sounds (um, uh, hmm) may be dropped, and spoken " +
+    "numbers may be written as digits. Hindi, Hinglish and Indian names must be left " +
+    "spelled exactly as written. Output only the punctuated text, nothing else."
   static let summaryInstruction =
     "Summarize the following transcript in 2-3 sentences, in the same language as the " +
     "input. Output only the summary, nothing else."

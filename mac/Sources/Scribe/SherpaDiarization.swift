@@ -38,7 +38,8 @@ enum Diarizer {
     cfg.embedding.num_threads = 2
     cfg.embedding.provider = UnsafePointer(provider)
     cfg.clustering.num_clusters = numSpeakers > 0 ? Int32(numSpeakers) : -1
-    cfg.clustering.threshold = 0.5
+    // 0.5 over-splits noisy real calls (a 42-min call auto-detected 116 speakers).
+    cfg.clustering.threshold = 0.8
     cfg.min_duration_on = 0.3
     cfg.min_duration_off = 0.5
 

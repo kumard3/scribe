@@ -63,7 +63,16 @@ final class SherpaEngine {
       cfg.model_config.tokens = c(tokens.path)
       cfg.model_config.num_threads = threads
       cfg.model_config.provider = c(provider)
-      cfg.decoding_method = c("greedy_search")
+      // Hotwords need modified_beam_search; greedy ignores them entirely.
+      if let hot = Vocabulary.hotwordsBuffer {
+        cfg.decoding_method = c("modified_beam_search")
+        cfg.hotwords_buf = c(hot)
+        cfg.hotwords_buf_size = Int32(hot.utf8.count)
+        cfg.hotwords_score = 2.0
+        dlog("sherpa: \(Vocabulary.terms.count) hotword(s) active on \(spec.id)")
+      } else {
+        cfg.decoding_method = c("greedy_search")
+      }
       cfg.enable_endpoint = 1
       cfg.rule1_min_trailing_silence = 2.4
       cfg.rule2_min_trailing_silence = 1.2
@@ -79,7 +88,16 @@ final class SherpaEngine {
       cfg.model_config.tokens = c(tokens.path)
       cfg.model_config.num_threads = threads
       cfg.model_config.provider = c(provider)
-      cfg.decoding_method = c("greedy_search")
+      // Only transducers accept hotwords; every other offline kind ignores the
+      // buffer and modified_beam_search would just cost decoding time.
+      if spec.kind == .nemoTransducer, let hot = Vocabulary.hotwordsFile() {
+        cfg.decoding_method = c("modified_beam_search")
+        cfg.hotwords_file = c(hot)
+        cfg.hotwords_score = 2.0
+        dlog("sherpa: \(Vocabulary.terms.count) hotword(s) active on \(spec.id)")
+      } else {
+        cfg.decoding_method = c("greedy_search")
+      }
 
       switch spec.kind {
       case .moonshine:
@@ -181,7 +199,7 @@ final class SherpaEngine {
     // exactly as sherpa's Moonshine examples do. If VAD is unavailable, fixed
     // overlapping windows below preserve the same hard memory bound.
     if let vad = SileroVAD.shared {
-      let maxN = SileroVAD.maxSegmentSamples
+      let maxN = SileroVAD.maxSegmentSamples(for: spec.kind)
       let segments = vad.segments16k(audio)
       if !segments.isEmpty {
         var parts: [String] = []
@@ -210,21 +228,24 @@ final class SherpaEngine {
               recoveredSegments += 1
             }
           }
-          parts.append(contentsOf: segmentParts)
+          // Windows within one segment overlap by 250 ms, so they need the
+          // dedup. Separate segments share no audio, and running the same dedup
+          // across that boundary deleted speech the speaker actually repeated.
+          let merged = TranscriptMerger.merge(
+            segmentParts, maxOverlapWords: SileroVAD.overlapWords
+          )
+          if !merged.isEmpty { parts.append(merged) }
         }
         dlog(
           "vad: \(segments.count) segment(s) → \(parts.count) window(s), " +
           "\(emptySegments) empty / \(recoveredSegments) recovered from \(samples.count) samples"
         )
-        return TranscriptMerger.merge(parts)
+        return parts.joined(separator: " ")
       }
-      // No speech found. Decoding a long silent buffer whole would re-trigger the
-      // blowup, so only fall back to a whole-buffer decode when it's short.
-      if audio.count > maxN {
-        dlog("vad: no speech in \(audio.count)-sample buffer, empty")
-        return ""
-      }
-      return decodeOffline(audio, sampleRate: 16000)
+      // Returning empty here threw away every quiet or distant recording the
+      // detector failed to call speech. Bounded windows keep the memory bound
+      // without discarding the audio.
+      dlog("vad: no speech detected in \(audio.count) samples, windowing anyway")
     }
 
     // The VAD resource is an optimization and a quality improvement, not a
@@ -232,15 +253,16 @@ final class SherpaEngine {
     // windows preserve the memory bound instead of silently restoring the
     // catastrophic whole-recording path.
     let windows = SileroVAD.split(
-      audio, max: SileroVAD.maxSegmentSamples,
+      audio, max: SileroVAD.maxSegmentSamples(for: spec.kind),
       overlap: SileroVAD.hardSplitOverlapSamples
     )
-    dlog("vad: unavailable, fixed-window fallback \(windows.count) chunk(s)")
+    dlog("vad: fixed-window path, \(windows.count) chunk(s)")
     return TranscriptMerger.merge(
       windows.compactMap {
         let text = decodeOffline($0, sampleRate: 16000)
         return text.isEmpty ? nil : text
-      }
+      },
+      maxOverlapWords: SileroVAD.overlapWords
     )
   }
 
@@ -370,11 +392,28 @@ final class SileroVAD {
   static let shared: SileroVAD? = SileroVAD()
 
   // Moonshine tiny/base stop returning text past ~10 s (measured), so cap
-  // continuous-speech segments below that.
-  static let maxSegmentSeconds = 8
-  static var maxSegmentSamples: Int { maxSegmentSeconds * 16000 }
+  // continuous-speech segments below that. Every other backend carries its own
+  // long-form handling and loses sentence context when chopped that small,
+  // which cost whole words at each boundary.
+  static func maxSegmentSeconds(for kind: ModelKind) -> Int {
+    switch kind {
+    case .moonshine: return 8
+    default: return 30
+    }
+  }
+
+  static func maxSegmentSamples(for kind: ModelKind) -> Int {
+    maxSegmentSeconds(for: kind) * 16000
+  }
+
+  /// The detector is a shared singleton, so it caps at the longest window any
+  /// backend asks for; per-model splitting narrows it from there.
+  static let maxVADSpeechSeconds = 30
   static let hardSplitOverlapSamples = 4_000 // 250 ms protects boundary words
   static let speechPaddingSamples = 4_800 // 300 ms protects VAD-cut word edges
+  /// 250 ms of overlap carries one word, rarely two. Matching further back
+  /// deletes phrases the speaker genuinely repeated.
+  static let overlapWords = 3
 
   private let vad: OpaquePointer
   private let lock = NSLock()
@@ -393,7 +432,7 @@ final class SileroVAD {
     cfg.silero_vad.threshold = 0.5
     cfg.silero_vad.min_silence_duration = 0.3
     cfg.silero_vad.min_speech_duration = 0.1
-    cfg.silero_vad.max_speech_duration = Float(SileroVAD.maxSegmentSeconds)
+    cfg.silero_vad.max_speech_duration = Float(SileroVAD.maxVADSpeechSeconds)
     cfg.silero_vad.window_size = 512
     cfg.sample_rate = 16000
     cfg.num_threads = 1

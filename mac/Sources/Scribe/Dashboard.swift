@@ -384,9 +384,19 @@ struct DashboardView: View {
         Text("New dictations won’t be kept. Existing entries stay until you clear them.")
           .font(.caption).foregroundColor(Mono.textDim)
       }
-      Toggle("Keep only the latest recording for diagnostics",
-             isOn: $settings.keepLatestDiagnosticAudio)
-      Text("Off by default for privacy. When enabled, each offline dictation replaces the previous WAV; recordings never leave this Mac.")
+      Text("Vocabulary").font(.headline)
+      Text("One name, acronym or bit of jargon per line. Biases Parakeet TDT and Nemotron decoding, and primes the Apex Hinglish model. Other engines ignore it.")
+        .font(.caption).foregroundColor(Mono.textDim)
+      TextEditor(text: $settings.vocabulary)
+        .font(.system(size: 12, design: .monospaced))
+        .frame(height: 90)
+        .border(Mono.textDim.opacity(0.3))
+      Toggle("Learn terms from corrections I make right after dictating",
+             isOn: $settings.learnCorrections)
+
+      Toggle("Keep the last recording so a failed transcription can be retried",
+             isOn: $settings.keepLatestRecording)
+      Text("One WAV, replaced by each offline dictation and never leaving this Mac. Turn it off and a transcription that fails takes the audio with it.")
         .font(.caption).foregroundColor(Mono.textDim)
       if dictation.history.isEmpty {
         Text("Nothing yet, hold \(settings.holdKey == .off ? "the toggle shortcut" : settings.holdKey.label) and speak.")

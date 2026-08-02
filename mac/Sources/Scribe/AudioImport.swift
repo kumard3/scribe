@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import SwiftUI
 import UniformTypeIdentifiers
 
 /// Transcribe an existing audio file (mp3/m4a/wav/aac). AVFoundation decodes the
@@ -73,16 +74,15 @@ enum AudioImport {
     let wantDiar = Settings.shared.diarizeImports && SupportModelStore.diarInstalled
     let speakers = Settings.shared.diarizeSpeakers
     DispatchQueue.global(qos: .userInitiated).async {
-      let final: String
+      var turns: [SpeakerTurn] = []
       if wantDiar {
         DispatchQueue.main.async { d.status = "Identifying speakers…" }
         let segments = Diarizer.diarize(samples: samples, sampleRate: sampleRate, numSpeakers: speakers)
-        let turns = Diarizer.buildSpeakerTurns(text: text, segments: segments)
+        turns = Diarizer.buildSpeakerTurns(text: text, segments: segments)
           .map { SpeakerTurn(speaker: $0.speaker, text: clean($0.text, spec: spec)) }
-        final = Diarizer.turnsToText(turns)
-      } else {
-        final = clean(text, spec: spec)
       }
+      let final = turns.isEmpty ? clean(text, spec: spec) : Diarizer.turnsToText(turns)
+      let multiSpeaker = Set(turns.map(\.speaker)).count > 1
       DispatchQueue.main.async {
         d.status = "Ready"
         d.phase = .idle
@@ -92,7 +92,11 @@ enum AudioImport {
           d.status = "No speech detected in that file."
           return
         }
-        presentResult(final, source: spec.label)
+        if multiSpeaker {
+          presentSpeakers(turns, source: spec.label)
+        } else {
+          presentResult(final, source: spec.label)
+        }
       }
     }
   }
@@ -132,6 +136,28 @@ enum AudioImport {
     let n = Int(buffer.frameLength)
     let samples = [Float](UnsafeBufferPointer(start: channel[0], count: n))
     return (samples, Int(format.sampleRate))
+  }
+
+  private static func presentSpeakers(_ turns: [SpeakerTurn], source: String) {
+    let model = SpeakerTranscript(turns: turns)
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(model.plainText(), forType: .string)
+
+    let host = NSHostingView(rootView: SpeakerTranscriptView(model: model))
+    host.frame = NSRect(x: 0, y: 0, width: 560, height: 480)
+    host.autoresizingMask = [.width, .height]
+
+    let window = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 560, height: 500),
+      styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false
+    )
+    window.title = "Transcript · \(source) (rename or merge speakers)"
+    window.contentView = host
+    window.center()
+    window.isReleasedWhenClosed = false
+    window.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+    resultWindow = window
   }
 
   private static func presentResult(_ text: String, source: String) {

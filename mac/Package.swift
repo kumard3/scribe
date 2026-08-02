@@ -11,9 +11,13 @@ let llamaLib = ".deps/llama/lib"
 
 let package = Package(
   name: "Scribe",
-  platforms: [.macOS(.v13)],
+  // FluidAudio (CoreML/ANE Parakeet) requires macOS 14; it runs in-process
+  // alongside sherpa rather than replacing it, so the sherpa models are
+  // untouched and the two can be compared on the same audio.
+  platforms: [.macOS(.v14)],
   dependencies: [
     .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.4"),
+    .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.9.0"),
   ],
   targets: [
     .target(name: "ObjCCatch", path: "Sources/ObjCCatch"),
@@ -28,6 +32,7 @@ let package = Package(
       dependencies: [
         "ObjCCatch", "CSherpa", "CLlama",
         .product(name: "Sparkle", package: "Sparkle"),
+        .product(name: "FluidAudio", package: "FluidAudio"),
       ],
       path: "Sources/Scribe",
       linkerSettings: [

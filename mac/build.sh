@@ -5,6 +5,18 @@ cd "$(dirname "$0")"
 
 CONFIG="${1:-release}"
 
+# Shipping builds stay universal2 with every core. Local test builds set
+# SCRIBE_ARCHS=arm64 SCRIBE_JOBS=4 SCRIBE_SKIP_WHISPER=1: an unbounded -j on
+# universal2 exhausts memory on an 18 GB machine long before it runs out of work.
+SCRIBE_ARCHS="${SCRIBE_ARCHS:-arm64 x86_64}"
+SCRIBE_JOBS="${SCRIBE_JOBS:-}"
+SCRIBE_SKIP_WHISPER="${SCRIBE_SKIP_WHISPER:-0}"
+
+CMAKE_ARCHS="${SCRIBE_ARCHS// /;}"
+SWIFT_ARCH_FLAGS=()
+for a in $SCRIBE_ARCHS; do SWIFT_ARCH_FLAGS+=(--arch "$a"); done
+JOB_FLAG=(-j ${SCRIBE_JOBS})
+
 # Prebuilt sherpa-onnx C library (universal2) for the downloadable models.
 # v1.13.3+ is required for multilingual Nemotron-3.5 streaming (prompt_index).
 SHERPA_VER="v1.13.3"
@@ -48,8 +60,8 @@ if [ ! -f "$LLAMA_LIB/libllama.dylib" ]; then
     -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON \
     -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=ON \
     -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
-    -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
-  cmake --build .deps/llama-build --config Release -j \
+    -DCMAKE_OSX_ARCHITECTURES="$CMAKE_ARCHS"
+  cmake --build .deps/llama-build --config Release "${JOB_FLAG[@]}" \
     --target llama mtmd ggml ggml-base ggml-cpu ggml-metal ggml-blas
   mkdir -p "$LLAMA_LIB" Sources/CLlama/vendor
   find .deps/llama-build \( -path "*/bin/*.dylib" -o -path "*/src/*.dylib" -o -path "*/ggml/*.dylib" \) -name "*.dylib" -exec cp {} "$LLAMA_LIB/" \;
@@ -66,7 +78,19 @@ WHISPER_SRC=".deps/whisper-src"
 WHISPER_BUILD=".deps/whisper-universal-build"
 WHISPER_DIST=".deps/whisper/bin"
 WHISPER_CLI="$WHISPER_DIST/whisper-cli"
-if [ ! -x "$WHISPER_CLI" ] || ! lipo -archs "$WHISPER_CLI" | grep -qw x86_64; then
+# Rebuild whenever the helper is missing a requested arch, so a local arm64
+# build is not mistaken for a shipping universal2 one (and vice versa).
+WHISPER_STALE=0
+if [ -x "$WHISPER_CLI" ]; then
+  for a in $SCRIBE_ARCHS; do
+    lipo -archs "$WHISPER_CLI" | grep -qw "$a" || WHISPER_STALE=1
+  done
+else
+  WHISPER_STALE=1
+fi
+if [ "$SCRIBE_SKIP_WHISPER" = "1" ]; then
+  echo "Skipping whisper.cpp (SCRIBE_SKIP_WHISPER=1); the Apex Hinglish model will not run."
+elif [ "$WHISPER_STALE" = "1" ]; then
   if [ ! -d "$WHISPER_SRC/.git" ]; then
     git clone --depth 1 --branch "$WHISPER_TAG" \
       https://github.com/ggml-org/whisper.cpp "$WHISPER_SRC"
@@ -74,40 +98,43 @@ if [ ! -x "$WHISPER_CLI" ] || ! lipo -archs "$WHISPER_CLI" | grep -qw x86_64; th
   echo "Building whisper.cpp ($WHISPER_TAG, Metal, universal2)…"
   cmake -S "$WHISPER_SRC" -B "$WHISPER_BUILD" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
-    -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DGGML_NATIVE=OFF \
+    -DCMAKE_OSX_ARCHITECTURES="$CMAKE_ARCHS" -DGGML_NATIVE=OFF \
     -DGGML_METAL=ON -DWHISPER_BUILD_EXAMPLES=ON \
     -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF
-  cmake --build "$WHISPER_BUILD" --config Release -j --target whisper-cli
+  cmake --build "$WHISPER_BUILD" --config Release "${JOB_FLAG[@]}" --target whisper-cli
   mkdir -p "$WHISPER_DIST"
   cp -L "$WHISPER_BUILD/bin/"*.dylib "$WHISPER_DIST/"
   cp "$WHISPER_BUILD/bin/whisper-cli" "$WHISPER_CLI"
   install_name_tool -add_rpath @executable_path "$WHISPER_CLI"
 fi
 
-echo "Building Scribe ($CONFIG)…"
-swift build -c "$CONFIG" --arch arm64 --arch x86_64
+echo "Building Scribe ($CONFIG, $SCRIBE_ARCHS)…"
+swift build -c "$CONFIG" "${SWIFT_ARCH_FLAGS[@]}"
 
 case "$CONFIG" in
   release) PRODUCT_CONFIG="Release" ;;
   debug) PRODUCT_CONFIG="Debug" ;;
   *) echo "Unsupported configuration: $CONFIG"; exit 1 ;;
 esac
-BIN=".build/apple/Products/$PRODUCT_CONFIG/Scribe"
+# A single --arch does not land in .build/apple/Products, so ask SPM directly.
+PRODUCTS="$(swift build -c "$CONFIG" "${SWIFT_ARCH_FLAGS[@]}" --show-bin-path)"
+BIN="$PRODUCTS/Scribe"
 APP="Scribe.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" \
   "$APP/Contents/Frameworks" "$APP/Contents/Helpers/Whisper"
 cp "$BIN" "$APP/Contents/MacOS/Scribe"
-ditto ".build/apple/Products/$PRODUCT_CONFIG/Sparkle.framework" \
-  "$APP/Contents/Frameworks/Sparkle.framework"
+ditto "$PRODUCTS/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 cp Info.plist "$APP/Contents/Info.plist"
 cp .deps/silero_vad.onnx "$APP/Contents/Resources/silero_vad.onnx"
 cp "$SHERPA_DIR/lib/libsherpa-onnx-c-api.dylib" "$APP/Contents/Frameworks/"
 cp "$SHERPA_DIR/lib/"libonnxruntime*.dylib "$APP/Contents/Frameworks/"
 cp "$LLAMA_LIB/"*.dylib "$APP/Contents/Frameworks/" 2>/dev/null || true
-cp "$WHISPER_DIST/"*.dylib "$APP/Contents/Helpers/Whisper/"
-cp "$WHISPER_CLI" "$APP/Contents/Helpers/Whisper/whisper-cli"
-cp "$WHISPER_SRC/LICENSE" "$APP/Contents/Resources/whisper.cpp-LICENSE"
+if [ -x "$WHISPER_CLI" ]; then
+  cp "$WHISPER_DIST/"*.dylib "$APP/Contents/Helpers/Whisper/"
+  cp "$WHISPER_CLI" "$APP/Contents/Helpers/Whisper/whisper-cli"
+  cp "$WHISPER_SRC/LICENSE" "$APP/Contents/Resources/whisper.cpp-LICENSE"
+fi
 
 # App icon from the mobile app's icon.png
 if [ -f ../assets/icon.png ] && [ ! -f Scribe.icns ]; then
@@ -139,8 +166,10 @@ if [[ "$IDENTITY" == Developer\ ID\ Application:* ]]; then
   SIGN_ARGS+=(--options runtime --timestamp)
 fi
 codesign "${SIGN_ARGS[@]}" "$APP/Contents/Frameworks/"*.dylib
-codesign "${SIGN_ARGS[@]}" "$APP/Contents/Helpers/Whisper/"*.dylib
-codesign "${SIGN_ARGS[@]}" "$APP/Contents/Helpers/Whisper/whisper-cli"
+if [ -x "$APP/Contents/Helpers/Whisper/whisper-cli" ]; then
+  codesign "${SIGN_ARGS[@]}" "$APP/Contents/Helpers/Whisper/"*.dylib
+  codesign "${SIGN_ARGS[@]}" "$APP/Contents/Helpers/Whisper/whisper-cli"
+fi
 codesign --deep "${SIGN_ARGS[@]}" "$APP"
 codesign --verify --deep --strict "$APP"
 

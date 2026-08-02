@@ -12,6 +12,7 @@ enum ModelKind: String {
   case nemotronTransducer
   case qwenAsr
   case whisperCpp
+  case fluidParakeet
   case llm
 }
 
@@ -193,6 +194,18 @@ enum ModelCatalog {
       directURL: "https://huggingface.co/Marquestra/Whisper-Hindi2Hinglish-Apex-GGML/resolve/main/ggml-apex-hinglish-q5_0.bin",
       fileName: "ggml-apex-hinglish-q5_0.bin",
       sha256: "9d877151b15cec1feb9110cfbc0a3162cf377bcc0ab1935174226f461cf60f13"
+    ),
+    ModelSpec(
+      id: "fluid-parakeet-v2-en", kind: .fluidParakeet,
+      label: "Parakeet ANE · English",
+      note: "FluidAudio · runs on the Neural Engine · downloads itself on first use",
+      archive: "", sizeBytes: 0, live: false, quality: .best
+    ),
+    ModelSpec(
+      id: "fluid-parakeet-v3-multi", kind: .fluidParakeet,
+      label: "Parakeet ANE · Multilingual",
+      note: "FluidAudio · Neural Engine · 25 languages · downloads itself on first use",
+      archive: "", sizeBytes: 0, live: false, quality: .best
     ),
     ModelSpec(
       id: "qwen-cleanup-0.5b", kind: .llm,

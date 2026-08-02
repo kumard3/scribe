@@ -183,7 +183,14 @@ final class Settings: ObservableObject {
   @AppStorage("saveHistory") var saveHistory: Bool = true {
     willSet { objectWillChange.send() }
   }
-  @AppStorage("keepLatestDiagnosticAudio") var keepLatestDiagnosticAudio: Bool = false {
+  @AppStorage("keepLatestDiagnosticAudio") var keepLatestRecording: Bool = true {
+    willSet { objectWillChange.send() }
+  }
+  /// One term per line. Biases transducer decoding and primes whisper.cpp.
+  @AppStorage("vocabulary") var vocabulary: String = "" {
+    willSet { objectWillChange.send() }
+  }
+  @AppStorage("learnCorrections") var learnCorrections: Bool = true {
     willSet { objectWillChange.send() }
   }
   @AppStorage("activeModel") var activeModelId: String = ModelCatalog.systemId {

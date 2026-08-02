@@ -54,3 +54,22 @@ GitHub's “latest release,” so model-only releases cannot break app updates.
 
 Versions earlier than 1.3.0 did not contain Sparkle, so those users need to
 install 1.3.0 once manually. Every later version can update in place.
+
+## Installing a local build over /Applications
+
+Replace the bundle in place. `rm -rf` on the installed app makes macOS treat
+the next copy as a different app and revoke its Microphone and Accessibility
+grants, which looks exactly like the app silently breaking:
+
+```bash
+osascript -e 'quit app "Scribe"'
+ditto Scribe.app /Applications/Scribe.app     # no rm -rf first
+open /Applications/Scribe.app
+```
+
+If permissions were already lost, reset and re-grant them:
+
+```bash
+tccutil reset Microphone ai.scribe.mac
+tccutil reset Accessibility ai.scribe.mac
+```

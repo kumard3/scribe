@@ -60,41 +60,47 @@ enum TranscriptCleanupValidator {
       return Decision(text: candidate, accepted: true, reason: "raw transcript was empty")
     }
 
-    let ratio = Double(candidate.count) / Double(max(raw.count, 1))
-    guard (0.68...1.45).contains(ratio) else {
-      return Decision(text: raw, accepted: false, reason: "length ratio \(format(ratio))")
-    }
-
-    let rawTokens = tokens(raw)
     let cleanedTokens = tokens(candidate)
     guard !cleanedTokens.isEmpty else {
       return Decision(text: raw, accepted: false, reason: "cleanup had no words")
     }
 
-    // A cleanup pass must preserve every number and acronym. Matching is
-    // case-insensitive so adding normal sentence capitalization is harmless.
-    let protected = protectedTokens(raw)
-    let cleanedCounts = counts(cleanedTokens)
-    for (token, required) in counts(protected) where (cleanedCounts[token] ?? 0) < required {
-      return Decision(text: raw, accepted: false, reason: "lost number/acronym \(token)")
-    }
-
-    let rawContent = rawTokens.filter { !removableFillers.contains($0) }
-    let cleanedContent = cleanedTokens.filter { !removableFillers.contains($0) }
-    if rawContent.count >= 4 {
-      let shared = multisetIntersectionCount(rawContent, cleanedContent)
-      let coverage = Double(shared) / Double(rawContent.count)
-      let novelty = Double(max(0, cleanedContent.count - shared))
-        / Double(max(cleanedContent.count, 1))
-      guard coverage >= 0.72 else {
-        return Decision(text: raw, accepted: false, reason: "word coverage \(format(coverage))")
-      }
-      guard novelty <= 0.32 else {
-        return Decision(text: raw, accepted: false, reason: "new-word ratio \(format(novelty))")
-      }
+    // Cleanup punctuates, it does not edit. The old thresholds let a small
+    // model delete a quarter of a transcript and still pass, which is how
+    // dictations came back with sentences missing. The word sequence must now
+    // survive exactly, ignoring fillers and anything numeric, so a model is
+    // still free to write "3:30 PM" for "three thirty p m" but can never drop
+    // or invent words.
+    let rawContent = comparable(tokens(raw))
+    let cleanedContent = comparable(cleanedTokens)
+    guard rawContent == cleanedContent else {
+      return Decision(text: raw, accepted: false, reason: "word sequence changed")
     }
 
     return Decision(text: candidate, accepted: true, reason: "word-preserving cleanup")
+  }
+
+  /// Words that must appear, in order, on both sides. Fillers may be dropped
+  /// and number words may be rewritten into digits, so neither is compared.
+  private static func comparable(_ tokens: [String]) -> [String] {
+    tokens.filter { !removableFillers.contains($0) && !isNumeric($0) }
+  }
+
+  private static let numberWords: Set<String> = [
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+    "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+    "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty",
+    "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred",
+    "thousand", "lakh", "crore", "million", "billion", "am", "pm", "oclock",
+    "first", "second", "third", "fourth", "fifth",
+  ]
+
+  private static func isNumeric(_ token: String) -> Bool {
+    if numberWords.contains(token) { return true }
+    // "p.m." splits into two single letters while "PM" stays one token, so the
+    // sequences could never line up. Single letters are abbreviation debris.
+    if token.count == 1 { return true }
+    return token.allSatisfy { $0.isNumber }
   }
 
   private static func tokens(_ text: String) -> [String] {
@@ -143,13 +149,29 @@ enum TranscriptionLimits {
   static let workerTimeoutSeconds: TimeInterval = 180
   static let maxCapturedSeconds = 15 * 60
 
+  /// A flat wall-clock budget killed every long recording: no backend finishes
+  /// 20 minutes of audio inside 180 s, so the worker was always reaped before
+  /// it could return. Scale with the audio, keeping the flat value as a floor.
+  /// The factor is headroom for the slowest backend (Qwen3-ASR on CPU).
+  static func workerTimeout(audioSeconds: Double) -> TimeInterval {
+    max(workerTimeoutSeconds, audioSeconds * 4)
+  }
+
   /// Hard resident-memory ceiling for every native transcription subprocess.
   /// A model that cannot run inside the product budget fails safely instead of
   /// swapping or taking down the user's machine.
-  static func workerMemoryLimit(for spec: ModelSpec) -> UInt64 {
-    _ = spec
-    // Apex measured 817 MB RSS through the packaged worker on a 60-second
-    // stress clip. The remaining ~100 MB is reserved for Scribe and macOS.
-    return 900_000_000
+  static func workerMemoryLimit(for spec: ModelSpec, audioSeconds: Double) -> UInt64 {
+    // A flat 900 MB was measured against Apex and then applied to every model,
+    // so Whisper Turbo (563 MB of weights) tripped it while loading and failed
+    // on every clip, half a second included. The runtime holds several times
+    // the weight file: parakeet-ctc-110m measured 339 MB resident for 104 MB of
+    // weights. Track the model, keep the old value as a floor for small ones.
+    let weights = UInt64(max(spec.sizeBytes, 0)) + UInt64(max(spec.mmprojSizeBytes, 0))
+    let audioBytes = UInt64(audioSeconds * Double(sampleRate) * 4)
+    let budget = max(900_000_000, weights * 4) + audioBytes
+    // Sizing off the model alone would let a large one swap the machine to a
+    // halt, which is the exact failure this ceiling exists to prevent. Half of
+    // physical RAM wins, so a model too big for this Mac fails instead.
+    return min(budget, ProcessInfo.processInfo.physicalMemory / 2)
   }
 }

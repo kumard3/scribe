@@ -7,10 +7,12 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "ai.localvoice.app",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Scribe uses the microphone to transcribe your speech entirely on-device."
+        "NSMicrophoneUsageDescription": "Scribe uses the microphone to transcribe your speech entirely on-device.",
+        "NSPhotoLibraryUsageDescription": "Scribe only reads an audio or video file you explicitly choose to import for transcription. Nothing is uploaded.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

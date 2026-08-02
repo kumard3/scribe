@@ -643,11 +643,11 @@ export default function App() {
   }, []);
   useQuickActionCallback(handleQuickAction);
 
-  // Deep link from the Vox keyboard (iOS): vox://dictate-session -> start Live,
+  // Deep link from the Scribe keyboard (iOS): scribe://dictate-session -> start Live,
   // and copy the result to the clipboard so the keyboard can paste it back.
   useEffect(() => {
     const onUrl = (url: string | null) => {
-      if (!url || !url.startsWith('vox://dictate-session')) return;
+      if (!url || !url.startsWith('scribe://dictate-session')) return;
       keyboardHandoff.current = true;
       setSelectedModelId(SYSTEM_MODEL_ID);
       setTimeout(() => onLivePressRef.current(), 450);

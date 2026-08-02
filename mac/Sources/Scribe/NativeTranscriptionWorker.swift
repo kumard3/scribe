@@ -24,9 +24,11 @@ final class NativeTranscriptionWorker: @unchecked Sendable {
       switch self {
       case .executableMissing: return "Scribe transcription worker is unavailable"
       case .helperMissing: return "The on-device Hinglish runtime is missing, reinstall Scribe"
-      case .timedOut: return "Transcription exceeded the safety time limit"
+      case .timedOut:
+        return "Transcription timed out, audio kept, use Retry last recording"
       case let .memoryLimitExceeded(bytes):
-        return "Transcription stopped at the \(bytes / 1_000_000) MB memory safety limit"
+        return "Stopped at the \(bytes / 1_000_000) MB memory limit, "
+          + "audio kept, use Retry last recording"
       case let .failed(code, detail):
         return detail.isEmpty ? "Transcription worker failed (\(code))" : detail
       case .emptyResult: return "No speech was detected"
@@ -57,7 +59,9 @@ final class NativeTranscriptionWorker: @unchecked Sendable {
     spec: ModelSpec, samples: [Float], sampleRate: Int,
     language: String, provider: String
   ) throws -> String {
-    if Settings.shared.keepLatestDiagnosticAudio {
+    // Saved before transcription, not after: a failed or timed-out run is
+    // exactly when the audio still needs to exist.
+    if Settings.shared.keepLatestRecording {
       DiagnosticAudioStore.saveLatest(samples: samples, sampleRate: sampleRate)
     }
     let temp = FileManager.default.temporaryDirectory
@@ -101,6 +105,9 @@ final class NativeTranscriptionWorker: @unchecked Sendable {
         "-m", model.path, "-f", temp.path,
         "-l", "auto", "-np", "-nt", "-t", "4", "-sns",
       ]
+      if let prompt = Vocabulary.whisperPrompt {
+        process.arguments? += ["--prompt", prompt]
+      }
     } else if spec.kind == .qwenAsr {
       guard let executable = Bundle.main.executableURL else {
         throw WorkerError.executableMissing
@@ -130,8 +137,13 @@ final class NativeTranscriptionWorker: @unchecked Sendable {
     process.standardError = stderrHandle
     try process.run()
 
-    let deadline = Date().addingTimeInterval(TranscriptionLimits.workerTimeoutSeconds)
-    let memoryLimit = TranscriptionLimits.workerMemoryLimit(for: spec)
+    let audioSeconds = Double(samples.count) / Double(max(sampleRate, 1))
+    let deadline = Date().addingTimeInterval(
+      TranscriptionLimits.workerTimeout(audioSeconds: audioSeconds)
+    )
+    let memoryLimit = TranscriptionLimits.workerMemoryLimit(
+      for: spec, audioSeconds: audioSeconds
+    )
     var peakResident: UInt64 = 0
     while process.isRunning, Date() < deadline {
       let resident = Self.residentBytes(process.processIdentifier)
