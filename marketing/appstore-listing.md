@@ -40,13 +40,14 @@ open source under the MIT license.
 
 CHOOSE YOUR MODEL
 Download only the models you want, each labelled by size and accuracy: Whisper,
-Parakeet, Moonshine, Canary, Dolphin, and Srota. Small models are fast and light.
-Larger ones are more accurate. Swap between them any time. Models load on demand
-and unload after five minutes idle, so Scribe stays light on memory.
+Nemotron, Parakeet, Canary, Moonshine, and Zipformer. Small models are fast and
+light. Larger ones are more accurate. Swap between them any time. Models load on
+demand and unload after five minutes idle, so Scribe stays light on memory.
 
 HINGLISH THAT LOOKS RIGHT
 Hindi speech comes back in English letters, the way people actually type it, not
-in Devanagari you then have to convert. Toggle it off if you want the script.
+in Devanagari you then have to convert. Pick plain Hindi instead if you want the
+script.
 
 SPOKEN COMMANDS
 Say "next line", "new paragraph", "point one" to number a list, "bullet" for
@@ -181,7 +182,13 @@ Still required before Submit for Review:
 ## Screenshots
 
 `marketing/screenshots/` holds 6 shots at 1320x2868 (6.9 inch, iPhone 17 Pro Max
-simulator). Upload as-is, no resizing needed.
+simulator).
+
+Upload them through **Media Manager > iPhone 6.9" Display**, NOT the slot shown
+on the version page. The version page defaults to the 6.5" slot, which only
+accepts 1242x2688 / 1284x2778 and rejects these with "The dimensions of one or
+more screenshots are wrong." Once they are in the 6.9" slot, the 6.5" slot reads
+"Using 6.9" Display" and every smaller size inherits them. No resizing needed.
 
 Captured from a build with the ML Kit pods temporarily unlinked via a throwaway
 `react-native.config.js`, because Google ML Kit ships no arm64 iOS-simulator slice
