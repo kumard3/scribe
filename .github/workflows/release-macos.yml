@@ -56,6 +56,7 @@ jobs:
           codesign --verify --deep --strict --verbose=2 mac/Scribe.app
           codesign -dv --verbose=4 mac/Scribe.app 2>&1 | grep "Developer ID Application"
           codesign -dv --verbose=4 mac/Scribe.app 2>&1 | grep "runtime"
+          codesign -d --entitlements - mac/Scribe.app 2>&1 | grep "com.apple.security.device.audio-input"
 
       - name: Notarize and staple
         shell: bash
