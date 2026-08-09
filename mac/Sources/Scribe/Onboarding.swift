@@ -121,6 +121,13 @@ private struct PermissionsStep: View {
         permissionRow(
           granted: mic, title: "Microphone", detail: "To hear you speak"
         ) {
+          // requestAccess only prompts while .notDetermined; once denied it is a no-op
+          guard AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined else {
+            NSWorkspace.shared.open(
+              URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
+            )
+            return
+          }
           AVCaptureDevice.requestAccess(for: .audio) { ok in
             DispatchQueue.main.async { mic = ok }
           }

@@ -5,17 +5,25 @@ cd "$(dirname "$0")"
 
 CONFIG="${1:-release}"
 
-# Shipping builds stay universal2 with every core. Local test builds set
-# SCRIBE_ARCHS=arm64 SCRIBE_JOBS=4 SCRIBE_SKIP_WHISPER=1: an unbounded -j on
-# universal2 exhausts memory on an 18 GB machine long before it runs out of work.
-SCRIBE_ARCHS="${SCRIBE_ARCHS:-arm64 x86_64}"
-SCRIBE_JOBS="${SCRIBE_JOBS:-}"
-SCRIBE_SKIP_WHISPER="${SCRIBE_SKIP_WHISPER:-0}"
+SCRIBE_REQUIRE_DEVELOPER_ID="${SCRIBE_REQUIRE_DEVELOPER_ID:-0}"
+# Only shipping builds pay for universal2 + the whisper helper. Defaulting local
+# builds to that is two clang processes per source file and it pinned this 18 GB
+# box at 0% idle, into swap.
+if [ "$SCRIBE_REQUIRE_DEVELOPER_ID" = "1" ]; then
+  SCRIBE_ARCHS="${SCRIBE_ARCHS:-arm64 x86_64}"
+  SCRIBE_SKIP_WHISPER="${SCRIBE_SKIP_WHISPER:-0}"
+else
+  SCRIBE_ARCHS="${SCRIBE_ARCHS:-$(uname -m)}"
+  SCRIBE_SKIP_WHISPER="${SCRIBE_SKIP_WHISPER:-1}"
+fi
+# A bare `-j` is unbounded. Leave two cores for the rest of the machine.
+SCRIBE_JOBS="${SCRIBE_JOBS:-$(( $(sysctl -n hw.ncpu 2>/dev/null || echo 4) - 2 ))}"
+[ "$SCRIBE_JOBS" -lt 1 ] 2>/dev/null && SCRIBE_JOBS=1
 
 CMAKE_ARCHS="${SCRIBE_ARCHS// /;}"
 SWIFT_ARCH_FLAGS=()
 for a in $SCRIBE_ARCHS; do SWIFT_ARCH_FLAGS+=(--arch "$a"); done
-JOB_FLAG=(-j ${SCRIBE_JOBS})
+JOB_FLAG=(-j "${SCRIBE_JOBS}")
 
 # Prebuilt sherpa-onnx C library (universal2) for the downloadable models.
 # v1.13.3+ is required for multilingual Nemotron-3.5 streaming (prompt_index).
@@ -46,7 +54,15 @@ fi
 # the C API the CLlama shim targets.
 LLAMA_TAG="${LLAMA_TAG:-master}"
 LLAMA_LIB=".deps/llama/lib"
-if [ ! -f "$LLAMA_LIB/libllama.dylib" ]; then
+LLAMA_STALE=0
+if [ -f "$LLAMA_LIB/libllama.dylib" ]; then
+  for a in $SCRIBE_ARCHS; do
+    lipo -archs "$LLAMA_LIB/libllama.dylib" | grep -qw "$a" || LLAMA_STALE=1
+  done
+else
+  LLAMA_STALE=1
+fi
+if [ "$LLAMA_STALE" = "1" ]; then
   command -v cmake >/dev/null || { echo "cmake required, install with: brew install cmake"; exit 1; }
   echo "Building llama.cpp ($LLAMA_TAG, Metal, universal2)… first build is slow."
   rm -rf .deps/llama-src .deps/llama-build
@@ -170,7 +186,8 @@ if [ -x "$APP/Contents/Helpers/Whisper/whisper-cli" ]; then
   codesign "${SIGN_ARGS[@]}" "$APP/Contents/Helpers/Whisper/"*.dylib
   codesign "${SIGN_ARGS[@]}" "$APP/Contents/Helpers/Whisper/whisper-cli"
 fi
-codesign --deep "${SIGN_ARGS[@]}" "$APP"
+# ponytail: hardened runtime denies the mic without audio-input, with no prompt
+codesign --deep "${SIGN_ARGS[@]}" --entitlements Scribe.entitlements "$APP"
 codesign --verify --deep --strict "$APP"
 
 echo "Built $(pwd)/$APP"
