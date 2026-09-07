@@ -6,12 +6,16 @@ Free on-device dictation. Speak, and text appears in whatever app you are using.
 
 ## Platforms
 
-| Platform | Status | Where |
-|---|---|---|
-| macOS | v1.2.0 | Menu bar app, hold `fn` to talk. `Scribe-macOS.zip` in releases |
-| Android | beta | APK in [v1.0.0-beta](https://github.com/kumard3/scribe/releases/tag/v1.0.0-beta) |
-| Windows | beta | Tray app, same release |
-| iOS | source only | Build with Expo, see below |
+Each desktop OS has **its own dedicated tree and build**. They do not share an engine.
+
+| Platform | Code | Build | Engine |
+|---|---|---|---|
+| macOS | `mac/` | `cd mac && ./build.sh` (Swift / AppKit) | MLX + llama.cpp + whisper.cpp + Apple Speech |
+| Windows | `windows/Scribe/` | `dotnet build -c Release` (.NET 8 WinForms) | sherpa-onnx, GPU auto (CUDA / DirectML / CPU) |
+| Android | `android/` + `src/` | `npx expo run:android` | mobile ASR stack |
+| iOS | `ios/` + `src/` | `npx expo run:ios` | mobile ASR stack |
+
+There is no Linux desktop app yet. Linux would get its own folder, not a port of `mac/` or `windows/`.
 
 ## What it does
 
@@ -37,7 +41,13 @@ Mobile (Expo, native build required, does not run in Expo Go):
 npx expo run:ios      # or run:android
 ```
 
-Windows: `windows/` contains a .NET 8 tray app, build with `dotnet publish`.
+Windows (C# tray app, separate from Mac):
+
+```powershell
+cd windows\Scribe
+dotnet build -c Release
+dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
+```
 
 ## Privacy
 

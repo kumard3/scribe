@@ -1,0 +1,23 @@
+name: Windows
+
+on:
+  push:
+    paths:
+      - "windows/**"
+      - ".github/workflows/build-windows.yml"
+  pull_request:
+    paths:
+      - "windows/**"
+      - ".github/workflows/build-windows.yml"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Build Windows Scribe
+        working-directory: windows/Scribe
+        run: dotnet build -c Release

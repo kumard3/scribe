@@ -1,0 +1,20 @@
+name: macOS
+
+on:
+  push:
+    paths:
+      - "mac/**"
+      - ".github/workflows/build-macos.yml"
+  pull_request:
+    paths:
+      - "mac/**"
+      - ".github/workflows/build-macos.yml"
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Mac Scribe
+        working-directory: mac
+        run: ./build.sh debug

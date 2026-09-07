@@ -1,8 +1,11 @@
 # Scribe for Windows
 
-System-wide local dictation, same *product* as the Mac app (hold a key, speak,
-release, text lands in the focused app), but **not the same codebase**. Mac is
-Swift + MLX/Metal. Windows is C# WinForms + sherpa-onnx.
+Dedicated Windows app. Do not build this from `mac/`. Mac is Swift + MLX/Metal
+in `mac/`; this folder is C# WinForms + sherpa-onnx and has its own CI
+(`.github/workflows/build-windows.yml`).
+
+Same product shape as Mac (hold a key, speak, release, text lands in the
+focused app), different engine and different binary.
 
 100% offline. Processor is auto-detected: NVIDIA CUDA if the driver is present,
 otherwise DirectML on AMD/Intel/NVIDIA, otherwise CPU. The dashboard
