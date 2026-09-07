@@ -14,6 +14,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${OUT:-/tmp/scribe-release}"
 TEAM=Q84L632A4A
+# Uncapped, 11 concurrent clang jobs over whisper.cpp/llama.rn exhausts RAM on
+# an 18GB machine and the box starts swap-thrashing. JOBS=0 restores default.
+JOBS="${JOBS:-4}"
 
 mkdir -p "$OUT"
 cat > "$OUT/ExportOptions.plist" <<'PLIST'
@@ -32,9 +35,13 @@ PLIST
 
 rm -rf "$OUT/Scribe.xcarchive" "$OUT/export"
 
-echo "==> Archiving"
+JOBS_ARG=()
+[ "$JOBS" != "0" ] && JOBS_ARG=(-jobs "$JOBS")
+
+echo "==> Archiving (jobs=${JOBS})"
 xcodebuild -workspace "$ROOT/ios/Scribe.xcworkspace" -scheme Scribe -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$OUT/Scribe.xcarchive" \
+  "${JOBS_ARG[@]}" \
   -allowProvisioningUpdates DEVELOPMENT_TEAM=$TEAM CODE_SIGN_STYLE=Automatic archive
 
 echo "==> Exporting App Store IPA"

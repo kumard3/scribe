@@ -4,6 +4,7 @@ import {
   Dimensions,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -64,7 +65,7 @@ const SLIDES: Slide[] = [
   },
   {
     title: 'Private by design',
-    body: 'Transcription runs on-device. Your voice never leaves your phone: no servers, no accounts, no cloud.',
+    body: 'Transcription runs on your phone. No servers of ours, no accounts, no tracking. Your voice is never sent to us.',
     render: () => <Ionicons name="shield-checkmark" size={84} color={theme.text} />,
   },
   {
@@ -72,11 +73,15 @@ const SLIDES: Slide[] = [
     body: 'Live for instant dictation as you talk. Offline runs a downloaded model. Works in airplane mode and translates too.',
     render: () => <Ionicons name="flash" size={84} color={theme.text} />,
   },
-  {
-    title: 'Type anywhere',
-    body: 'Enable the Scribe keyboard in Settings to dictate into any app. We just need the mic to hear you.',
-    render: () => <Ionicons name="mic" size={84} color={theme.text} />,
-  },
+  ...(Platform.OS === 'android'
+    ? [
+        {
+          title: 'Type anywhere',
+          body: `Enable the ${BRAND} keyboard in Settings to dictate into any app. We just need the mic to hear you.`,
+          render: () => <Ionicons name="mic" size={84} color={theme.text} />,
+        },
+      ]
+    : []),
 ];
 
 export function Onboarding({ onDone }: { onDone: () => void }) {

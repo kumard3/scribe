@@ -1,6 +1,7 @@
 import { initWhisper, WhisperContext } from 'whisper.rn';
 import { ASREngine, ModelSpec, TranscribeRequest, TranscriptionResult } from './types';
-import { getVocab } from './settings';
+import { biasTerms, getDictationStyle } from './settings';
+import { decodeLanguage, stripAnnotations } from './whisperText';
 
 function stripScheme(uri: string): string {
   return uri.replace(/^file:\/\//, '');
@@ -10,6 +11,7 @@ export class WhisperEngine implements ASREngine {
   readonly kind = 'whisper' as const;
   private ctx: WhisperContext | null = null;
   private modelId: string | null = null;
+  private spec: ModelSpec | null = null;
 
   loadedModelId(): string | null {
     return this.modelId;
@@ -30,6 +32,7 @@ export class WhisperEngine implements ASREngine {
       try {
         this.ctx = await initWhisper({ filePath, ...opts });
         this.modelId = model.id;
+        this.spec = model;
         return;
       } catch (e) {
         lastErr = e;
@@ -41,9 +44,9 @@ export class WhisperEngine implements ASREngine {
   async transcribe(req: TranscribeRequest): Promise<TranscriptionResult> {
     if (!this.ctx) throw new Error('Whisper model not loaded');
     const started = Date.now();
-    const vocab = getVocab();
+    const vocab = biasTerms();
     const { promise } = this.ctx.transcribe(stripScheme(req.wavPath), {
-      language: req.language === 'auto' ? 'auto' : req.language === 'hi-en' ? 'en' : req.language,
+      language: decodeLanguage(this.spec, req.language, getDictationStyle()),
       translate: req.translateToEnglish ?? false,
       // Seeds the decoder's context so names/jargon are in-distribution.
       prompt: vocab.length ? vocab.join(', ') : undefined,
@@ -51,10 +54,10 @@ export class WhisperEngine implements ASREngine {
     });
     const res = await promise;
     const units = (res.segments ?? [])
-      .map((s) => ({ start: s.t0 / 100, end: s.t1 / 100, text: s.text }))
-      .filter((u) => u.text.trim().length > 0);
+      .map((s) => ({ start: s.t0 / 100, end: s.t1 / 100, text: stripAnnotations(s.text) }))
+      .filter((u) => u.text.length > 0);
     return {
-      text: res.result.trim(),
+      text: stripAnnotations(res.result),
       durationMs: Date.now() - started,
       units,
     };

@@ -18,9 +18,13 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import {
   getAutoPolish,
+  getChunkPauseMs,
+  getDictationStyle,
   getTranslateTarget,
   getVocab,
   setAutoPolish,
+  setChunkPauseMs,
+  setDictationStyle,
   setTranslateTarget,
   setVocab,
 } from '../asr/settings';
@@ -45,6 +49,8 @@ const APP_VERSION = '1.0.0';
 export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWipeData }: Props) {
   const [vocab, setVocabState] = useState<string[]>([]);
   const [autoPolish, setAutoPolishState] = useState(false);
+  const [style, setStyleState] = useState<'auto' | 'english' | 'hinglish'>('auto');
+  const [pauseMs, setPauseState] = useState(550);
   const [target, setTargetState] = useState('');
   const [targetPickerOpen, setTargetPickerOpen] = useState(false);
   const [input, setInput] = useState('');
@@ -63,6 +69,8 @@ export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWip
     if (!visible) return;
     setVocabState(getVocab());
     setAutoPolishState(getAutoPolish());
+    setStyleState(getDictationStyle());
+    setPauseState(getChunkPauseMs());
     setTargetState(getTranslateTarget());
     refreshBubble();
   }, [visible]);
@@ -121,11 +129,7 @@ export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWip
   }
 
   function openKeyboardSettings() {
-    if (Platform.OS === 'android') {
-      Linking.sendIntent('android.settings.INPUT_METHOD_SETTINGS').catch(() => {});
-    } else {
-      Linking.openSettings().catch(() => {});
-    }
+    Linking.sendIntent('android.settings.INPUT_METHOD_SETTINGS').catch(() => {});
   }
 
   function wipeAll() {
@@ -174,7 +178,9 @@ export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWip
             <View style={styles.row}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.label}>Auto-polish</Text>
-                <Text style={styles.meta}>Clean filler words & fix formatting when you stop.</Text>
+                <Text style={styles.meta}>
+                  Gemma 4 E2B cleans punctuation and fillers after ASR. Audio never goes to Gemma.
+                </Text>
               </View>
               <Switch
                 value={autoPolish}
@@ -182,6 +188,46 @@ export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWip
                 trackColor={{ true: theme.primary, false: theme.border }}
                 thumbColor="#fff"
               />
+            </View>
+            <View style={styles.rowDivider}>
+              <Text style={styles.label}>Style</Text>
+              <Text style={styles.meta}>WhatsApp Hinglish, English, or keep the mix.</Text>
+              <View style={styles.segment}>
+                {(['auto', 'english', 'hinglish'] as const).map((s) => (
+                  <Pressable
+                    key={s}
+                    style={[styles.segBtn, style === s && styles.segBtnOn]}
+                    onPress={() => {
+                      setDictationStyle(s);
+                      setStyleState(s);
+                      onChanged();
+                    }}
+                  >
+                    <Text style={[styles.segText, style === s && styles.segTextOn]}>
+                      {s === 'auto' ? 'Auto' : s === 'english' ? 'English' : 'Hinglish'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+            <View style={styles.rowDivider}>
+              <Text style={styles.label}>Chunk pause</Text>
+              <Text style={styles.meta}>How long a pause closes a live chunk.</Text>
+              <View style={styles.segment}>
+                {[400, 550, 700].map((ms) => (
+                  <Pressable
+                    key={ms}
+                    style={[styles.segBtn, pauseMs === ms && styles.segBtnOn]}
+                    onPress={() => {
+                      setChunkPauseMs(ms);
+                      setPauseState(ms);
+                      onChanged();
+                    }}
+                  >
+                    <Text style={[styles.segText, pauseMs === ms && styles.segTextOn]}>{ms} ms</Text>
+                  </Pressable>
+                ))}
+              </View>
             </View>
             <Pressable
               style={[styles.row, styles.rowDivider]}
@@ -235,18 +281,18 @@ export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWip
             ))
           )}
 
-          <Text style={styles.section}>Voice keyboard</Text>
-          <Text style={styles.meta}>
-            {Platform.OS === 'android'
-              ? `Enable the ${BRAND} keyboard, then tap 🌐 in any app to dictate inline.`
-              : `Add the ${BRAND} keyboard under General → Keyboard, enable Allow Full Access, then 🌐 → Dictate.`}
-          </Text>
-          <Pressable style={styles.actionBtn} onPress={openKeyboardSettings}>
-            <Ionicons name="keypad-outline" size={18} color={theme.text} />
-            <Text style={styles.actionText}>
-              {Platform.OS === 'android' ? 'Open keyboard settings' : 'Open Settings'}
-            </Text>
-          </Pressable>
+          {Platform.OS === 'android' && (
+            <>
+              <Text style={styles.section}>Voice keyboard</Text>
+              <Text style={styles.meta}>
+                {`Enable the ${BRAND} keyboard, then tap 🌐 in any app to dictate inline.`}
+              </Text>
+              <Pressable style={styles.actionBtn} onPress={openKeyboardSettings}>
+                <Ionicons name="keypad-outline" size={18} color={theme.text} />
+                <Text style={styles.actionText}>Open keyboard settings</Text>
+              </Pressable>
+            </>
+          )}
 
           {flowBubbleSupported && (
             <>
@@ -315,7 +361,8 @@ export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWip
               {BRAND} {APP_VERSION}
             </Text>
             <Text style={styles.meta}>
-              100% on-device. Your voice is transcribed locally and never leaves your phone.
+              Transcribed on your phone. No account, no tracking, and your voice is never sent to
+              us. Download a model to stay fully offline.
             </Text>
           </View>
         </ScrollView>

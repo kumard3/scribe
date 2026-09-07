@@ -50,6 +50,11 @@ import { sherpaInstalled, sherpaModelById, transcribeWithSherpa } from './src/as
 import { nemoInstalled, transcribeWithNemo, nemoModelDir } from './src/asr/nemo';
 import { localFile } from './src/asr/modelManager';
 import { startSherpaLive, stopSherpaLive, feedSherpaLive } from './src/asr/live/sherpaLive';
+import {
+  startWhisperChunks,
+  feedWhisperChunks,
+  stopWhisperChunks,
+} from './src/asr/live/whisperChunks';
 import { startLiveMic, stopLiveMic } from './src/audio/liveMic';
 import { catalogModelById, CatalogModel, SYSTEM_MODEL_ID } from './src/asr/catalog';
 import { transcribeCloud } from './src/asr/cloud';
@@ -62,7 +67,7 @@ import {
   getRecordModelId,
   getSelectedModelId,
   getTranslateTarget,
-  getVocab,
+  biasTerms,
   setDiarizationEnabled,
   setDiarizationSpeakers,
 } from './src/asr/settings';
@@ -187,8 +192,10 @@ export default function App() {
     const byId = rid ? catalogModelById(rid) : undefined;
     if (byId && canRecordWith(byId)) return byId;
     if (canRecordWith(selected)) return selected;
-    return catalogModelById('whisper:whisper-small-en-q5') ?? null;
-  }, [selected, selectedModelId]);
+    const fallback =
+      language === 'en' ? 'whisper:whisper-small-en-q5' : 'whisper:whisper-small';
+    return catalogModelById(fallback) ?? null;
+  }, [selected, selectedModelId, language]);
   const langLabel = SUPPORTED_LANGUAGES.find((l) => l.code === language)?.label ?? language;
   const active = recognizing || recording || nativeRec || modelLive;
   const liveDisplay = translateTarget && liveXlate ? liveXlate : transcript;
@@ -271,7 +278,11 @@ export default function App() {
       // Keep listening so a long dictation doesn't silently die.
       setTimeout(() => {
         if (liveIntent.current) {
-          startLive({ locale: liveLocale.current, onDevice: liveOnDevice.current });
+          startLive({
+            locale: liveLocale.current,
+            onDevice: liveOnDevice.current,
+            contextualStrings: biasTerms(),
+          });
         }
       }, 250);
       return;
@@ -372,7 +383,7 @@ export default function App() {
       liveLocale.current = locale;
       liveOnDevice.current = onDevice;
       liveIntent.current = true;
-      startLive({ locale, onDevice, contextualStrings: getVocab() });
+      startLive({ locale, onDevice, contextualStrings: biasTerms() });
     } catch (e: any) {
       liveIntent.current = false;
       setError(e?.message ?? String(e));
@@ -500,7 +511,11 @@ export default function App() {
       const target = recTarget.current;
       setBusy(true);
       try {
-        let text = applyVoiceCommands(await stopSherpaLive());
+        const raw =
+          recModel.current?.kind === 'whisper'
+            ? await stopWhisperChunks()
+            : await stopSherpaLive();
+        let text = applyVoiceCommands(raw);
         if (getAutoPolish()) text = polish(text);
         if (target && text.trim()) text = await translateText(text, target, lang);
         setTranscript(text);
@@ -546,6 +561,18 @@ export default function App() {
           return;
         }
         await startSherpaLive(dir, onText);
+      } else if (selected.kind === 'whisper' && selected.whisper) {
+        if (!isInstalled(selected.whisper)) {
+          setDownloading(true);
+          setProgress(0);
+          await prepareModel(selected.whisper, setProgress);
+          setDownloading(false);
+        } else {
+          await prepareModel(selected.whisper);
+        }
+        await startWhisperChunks(selected.whisper, language, (cleaned, pending) => {
+          setTranscript(pending ? `${cleaned} ${pending}`.trim() : cleaned);
+        });
       } else {
         setError('This model does not support live transcription.');
         return;
@@ -555,7 +582,8 @@ export default function App() {
         (samples, sr) => {
           const norm = Math.max(0.06, Math.min(1, rms(samples) * 8));
           setLevels((prev) => [...prev.slice(1), norm]);
-          feedSherpaLive(samples, sr);
+          if (selected.kind === 'whisper') feedWhisperChunks(samples, sr);
+          else feedSherpaLive(samples, sr);
         },
         (msg) => setError(msg)
       );
@@ -603,6 +631,9 @@ export default function App() {
       setModelLive(false);
       try {
         await stopSherpaLive();
+      } catch {}
+      try {
+        await stopWhisperChunks();
       } catch {}
     }
     committed.current = '';

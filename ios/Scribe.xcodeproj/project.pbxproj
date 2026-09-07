@@ -52,7 +52,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				59DE083E7EFCFFDD597A8CE6 /* ScribeKeyboard.appex in Embed App Extensions */,
 				F4389D07B33E03A963898C64 /* ScribeWidget.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
@@ -282,7 +281,6 @@
 			buildRules = (
 			);
 			dependencies = (
-				0DF4F4BAE43AE3A16E289957 /* PBXTargetDependency */,
 				454830BAE6D5962AE2180E21 /* PBXTargetDependency */,
 			);
 			name = Scribe;

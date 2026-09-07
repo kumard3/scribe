@@ -31,10 +31,22 @@ export const CLOUD_MODEL_ID = 'cloud';
 // What a normal person actually wants to choose between, by purpose, no model
 // names. Keyed by namespaced catalog id.
 const DISPLAY: Record<string, Pick<CatalogModel, 'title' | 'tagline' | 'chip' | 'featured'>> = {
+  'whisper:oriserve-swift-q8': {
+    title: 'Hinglish · Swift',
+    tagline: 'On-device Oriserve Swift. WhatsApp Hinglish + Indian English. ~78 MB, then fully offline.',
+    chip: 'Recommended',
+    featured: true,
+  },
+  'whisper:apex-hinglish-q5': {
+    title: 'Hinglish · Apex',
+    tagline: 'Oriserve Apex. Best romanized Hinglish on a phone that can spare ~570 MB.',
+    chip: 'Best Hinglish',
+    featured: true,
+  },
   system: {
     title: 'Instant',
     tagline: 'No download. Works the moment you start. Best for quick notes and messages.',
-    chip: 'Recommended',
+    chip: 'Built-in',
     featured: true,
   },
   'nemo:nemotron-3.5-streaming-multi': {
@@ -68,7 +80,7 @@ export function buildCatalog(): CatalogModel[] {
     id: SYSTEM_MODEL_ID,
     kind: 'system',
     label: 'Built-in · Fast',
-    note: 'Instant streaming, no download. Uses your phone’s on-device speech engine.',
+    note: 'Instant streaming, no download. Uses your phone’s speech engine, which runs locally when your language pack is installed. Download a model below to guarantee offline.',
     sizeLabel: 'No download',
     live: true,
   };
@@ -81,15 +93,13 @@ export function buildCatalog(): CatalogModel[] {
     live: !!m.live,
     nemo: m,
   }));
-  // Whisper has no streaming interface, faking one by re-transcribing a rolling
-  // slice is both slow and less accurate than one whole-utterance decode.
   const whisper: CatalogModel[] = MODELS.map((m) => ({
     id: `whisper:${m.id}`,
     kind: 'whisper',
     label: m.label,
     note: m.note ?? '',
     sizeLabel: formatMB(m.sizeBytes),
-    live: false,
+    live: !!m.forcedLanguage || m.id.startsWith('oriserve') || m.id.startsWith('apex') || m.id === 'whisper-large-turbo-q5',
     whisper: m,
   }));
   const llm: CatalogModel[] = LLM_MODELS.map((m) => ({

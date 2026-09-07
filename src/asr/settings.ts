@@ -1,9 +1,12 @@
 import { File, Paths } from 'expo-file-system';
+import { mergeVocab } from './vocab';
 
 type Settings = {
   selectedModelId: string;
   vocab: string[];
   autoPolish: boolean;
+  dictationStyle: 'auto' | 'english' | 'hinglish';
+  chunkPauseMs: number;
   onboarded: boolean;
   translateToEnglish: boolean;
   translateTarget: string;
@@ -16,9 +19,11 @@ type Settings = {
 };
 
 const DEFAULT: Settings = {
-  selectedModelId: 'system',
+  selectedModelId: 'whisper:oriserve-swift-q8',
   vocab: [],
   autoPolish: false,
+  dictationStyle: 'auto',
+  chunkPauseMs: 550,
   onboarded: false,
   translateToEnglish: false,
   translateTarget: '',
@@ -62,6 +67,10 @@ export function getVocab(): string[] {
   return load().vocab;
 }
 
+export function biasTerms(): string[] {
+  return mergeVocab(load().vocab);
+}
+
 export function setVocab(vocab: string[]): void {
   persist({ ...load(), vocab });
 }
@@ -72,6 +81,25 @@ export function getAutoPolish(): boolean {
 
 export function setAutoPolish(autoPolish: boolean): void {
   persist({ ...load(), autoPolish });
+}
+
+export function getDictationStyle(): 'auto' | 'english' | 'hinglish' {
+  return load().dictationStyle;
+}
+
+export function setDictationStyle(dictationStyle: 'auto' | 'english' | 'hinglish'): void {
+  persist({ ...load(), dictationStyle });
+}
+
+export function getChunkPauseMs(): number {
+  const n = load().chunkPauseMs;
+  if (n < 400) return 400;
+  if (n > 700) return 700;
+  return n;
+}
+
+export function setChunkPauseMs(chunkPauseMs: number): void {
+  persist({ ...load(), chunkPauseMs });
 }
 
 export function getOnboarded(): boolean {

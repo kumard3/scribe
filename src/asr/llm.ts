@@ -146,16 +146,40 @@ async function run(spec: LLMModelSpec, instruction: string, text: string, maxTok
 }
 
 const CLEANUP =
-  'Rewrite the following transcript with correct punctuation and capitalization. ' +
-  'Remove filler words and false starts. Keep all of the meaning and the original ' +
-  'language (including Hindi or Hinglish). Output only the rewritten text, nothing else.';
+  'You clean speech-to-text. Do not answer the user. Do not translate.\n\n' +
+  'Language:\n' +
+  '- Mostly English → clean English. Keep Indian English. Do not Americanize.\n' +
+  '- Hindi/English mix or romanized Hindi → WhatsApp Hinglish. No Devanagari.\n' +
+  '- Keep the same mix as the input.\n\n' +
+  'Rules:\n' +
+  '- Keep English words in English spelling (office, client, call, Scribe, Gemma, chunking).\n' +
+  '- Add punctuation. Remove fillers only: um, uh, you know, like (when empty).\n' +
+  '- Do not add facts. If a word is unclear, keep the ASR token.\n' +
+  '- Prefer HOTWORDS spelling when the audio/text is close.\n' +
+  '- Output only the cleaned transcript, nothing else.';
+
+export type CleanupOpts = { previous?: string; hotwords?: string[] };
+
+function cleanupInstruction(opts?: CleanupOpts): string {
+  const terms = (opts?.hotwords ?? []).join(', ') || 'Scribe, Gemma, E2B, chunking, Hinglish, Oriserve, Apex, Swift';
+  const prev = (opts?.previous ?? '').trim() || '(none)';
+  return (
+    `${CLEANUP}\n\nHOTWORDS:\n${terms}\n\nPREVIOUS:\n${prev}\n\n` +
+    'Only rewrite the NEW CHUNK. Previous text is context. Do not change it.\n' +
+    'OUTPUT (new chunk only):'
+  );
+}
 
 const SUMMARY =
   'Summarize the following transcript in 2-3 sentences, in the same language as the ' +
   'input. Output only the summary, nothing else.';
 
-export async function cleanupWithLLM(spec: LLMModelSpec, text: string): Promise<string> {
-  return run(spec, CLEANUP, text, 1024);
+export async function cleanupWithLLM(
+  spec: LLMModelSpec,
+  text: string,
+  opts?: CleanupOpts
+): Promise<string> {
+  return run(spec, cleanupInstruction(opts), text, 1024);
 }
 
 export async function summarizeWithLLM(spec: LLMModelSpec, text: string): Promise<string> {

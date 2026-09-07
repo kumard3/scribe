@@ -60,14 +60,11 @@ OPTIONAL AI CLEANUP
 An optional on-device Gemma model tidies filler words and can summarise what you
 said. Like everything else here, it runs locally.
 
-KEYBOARD
-The Scribe keyboard lets you dictate from inside other apps. iOS does not permit
-keyboard extensions to use the microphone, so tapping Dictate opens Scribe to
-record, then you return and tap Paste to insert the text.
-
 PRIVACY
-No telemetry. No analytics. No accounts. The only network requests Scribe ever
-makes are downloading the speech models you choose.
+No telemetry. No analytics. No accounts. Scribe has no server, so your voice is
+never sent to us. Download any model and transcription is fully offline; the
+no-download default uses your phone's own speech recognizer, which stays local
+when your language pack is installed.
 
 ## What's New (version 1.0.0)
 
@@ -75,13 +72,12 @@ First public iOS release.
 
 ## Review notes (for App Review, not public)
 
+Full paste-ready version, answering Apple's 2026-08-14 guideline 2.1 request:
+`marketing/app-review-notes.md`. Keep the two in sync.
+
 - No account required, so no demo credentials are needed.
-- On first launch the app downloads a speech model. Please allow it to finish
-  before testing dictation; on wifi this is under a minute for the default model.
-- The keyboard extension requests Full Access solely to read the clipboard so it
-  can insert a transcript produced by the main app. iOS blocks microphone access
-  in keyboard extensions, so the main app does the recording. No data is sent off
-  device by the keyboard or the app.
+- Dictation works immediately with no download. The default model is `system`,
+  the phone's built-in speech engine. Downloads in Models are all optional.
 - Source: https://github.com/kumard3/scribe
 
 ## URLs
@@ -160,9 +156,13 @@ Won't fix, with reasons:
   pins sherpa-onnx 1.12.34-2; the Mac app uses 1.13.3. Forcing a newer binary
   risks an ABI mismatch that cannot be verified without a simulator or a device.
   Six other models work.
-- **Keyboard Full Access.** It uses the clipboard as an IPC channel because no App
-  Group is registered, and registering one needs developer portal access. This is
-  the largest guideline 4.4.1 risk in the submission.
+- **No keyboard on iOS as of build 4.** The extension is no longer embedded in the
+  app, and onboarding and Settings no longer offer it on iOS. It used the
+  clipboard as an IPC channel because no App Group is registered, which was the
+  largest guideline 4.4.1 risk in the submission. The target and its source are
+  still in the repo; re-embedding it means restoring the Embed App Extensions
+  entry and the target dependency in `ios/Scribe.xcodeproj`. Android keeps its
+  keyboard, that one is a real IME and can use the microphone.
 
 ## Submission log
 

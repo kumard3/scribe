@@ -11,6 +11,8 @@ export type ModelSpec = {
   sizeBytes: number;
   languages: LanguageCode[] | 'multilingual';
   note?: string;
+  /** whisper.cpp `-l`. Oriserve Hinglish checkpoints expect `hi`. */
+  forcedLanguage?: string;
 };
 
 export type TimedUnit = { start: number; end: number; text: string };

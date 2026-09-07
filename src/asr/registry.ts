@@ -4,6 +4,28 @@ const HF = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
 
 export const MODELS: ModelSpec[] = [
   {
+    id: 'oriserve-swift-q8',
+    label: 'Swift · Hinglish',
+    engine: 'whisper',
+    url: 'https://huggingface.co/anish2305/airnote-hinglish-stt-ggml/resolve/main/ggml-oriserve-hinglish-q8_0.bin',
+    fileName: 'ggml-oriserve-hinglish-q8_0.bin',
+    sizeBytes: 81768585,
+    languages: 'multilingual',
+    note: 'Oriserve · 74M · romanized Hinglish + Indian English',
+    forcedLanguage: 'hi',
+  },
+  {
+    id: 'apex-hinglish-q5',
+    label: 'Apex · Hinglish',
+    engine: 'whisper',
+    url: 'https://huggingface.co/Marquestra/Whisper-Hindi2Hinglish-Apex-GGML/resolve/main/ggml-apex-hinglish-q5_0.bin',
+    fileName: 'ggml-apex-hinglish-q5_0.bin',
+    sizeBytes: 574041195,
+    languages: 'multilingual',
+    note: 'Oriserve Whisper Turbo · Indian accents · romanized Hinglish',
+    forcedLanguage: 'hi',
+  },
+  {
     id: 'whisper-tiny',
     label: 'Tiny · multilingual',
     engine: 'whisper',
@@ -60,8 +82,8 @@ export const DEFAULT_MODEL_ID = 'whisper-small';
 export const LANGUAGE_ROUTES: Record<string, string> = {
   auto: 'whisper-tiny',
   en: 'whisper-base-en',
-  hi: 'whisper-small',
-  'hi-en': 'whisper-small',
+  hi: 'oriserve-swift-q8',
+  'hi-en': 'oriserve-swift-q8',
   es: 'whisper-small',
   fr: 'whisper-small',
   de: 'whisper-small',
