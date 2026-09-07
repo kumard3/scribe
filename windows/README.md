@@ -1,8 +1,18 @@
 # Scribe for Windows
 
-System-wide local dictation, same design as the Mac app: hold a key, speak,
-release, the text is typed into whatever app has focus. 100% offline
-(sherpa-onnx streaming zipformer, runs on CPU).
+System-wide local dictation, same *product* as the Mac app (hold a key, speak,
+release, text lands in the focused app), but **not the same codebase**. Mac is
+Swift + MLX/Metal. Windows is C# WinForms + sherpa-onnx.
+
+100% offline. Processor is auto-detected: NVIDIA CUDA if the driver is present,
+otherwise DirectML on AMD/Intel/NVIDIA, otherwise CPU. The dashboard
+**Processor** row can override this. The NuGet `org.k2fsa.sherpa.onnx` package
+is still CPU-built ([k2-fsa/sherpa-onnx#3717](https://github.com/k2-fsa/sherpa-onnx/issues/3717));
+setting `provider` to `cuda` or `directml` only *runs* on GPU when GPU-enabled
+sherpa/onnxruntime native libs sit next to the exe (CUDA tarball from
+[sherpa-onnx releases](https://github.com/k2-fsa/sherpa-onnx/releases), or a
+DirectML build with `-DSHERPA_ONNX_ENABLE_DIRECTML=ON`). Without those libs it
+falls back to CPU.
 
 ## How it works
 
@@ -42,4 +52,11 @@ Windows (WinForms + the sherpa-onnx native runtime).
 - The streaming API follows the official sherpa-onnx `dotnet-examples`
   (speech-recognition-from-microphone): `OnlineRecognizer` + `AcceptWaveform`
   / `IsReady` / `Decode` / `GetResult` / `IsEndpoint` / `Reset`.
+  `ModelConfig.Provider` is `cpu`, `cuda`, or `directml` (C++ enum in
+  `csrc/provider.h`; C# help text still says cpu/coreml).
+- GPU detection: WMI `Win32_VideoController` + `nvcuda.dll`. CUDA is NVIDIA
+  only and needs the matching toolkit if you swap in the CUDA native build.
+  DirectML is the cross-vendor Windows GPU path.
 - No audio or text ever leaves the machine.
+- This is not Mac Gemma/MLX. MLX is Apple Silicon only. Gemma on Windows would
+  be llama.cpp CUDA/Vulkan, not this sherpa path.
