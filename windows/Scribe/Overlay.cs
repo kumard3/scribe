@@ -55,7 +55,7 @@ sealed class Overlay : Form
     if (!IsHandleCreated) return;
     BeginInvoke(() =>
     {
-      if (_mode != Mode.Listening) return;
+      if (_mode is not (Mode.Listening or Mode.Status)) return;
       _text = text;
       _level = level;
       Invalidate();

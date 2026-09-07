@@ -26,7 +26,18 @@ static class ModelStore
     return Directory.EnumerateDirectories(root).FirstOrDefault(HasTokens);
   }
 
-  public static bool IsInstalled(ModelSpec spec) => ModelDir(spec) != null;
+  public static bool IsInstalled(ModelSpec spec)
+  {
+    if (spec.DirectUrl != null && spec.FileName != null)
+    {
+      var f = Path.Combine(DirFor(spec), spec.FileName);
+      if (!File.Exists(f)) return false;
+      if (spec.MmprojFileName != null)
+        return File.Exists(Path.Combine(DirFor(spec), spec.MmprojFileName));
+      return true;
+    }
+    return ModelDir(spec) != null;
+  }
 
   public static void Delete(ModelSpec spec)
   {
@@ -36,28 +47,72 @@ static class ModelStore
 
   public static async Task<string> EnsureAsync(ModelSpec spec, Action<string> status)
   {
+    if (spec.DirectUrl != null && spec.FileName != null)
+    {
+      var dir = DirFor(spec);
+      Directory.CreateDirectory(dir);
+      var dest = Path.Combine(dir, spec.FileName);
+      if (!File.Exists(dest))
+      {
+        status($"Downloading {spec.Label} ({spec.SizeLabel}, one time)…");
+        var tmp = dest + ".part";
+        try
+        {
+          await DownloadTo(spec.DirectUrl, tmp, spec.SizeBytes,
+            pct => status($"Downloading {spec.Label}… {pct}%"));
+          File.Move(tmp, dest, true);
+        }
+        catch
+        {
+          try { File.Delete(tmp); } catch { }
+          throw;
+        }
+      }
+      if (spec.MmprojUrl != null && spec.MmprojFileName != null)
+      {
+        var mm = Path.Combine(dir, spec.MmprojFileName);
+        if (!File.Exists(mm))
+        {
+          status($"Downloading {spec.Label} audio encoder…");
+          var tmp = mm + ".part";
+          try
+          {
+            await DownloadTo(spec.MmprojUrl, tmp, spec.MmprojSizeBytes,
+              pct => status($"Downloading audio encoder… {pct}%"));
+            File.Move(tmp, mm, true);
+          }
+          catch
+          {
+            try { File.Delete(tmp); } catch { }
+            throw;
+          }
+        }
+      }
+      return dir;
+    }
+
     var existing = ModelDir(spec);
     if (existing != null) return existing;
 
-    var dir = DirFor(spec);
-    Directory.CreateDirectory(dir);
-    var tmp = Path.Combine(dir, spec.Archive);
+    var archiveDir = DirFor(spec);
+    Directory.CreateDirectory(archiveDir);
+    var archiveTmp = Path.Combine(archiveDir, spec.Archive);
     status($"Downloading {spec.Label} ({spec.SizeLabel}, one time)…");
     try
     {
-      await DownloadTo($"{ModelCatalog.Releases}/{spec.Archive}", tmp, spec.SizeBytes,
+      await DownloadTo($"{ModelCatalog.Releases}/{spec.Archive}", archiveTmp, spec.SizeBytes,
         pct => status($"Downloading {spec.Label}… {pct}%"));
       status($"Extracting {spec.Label}…");
-      await Task.Run(() => ExtractArchive(tmp, dir));
+      await Task.Run(() => ExtractArchive(archiveTmp, archiveDir));
     }
     catch
     {
-      try { Directory.Delete(dir, true); } catch { }
+      try { Directory.Delete(archiveDir, true); } catch { }
       throw;
     }
     finally
     {
-      if (File.Exists(tmp)) File.Delete(tmp);
+      if (File.Exists(archiveTmp)) File.Delete(archiveTmp);
     }
 
     return ModelDir(spec) ?? throw new IOException("Model archive did not contain a model folder.");
@@ -66,6 +121,7 @@ static class ModelStore
   public static async Task DownloadTo(string url, string dest, long sizeHint, Action<int>? onPercent)
   {
     using var http = new HttpClient();
+    http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Scribe/1.0");
     using var res = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead);
     res.EnsureSuccessStatusCode();
     long total = res.Content.Headers.ContentLength ?? sizeHint;

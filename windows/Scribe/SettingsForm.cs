@@ -89,6 +89,18 @@ sealed class SettingsForm : Form
     AutoSize = true,
     ForeColor = Mono.Text,
   };
+  readonly CheckBox _hinglish = new()
+  {
+    Text = "Write Hindi in English letters (Hinglish)",
+    AutoSize = true,
+    ForeColor = Mono.Text,
+  };
+  readonly CheckBox _cleanup = new()
+  {
+    Text = "AI cleanup with Gemma 4 E2B after insert",
+    AutoSize = true,
+    ForeColor = Mono.Text,
+  };
   readonly ListBox _history = new()
   {
     Dock = DockStyle.Fill,
@@ -239,7 +251,10 @@ sealed class SettingsForm : Form
       Note("Auto-detect misreads accented speech, naming your language is the single biggest accuracy win. Whisper models only."),
       Row("Processor:", _gpu),
       _gpuNote,
-      Note("Auto picks NVIDIA CUDA when the driver is present, otherwise DirectML on any other GPU, otherwise CPU. Reloads the model.")));
+      Note("Auto picks NVIDIA CUDA when the driver is present, otherwise DirectML on any other GPU, otherwise CPU. Reloads the model."),
+      _hinglish,
+      _cleanup,
+      Note("Hinglish is why Gemma 4 E2B writes “maine english model select kiya”. Cleanup is llama.cpp on Windows, not MLX.")));
     layout.Controls.Add(Section("GENERAL", _startup));
     layout.Controls.Add(Section("AUDIO FILE IMPORT",
       _diarize,
@@ -326,6 +341,18 @@ sealed class SettingsForm : Form
       Settings.Instance.TapHandsFree = _handsFree.Checked;
       Settings.Instance.Save();
     };
+    _hinglish.CheckedChanged += (_, _) =>
+    {
+      if (_syncing) return;
+      Settings.Instance.RomanizeHindi = _hinglish.Checked;
+      Settings.Instance.Save();
+    };
+    _cleanup.CheckedChanged += (_, _) =>
+    {
+      if (_syncing) return;
+      Settings.Instance.AutoCleanLLM = _cleanup.Checked;
+      Settings.Instance.Save();
+    };
     _saveHistory.CheckedChanged += (_, _) =>
     {
       if (_syncing) return;
@@ -382,6 +409,8 @@ sealed class SettingsForm : Form
     _holdKey.SelectedIndex = idx;
     _handsFree.Checked = Settings.Instance.TapHandsFree;
     _saveHistory.Checked = Settings.Instance.SaveHistory;
+    _hinglish.Checked = Settings.Instance.RomanizeHindi;
+    _cleanup.Checked = Settings.Instance.AutoCleanLLM;
     _startup.Checked = _getStartup();
     var mIdx = Array.FindIndex(ModelCatalog.All, m => m.Id == Settings.Instance.ModelId);
     _model.SelectedIndex = mIdx >= 0 ? mIdx : 0;

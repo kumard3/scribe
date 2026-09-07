@@ -1,6 +1,10 @@
 namespace Scribe;
 
-enum ModelKind { Moonshine, NemoTransducer, NemoCtc, Canary, Whisper, DolphinCtc, OnlineTransducer, NemotronTransducer }
+enum ModelKind
+{
+  Moonshine, NemoTransducer, NemoCtc, Canary, Whisper, DolphinCtc,
+  OnlineTransducer, NemotronTransducer, WhisperCpp, GemmaAudio
+}
 
 sealed record ModelSpec(
   string Id,
@@ -10,9 +14,18 @@ sealed record ModelSpec(
   string Archive,
   long SizeBytes,
   bool Live,
-  bool Punctuated = false)
+  bool Punctuated = false,
+  string? DirectUrl = null,
+  string? FileName = null,
+  string? MmprojUrl = null,
+  string? MmprojFileName = null,
+  long MmprojSizeBytes = 0,
+  string ForcedLanguage = "")
 {
-  public string SizeLabel => $"{Math.Round(SizeBytes / 1e6)} MB";
+  public string SizeLabel => SizeBytes >= 1_000_000_000
+    ? $"{SizeBytes / 1e9:0.0} GB"
+    : $"{Math.Round(SizeBytes / 1e6)} MB";
+  public bool Native => Kind is ModelKind.WhisperCpp or ModelKind.GemmaAudio;
 }
 
 /// Same k2-fsa archives the mobile and Mac apps use.
@@ -23,6 +36,29 @@ static class ModelCatalog
 
   public static readonly ModelSpec[] All =
   {
+    new("oriserve-swift-q8", ModelKind.WhisperCpp,
+      "Swift · Hinglish", "Oriserve · 74M · romanized Hinglish + Indian English · live chunks",
+      "", 81_768_585, true,
+      DirectUrl: "https://huggingface.co/anish2305/airnote-hinglish-stt-ggml/resolve/main/ggml-oriserve-hinglish-q8_0.bin",
+      FileName: "ggml-oriserve-hinglish-q8_0.bin", ForcedLanguage: "hi"),
+    new("apex-hinglish-q5", ModelKind.WhisperCpp,
+      "Apex Q5 · Hinglish", "Oriserve Whisper Turbo · Indian accents · romanized Hinglish",
+      "", 574_041_195, true,
+      DirectUrl: "https://huggingface.co/Marquestra/Whisper-Hindi2Hinglish-Apex-GGML/resolve/main/ggml-apex-hinglish-q5_0.bin",
+      FileName: "ggml-apex-hinglish-q5_0.bin", ForcedLanguage: "hi"),
+    new("whisper-large-v3-turbo-q5", ModelKind.WhisperCpp,
+      "Whisper Turbo · English", "OpenAI large-v3-turbo · English fallback · live chunks",
+      "", 574_041_195, true,
+      DirectUrl: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+      FileName: "ggml-large-v3-turbo-q5_0.bin", ForcedLanguage: "en"),
+    new("gemma4-e2b-audio", ModelKind.GemmaAudio,
+      "Gemma 4 E2B · Audio", "Google · llama.cpp (CUDA/Vulkan/CPU). Not MLX. Hinglish when the toggle is on.",
+      "", 2_839_481_184, false,
+      DirectUrl: "https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_0.gguf",
+      FileName: "gemma-4-E2B-it-Q4_0.gguf",
+      MmprojUrl: "https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF/resolve/main/mmproj-gemma-4-E2B-it-Q8_0.gguf",
+      MmprojFileName: "mmproj-gemma-4-E2B-it-Q8_0.gguf",
+      MmprojSizeBytes: 557_368_064),
     new("zipformer-streaming-en", ModelKind.OnlineTransducer,
       "Zipformer Streaming · English", "Live partial text while you speak",
       "sherpa-onnx-streaming-zipformer-en-2023-06-21-mobile.tar.bz2", 365_748_162, true),

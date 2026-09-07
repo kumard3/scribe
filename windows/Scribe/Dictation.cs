@@ -11,7 +11,7 @@ sealed class Dictation : IDisposable
   public event Action<string>? Finished;
   public event Action<bool>? StateChanged;
 
-  public bool Ready => _online != null || _offline != null;
+  public bool Ready => _online != null || _offline != null || _native;
   public bool IsRecording { get; private set; }
 
   readonly Overlay _overlay;
@@ -25,17 +25,20 @@ sealed class Dictation : IDisposable
   string _committed = "";
   string _current = "";
   readonly List<float> _buffered = new();
-  // ~15 min at 16 kHz; past this we stop buffering rather than grow unbounded
   const int MaxBufferedSamples = 16_000 * 900;
+  bool _native;
+  PauseChunker _chunker = new();
+  readonly Queue<float[]> _nativeReady = new();
+  bool _nativeInFlight;
+  string _nativeCommitted = "";
+  CancellationTokenSource? _watch;
 
   public Dictation(Overlay overlay) => _overlay = overlay;
 
   public async Task PrepareAsync()
   {
     var spec = ModelCatalog.Get(Settings.Instance.ModelId);
-    var dir = await ModelStore.EnsureAsync(spec, s => _overlay.ShowStatus(s));
-    _overlay.ShowStatus($"Loading {spec.Label}…");
-    await Task.Run(() => Load(spec, dir));
+    await EnsureEngineAsync(spec);
     _overlay.HideOverlay();
   }
 
@@ -46,7 +49,17 @@ sealed class Dictation : IDisposable
     {
       if (IsRecording) Stop();
     }
+    await EnsureEngineAsync(spec);
+    _overlay.HideOverlay();
+  }
+
+  async Task EnsureEngineAsync(ModelSpec spec)
+  {
     var dir = await ModelStore.EnsureAsync(spec, s => _overlay.ShowStatus(s));
+    if (spec.Kind == ModelKind.WhisperCpp)
+      await NativeBins.EnsureWhisperAsync(s => _overlay.ShowStatus(s));
+    if (spec.Kind == ModelKind.GemmaAudio)
+      await NativeBins.EnsureLlamaAsync(s => _overlay.ShowStatus(s));
     _overlay.ShowStatus($"Loading {spec.Label}…");
     await Task.Run(() =>
     {
@@ -56,15 +69,20 @@ sealed class Dictation : IDisposable
         _offline?.Dispose();
         _online = null;
         _offline = null;
+        _native = false;
         Load(spec, dir);
       }
     });
-    _overlay.HideOverlay();
   }
 
   void Load(ModelSpec spec, string dir)
   {
     _spec = spec;
+    if (spec.Native)
+    {
+      _native = true;
+      return;
+    }
     int threads = Math.Max(2, Environment.ProcessorCount / 2);
 
     if (spec.Kind == ModelKind.OnlineTransducer || spec.Kind == ModelKind.NemotronTransducer)
@@ -167,6 +185,10 @@ sealed class Dictation : IDisposable
       _committed = "";
       _current = "";
       _buffered.Clear();
+      _nativeCommitted = "";
+      _nativeReady.Clear();
+      _nativeInFlight = false;
+      _chunker.Reset(16000);
       if (_online != null) _stream = _online.CreateStream();
       _waveIn = new WaveInEvent
       {
@@ -194,7 +216,14 @@ sealed class Dictation : IDisposable
       _waveIn.Dispose();
       _waveIn = null;
 
-      if (_online != null)
+      if (_native)
+      {
+        var last = _chunker.Flush();
+        if (last != null) _nativeReady.Enqueue(last);
+        ArmWatch();
+        text = "";
+      }
+      else if (_online != null)
       {
         _stream!.InputFinished();
         while (_online.IsReady(_stream)) _online.Decode(_stream);
@@ -212,6 +241,15 @@ sealed class Dictation : IDisposable
       }
     }
     StateChanged?.Invoke(false);
+
+    if (_native)
+    {
+      MaybeSpawnNative();
+      bool done;
+      lock (_lock) done = _nativeReady.Count == 0 && !_nativeInFlight;
+      if (done) FinishNative(_nativeCommitted);
+      return;
+    }
 
     if (toTranscribe != null)
     {
@@ -290,7 +328,14 @@ sealed class Dictation : IDisposable
       }
       level = Math.Min(1f, (float)Math.Sqrt(sum / Math.Max(n, 1)) * 14f);
 
-      if (_online != null && _stream != null)
+      if (_native)
+      {
+        foreach (var chunk in _chunker.Feed(samples))
+          _nativeReady.Enqueue(chunk);
+        if (_nativeReady.Count > 0) MaybeSpawnNative();
+        partial = _nativeCommitted;
+      }
+      else if (_online != null && _stream != null)
       {
         _stream.AcceptWaveform(16000, samples);
         while (_online.IsReady(_stream)) _online.Decode(_stream);
@@ -312,8 +357,81 @@ sealed class Dictation : IDisposable
     _overlay.UpdatePartial(partial, level);
   }
 
+  void MaybeSpawnNative()
+  {
+    float[]? slice = null;
+    lock (_lock)
+    {
+      if (_nativeInFlight || _nativeReady.Count == 0) return;
+      slice = _nativeReady.Dequeue();
+      _nativeInFlight = true;
+    }
+    var spec = _spec!;
+    var samples = slice!;
+    Task.Run(() =>
+    {
+      string piece;
+      try
+      {
+        piece = spec.Kind == ModelKind.GemmaAudio
+          ? GemmaCpp.Transcribe(samples)
+          : WhisperCpp.Transcribe(spec, samples);
+      }
+      catch (Exception ex)
+      {
+        piece = "";
+        _overlay.ShowStatus(ex.Message, 4);
+      }
+      string committed;
+      bool more, finishing;
+      lock (_lock)
+      {
+        _nativeInFlight = false;
+        if (piece.Length > 0)
+          _nativeCommitted = (_nativeCommitted + " " + piece).Trim();
+        committed = _nativeCommitted;
+        more = _nativeReady.Count > 0;
+        finishing = !IsRecording && !more && !_nativeInFlight;
+      }
+      if (committed.Length > 0)
+        _overlay.UpdatePartial(committed, 0.2f);
+      if (more) MaybeSpawnNative();
+      else if (finishing) FinishNative(committed);
+    });
+  }
+
+  void ArmWatch()
+  {
+    _watch?.Cancel();
+    _watch = new CancellationTokenSource();
+    var token = _watch.Token;
+    _ = Task.Delay(35_000, token).ContinueWith(t =>
+    {
+      if (t.IsCanceled) return;
+      string committed;
+      lock (_lock)
+      {
+        if (!_native || IsRecording) return;
+        _nativeReady.Clear();
+        _nativeInFlight = false;
+        committed = _nativeCommitted;
+      }
+      FinishNative(committed);
+    }, TaskScheduler.Default);
+  }
+
+  void FinishNative(string text)
+  {
+    _watch?.Cancel();
+    text = Romanizer.NormalizeScript(text);
+    if (text.Length > 0) _overlay.ShowInserted();
+    else _overlay.HideOverlay();
+    Finished?.Invoke(text);
+  }
+
   public void Dispose()
   {
+    _watch?.Cancel();
     if (IsRecording) Stop();
     _online?.Dispose();
     _online = null;

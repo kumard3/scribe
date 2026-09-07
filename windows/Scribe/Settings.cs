@@ -10,6 +10,8 @@ sealed class Settings
   public string ModelId { get; set; } = "zipformer-streaming-en";
   public string Language { get; set; } = DefaultLanguage();
   public string GpuProvider { get; set; } = GpuRuntime.Auto;
+  public bool RomanizeHindi { get; set; } = true;
+  public bool AutoCleanLLM { get; set; } = false;
   public bool FirstRun { get; set; } = true;
   public bool SaveHistory { get; set; } = true;
   public bool DiarizeImport { get; set; } = false;

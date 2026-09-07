@@ -44,7 +44,14 @@ sealed class TrayApp : ApplicationContext
       {
         var spec = ModelCatalog.Get(Settings.Instance.ModelId);
         var text = Polish.ApplyVoiceCommands(raw);
-        if (!spec.Punctuated) text = Punctuation.Apply(text, s => _overlay.ShowStatus(s));
+        text = Romanizer.NormalizeScript(text);
+        if (!spec.Punctuated && spec.Kind is not ModelKind.WhisperCpp and not ModelKind.GemmaAudio)
+          text = Punctuation.Apply(text, s => _overlay.ShowStatus(s));
+        if (Settings.Instance.AutoCleanLLM)
+        {
+          _overlay.ShowStatus("Cleaning up…");
+          text = GemmaCpp.Cleanup(text);
+        }
         text = Polish.Format(text);
         if (text.Length == 0) return;
         _overlay.BeginInvoke(() =>

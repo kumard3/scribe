@@ -61,5 +61,7 @@ Windows (WinForms + the sherpa-onnx native runtime).
   only and needs the matching toolkit if you swap in the CUDA native build.
   DirectML is the cross-vendor Windows GPU path.
 - No audio or text ever leaves the machine.
-- This is not Mac Gemma/MLX. MLX is Apple Silicon only. Gemma on Windows would
-  be llama.cpp CUDA/Vulkan, not this sherpa path.
+- Gemma 4 E2B, Oriserve Swift/Apex, and Whisper Turbo are **Windows-native**
+  (whisper.cpp + llama.cpp). MLX is Mac only. Hinglish toggle uses the same
+  prompt as Mac plus a C# Devanagari romanizer. Processor auto-picks CUDA
+  (NVIDIA), Vulkan (other GPU) for llama.cpp, or CPU.
