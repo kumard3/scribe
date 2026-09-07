@@ -30,22 +30,41 @@ final class ModelStore: NSObject, ObservableObject {
     root.appendingPathComponent(spec.id, isDirectory: true)
   }
 
+  /// Every member of a bundle is on disk. Callable off the main actor so the
+  /// dictation start path can gate on it the way the single-file kinds do.
+  nonisolated static func bundleInstalled(_ spec: ModelSpec) -> Bool {
+    let dir = dir(for: spec)
+    let fm = FileManager.default
+    return !spec.bundleFiles.isEmpty && spec.bundleFiles.allSatisfy {
+      fm.fileExists(atPath: dir.appendingPathComponent($0.name).path)
+    }
+  }
+
   func refreshInstalled() {
     var ids: Set<String> = []
-    for spec in ModelCatalog.all where spec.kind != .appleSystem {
+    for spec in ModelCatalog.all where spec.kind != .appleSystem && spec.kind != .autoResolve {
       let dir = Self.dir(for: spec)
       let installed: Bool
       switch spec.kind {
       case .llm:
         installed = Self.ggufFile(in: dir) != nil
+      case .mlx:
+        installed = Self.mlxInstalled(spec)
       case .qwenAsr:
-        let fm = FileManager.default
-        installed = fm.fileExists(atPath: dir.appendingPathComponent(spec.fileName).path)
-          && fm.fileExists(atPath: dir.appendingPathComponent(spec.mmprojFileName).path)
+        if spec.id == ModelCatalog.gemmaAsrId,
+           let mlx = ModelCatalog.spec(ModelCatalog.mlxId), Self.mlxInstalled(mlx) {
+          installed = true
+        } else {
+          let fm = FileManager.default
+          installed = fm.fileExists(atPath: dir.appendingPathComponent(spec.fileName).path)
+            && fm.fileExists(atPath: dir.appendingPathComponent(spec.mmprojFileName).path)
+        }
       case .whisperCpp:
         installed = FileManager.default.fileExists(
           atPath: dir.appendingPathComponent(spec.fileName).path
         )
+      case .arkasrOnnx, .arkOnnx:
+        installed = Self.bundleInstalled(spec)
       default:
         installed = Self.tokensFile(in: dir) != nil
       }
@@ -55,15 +74,30 @@ final class ModelStore: NSObject, ObservableObject {
   }
 
   func isInstalled(_ spec: ModelSpec) -> Bool {
-    spec.kind == .appleSystem || installedIds.contains(spec.id)
+    spec.kind == .appleSystem || spec.kind == .autoResolve || installedIds.contains(spec.id)
   }
 
   func isDownloading(_ spec: ModelSpec) -> Bool {
     tasks[spec.id] != nil
   }
 
+  nonisolated static func mlxInstalled(_ spec: ModelSpec) -> Bool {
+    let dir = dir(for: spec)
+    let fm = FileManager.default
+    return fm.fileExists(atPath: dir.appendingPathComponent("config.json").path)
+      && fm.fileExists(atPath: dir.appendingPathComponent("model.safetensors").path)
+      && fm.fileExists(atPath: dir.appendingPathComponent("tokenizer.json").path)
+  }
+
   func download(_ spec: ModelSpec) {
     guard tasks[spec.id] == nil else { return }
+    if spec.kind == .arkasrOnnx || spec.kind == .arkOnnx || spec.kind == .mlx {
+      guard !spec.bundleFiles.isEmpty else { return }
+      errors[spec.id] = nil
+      progress[spec.id] = 0
+      startBundleFile(spec, index: 0)
+      return
+    }
     let urlString = spec.directURL ?? (spec.archive.isEmpty ? nil : "\(ModelCatalog.releases)/\(spec.archive)")
     guard let urlString, let url = URL(string: urlString) else { return }
     errors[spec.id] = nil
@@ -75,6 +109,16 @@ final class ModelStore: NSObject, ObservableObject {
     dlog("model download start \(spec.id)")
   }
 
+  private func startBundleFile(_ spec: ModelSpec, index: Int) {
+    guard index < spec.bundleFiles.count,
+          let url = URL(string: spec.bundleFiles[index].url) else { return }
+    let task = session.downloadTask(with: url)
+    task.taskDescription = "\(spec.id)#f\(index)"
+    tasks[spec.id] = task
+    task.resume()
+    dlog("bundle download start \(spec.id) file \(index + 1)/\(spec.bundleFiles.count)")
+  }
+
   func cancel(_ spec: ModelSpec) {
     tasks[spec.id]?.cancel()
     tasks[spec.id] = nil
@@ -83,11 +127,13 @@ final class ModelStore: NSObject, ObservableObject {
 
   func delete(_ spec: ModelSpec) {
     if spec.kind == .llm { LLMRuntime.shared.release() }
+    if spec.kind == .mlx { MLXRuntime.shared.release() }
     if spec.kind == .qwenAsr { AsrRuntime.shared.release() }
+    if spec.kind == .arkasrOnnx || spec.kind == .arkOnnx { ArkasrRuntime.shared.release() }
     try? FileManager.default.removeItem(at: Self.dir(for: spec))
     refreshInstalled()
     if Settings.shared.activeModelId == spec.id {
-      Settings.shared.activeModelId = ModelCatalog.systemId
+      Settings.shared.activeModelId = ModelCatalog.autoId
     }
   }
 
@@ -115,6 +161,15 @@ final class ModelStore: NSObject, ObservableObject {
       return url
     }
     return nil
+  }
+
+  /// On-disk GGUF to run text generation with, nil when it isn't downloaded.
+  nonisolated static func llmPath(for spec: ModelSpec) -> String? {
+    let file = spec.kind == .llm
+      ? ggufFile(in: dir(for: spec))
+      : dir(for: spec).appendingPathComponent(spec.fileName)
+    guard let file, FileManager.default.fileExists(atPath: file.path) else { return nil }
+    return file.path
   }
 
   /// Picks a model file whose name contains `needle`, preferring (or
@@ -251,11 +306,16 @@ final class ModelStore: NSObject, ObservableObject {
 
 extension ModelStore: URLSessionDownloadDelegate {
   // taskDescription is the spec id, with "#mmproj" appended for the second
-  // file of a qwenAsr pair.
-  nonisolated private static func parse(_ desc: String) -> (id: String, mmproj: Bool) {
-    desc.hasSuffix("#mmproj")
-      ? (String(desc.dropLast("#mmproj".count)), true)
-      : (desc, false)
+  // file of a qwenAsr pair, or "#f<N>" for member N of a bundle.
+  nonisolated private static func parse(_ desc: String) -> (id: String, mmproj: Bool, file: Int) {
+    if desc.hasSuffix("#mmproj") {
+      return (String(desc.dropLast("#mmproj".count)), true, 0)
+    }
+    if let hash = desc.range(of: "#f", options: .backwards),
+       let index = Int(desc[hash.upperBound...]) {
+      return (String(desc[..<hash.lowerBound]), false, index)
+    }
+    return (desc, false, 0)
   }
 
   nonisolated func urlSession(
@@ -264,14 +324,21 @@ extension ModelStore: URLSessionDownloadDelegate {
     totalBytesExpectedToWrite expected: Int64
   ) {
     guard let desc = downloadTask.taskDescription else { return }
-    let (id, mmproj) = Self.parse(desc)
+    let (id, mmproj, file) = Self.parse(desc)
     guard let spec = ModelCatalog.spec(id) else { return }
     let total = expected > 0 ? expected : spec.sizeBytes
     let ratio = total > 0 ? Double(written) / Double(total) : 0
-    // qwenAsr downloads two files: main model fills 0→0.6, mmproj 0.6→0.97.
-    let mapped = spec.kind == .qwenAsr
-      ? (mmproj ? 0.6 + ratio * 0.37 : ratio * 0.6)
-      : min(0.97, ratio * 0.97)
+    let mapped: Double
+    switch spec.kind {
+    case .qwenAsr:
+      mapped = mmproj ? 0.6 + ratio * 0.37 : ratio * 0.6
+    case .mlx, .arkasrOnnx, .arkOnnx:
+      let done = spec.bundleFiles.prefix(file).reduce(Int64(0)) { $0 + $1.sizeBytes }
+      let bytes = Double(done) + ratio * Double(spec.bundleFiles[safe: file]?.sizeBytes ?? 0)
+      mapped = min(0.97, spec.sizeBytes > 0 ? bytes / Double(spec.sizeBytes) * 0.97 : 0)
+    default:
+      mapped = min(0.97, ratio * 0.97)
+    }
     DispatchQueue.main.async { self.progress[id] = mapped }
   }
 
@@ -280,17 +347,30 @@ extension ModelStore: URLSessionDownloadDelegate {
     didFinishDownloadingTo location: URL
   ) {
     guard let desc = downloadTask.taskDescription else { return }
-    let (id, mmproj) = Self.parse(desc)
+    let (id, mmproj, file) = Self.parse(desc)
     guard let spec = ModelCatalog.spec(id) else { return }
     // The temp file dies when this delegate returns, move it out first.
     let singleFile = spec.kind == .llm || spec.kind == .qwenAsr || spec.kind == .whisperCpp
     let ext = spec.kind == .whisperCpp ? "bin" : (singleFile ? "gguf" : "tar.bz2")
     let kept = FileManager.default.temporaryDirectory
-      .appendingPathComponent("scribe-\(id)\(mmproj ? "-mmproj" : "").\(ext)")
+      .appendingPathComponent(
+        "scribe-\(id)\(mmproj ? "-mmproj" : "")\(spec.bundleFiles.isEmpty ? "" : "-f\(file)").\(ext)")
     try? FileManager.default.removeItem(at: kept)
     try? FileManager.default.moveItem(at: location, to: kept)
     DispatchQueue.global(qos: .userInitiated).async {
       switch spec.kind {
+      case .mlx, .arkasrOnnx, .arkOnnx:
+        guard let member = spec.bundleFiles[safe: file] else { return }
+        let isLast = file == spec.bundleFiles.count - 1
+        self.installSingleFile(
+          spec: spec, tempFile: kept, name: member.name,
+          expectedBytes: member.sizeBytes, wipe: file == 0, isFinal: isLast)
+        if !isLast {
+          DispatchQueue.main.async {
+            guard self.errors[spec.id] == nil else { return }
+            self.startBundleFile(spec, index: file + 1)
+          }
+        }
       case .llm:
         self.installSingleFile(spec: spec, tempFile: kept, name: spec.fileName,
                                expectedBytes: spec.sizeBytes, wipe: true, isFinal: true)

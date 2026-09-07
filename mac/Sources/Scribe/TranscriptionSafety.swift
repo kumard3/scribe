@@ -50,7 +50,7 @@ enum TranscriptCleanupValidator {
     "ah", "er", "erm", "hmm", "like", "okay", "ok", "um", "uh",
   ]
 
-  static func choose(raw: String, cleaned: String?) -> Decision {
+  static func choose(raw: String, cleaned: String?, hotwords: [String] = []) -> Decision {
     let raw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let candidate = cleaned?.trimmingCharacters(in: .whitespacesAndNewlines),
           !candidate.isEmpty else {
@@ -70,14 +70,31 @@ enum TranscriptCleanupValidator {
     // dictations came back with sentences missing. The word sequence must now
     // survive exactly, ignoring fillers and anything numeric, so a model is
     // still free to write "3:30 PM" for "three thirty p m" but can never drop
-    // or invent words.
+    // or invent words. A hotword may replace a single token when the cleaned
+    // spelling is one of the user's terms.
     let rawContent = comparable(tokens(raw))
     let cleanedContent = comparable(cleanedTokens)
-    guard rawContent == cleanedContent else {
+    if rawContent != cleanedContent {
+      if allowsHotwordSwap(rawContent, cleanedContent, hotwords) {
+        return Decision(text: candidate, accepted: true, reason: "hotword spelling")
+      }
       return Decision(text: raw, accepted: false, reason: "word sequence changed")
     }
 
     return Decision(text: candidate, accepted: true, reason: "word-preserving cleanup")
+  }
+
+  private static func allowsHotwordSwap(
+    _ raw: [String], _ cleaned: [String], _ hotwords: [String]
+  ) -> Bool {
+    guard raw.count == cleaned.count, !hotwords.isEmpty else { return false }
+    let hot = Set(hotwords.map { $0.lowercased() })
+    var swapped = false
+    for (a, b) in zip(raw, cleaned) where a != b {
+      guard hot.contains(b) else { return false }
+      swapped = true
+    }
+    return swapped
   }
 
   /// Words that must appear, in order, on both sides. Fillers may be dropped
@@ -157,6 +174,13 @@ enum TranscriptionLimits {
     max(workerTimeoutSeconds, audioSeconds * 4)
   }
 
+  /// Background chunk jobs must never stall stop() for minutes: a hung job
+  /// blocks the serial worker queue, and with a small backlog a long flat
+  /// timeout buys nothing. Scaled like workerTimeout but with a tight floor.
+  static func chunkWorkerTimeout(audioSeconds: Double) -> TimeInterval {
+    max(45, audioSeconds * 6)
+  }
+
   /// Hard resident-memory ceiling for every native transcription subprocess.
   /// A model that cannot run inside the product budget fails safely instead of
   /// swapping or taking down the user's machine.
@@ -174,4 +198,18 @@ enum TranscriptionLimits {
     // physical RAM wins, so a model too big for this Mac fails instead.
     return min(budget, ProcessInfo.processInfo.physicalMemory / 2)
   }
+}
+
+/// Incremental transcription of multimodal ASR (Gemma/Qwen) while recording.
+/// Every chunkSeconds of new speech, the buffer minus a tail window goes to a
+/// short-lived worker; on release only the tail still needs decoding. The tail
+/// stays un-transcribed so the word in progress is never cut, and each chunk
+/// re-includes an overlap window so TranscriptMerger can stitch boundary words.
+/// A failed chunk consumes nothing — its audio rides along with the next one,
+/// degrading gracefully to the old whole-recording pass.
+enum QwenStreaming {
+  static let firstChunkSeconds: Double = 6
+  static let chunkSeconds: Double = 16
+  static let tailSeconds: Double = 3
+  static let overlapSeconds: Double = 1.5
 }

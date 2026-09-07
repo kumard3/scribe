@@ -48,6 +48,8 @@ struct DashboardView: View {
   @ObservedObject var support = SupportModelStore.shared
   @State private var launchAtLogin = LoginItem.enabled
   @State private var axTrusted = AXIsProcessTrusted()
+  @State private var ollamaModels: [String] = []
+  @State private var ollamaChecked = false
 
   var body: some View {
     ScrollView {
@@ -69,6 +71,9 @@ struct DashboardView: View {
     .onAppear {
       launchAtLogin = LoginItem.enabled
       axTrusted = AXIsProcessTrusted()
+      models.refreshInstalled()
+      support.refresh()
+      if settings.cleanupModelId == ModelCatalog.ollamaId { refreshOllama() }
     }
   }
 
@@ -128,13 +133,36 @@ struct DashboardView: View {
   }
 
   private var modelsCard: some View {
-    let asr = ModelCatalog.all.filter { $0.kind != .llm }
+    let asr = ModelCatalog.asrModels(showGemma: true)
     return section("Models") {
+      Picker("Style", selection: $settings.dictationStyle) {
+        ForEach(DictationStyle.allCases) { s in Text(s.label).tag(s.rawValue) }
+      }
+      .font(.system(size: 13))
+      Text("Auto keeps mixed Indian English + WhatsApp Hinglish. English pins the English decoder. Hinglish forces romanized Hindi.")
+        .font(.caption).foregroundColor(Mono.textFaint)
+
       Picker("Language", selection: $settings.language) {
         ForEach(speechLanguages) { l in Text(l.label).tag(l.code) }
       }
       .font(.system(size: 13))
       Text("Auto-detect misreads accented speech. Naming your language is the biggest accuracy win.")
+        .font(.caption).foregroundColor(Mono.textFaint)
+
+      HStack {
+        Text("Chunk pause").foregroundColor(Mono.text)
+        Spacer()
+        Text("\(settings.chunkPauseMs) ms").foregroundColor(Mono.textDim)
+      }
+      .font(.system(size: 13))
+      Slider(
+        value: Binding(
+          get: { Double(settings.chunkPauseMs) },
+          set: { settings.chunkPauseMs = Int($0.rounded()) }
+        ),
+        in: 400...700, step: 50
+      )
+      Text("How long a pause closes a live chunk. Shorter feels snappier; longer holds a sentence together.")
         .font(.caption).foregroundColor(Mono.textFaint)
 
       Toggle("Write Hindi in English letters (Hinglish)", isOn: $settings.romanizeHindi)
@@ -226,46 +254,159 @@ struct DashboardView: View {
   }
 
   private var llmCard: some View {
-    let spec = ModelCatalog.llmModel
-    let installed = models.isInstalled(spec)
-    let downloading = models.progress[spec.id] != nil
-    return section("AI Cleanup & Summary") {
-      Text("Tiny on-device AI (Qwen 0.5B) that rewrites and summarizes your dictation. One-time download, fully offline.")
+    section("AI Cleanup & Summary") {
+      Text("Punctuates dictation on this Mac. Gemma 4 E2B is one model; MLX is the Apple GPU runtime for cleanup and for Gemma STT, not a second model.")
         .font(.caption).foregroundColor(Mono.textDim)
 
-      HStack(alignment: .center, spacing: 10) {
-        Image(systemName: "sparkles")
-          .font(.system(size: 15))
-          .foregroundColor(installed ? .white : Mono.textFaint)
-        VStack(alignment: .leading, spacing: 2) {
-          Text(spec.label)
-            .font(.system(size: 13, weight: installed ? .semibold : .regular))
-            .foregroundColor(Mono.text)
-          Text(spec.note).font(.system(size: 11)).foregroundColor(Mono.textDim)
-        }
-        Spacer()
-        if downloading {
-          ProgressView(value: models.progress[spec.id] ?? 0)
-            .progressViewStyle(.linear).frame(width: 90)
-          Button("Cancel") { models.cancel(spec) }.font(.system(size: 11))
-        } else if installed {
-          Button { models.delete(spec) } label: { Image(systemName: "trash") }
-            .buttonStyle(.plain).foregroundColor(Mono.textFaint).help("Delete model files")
-        } else {
-          Button("Get · \(spec.sizeLabel)") { models.download(spec) }.font(.system(size: 12))
-        }
-      }
-      if let err = models.errors[spec.id] {
-        Text(err).font(.system(size: 11)).foregroundColor(Color(hex: 0xFF453A)).padding(.leading, 26)
+      ForEach(ModelCatalog.cleanupModels) { spec in
+        cleanupRow(spec)
       }
 
-      if installed {
+      Divider().overlay(Mono.border)
+      ollamaRow
+
+      if LLMRuntime.isAvailable {
         Divider().overlay(Mono.border)
         Toggle("Clean up every dictation automatically", isOn: $settings.autoCleanLLM)
           .font(.system(size: 13))
         Text("Adds a moment after you stop talking while the AI rewrites your text before it's inserted.")
           .font(.caption).foregroundColor(Mono.textFaint)
       }
+    }
+  }
+
+  @ViewBuilder
+  private func cleanupRow(_ spec: ModelSpec) -> some View {
+    let mlx = ModelCatalog.spec(ModelCatalog.mlxId)
+    let isGemma = spec.id == ModelCatalog.gemmaAsrId
+    let mlxInstalled = mlx.map { ModelStore.mlxInstalled($0) } ?? false
+    let installed = models.isInstalled(spec) || (isGemma && mlxInstalled)
+    let downloading = models.progress[spec.id] != nil
+      || (isGemma && mlx.map { models.progress[$0.id] != nil } == true)
+    let selected = settings.cleanupModelId == spec.id
+      || (isGemma && settings.cleanupModelId == ModelCatalog.mlxId)
+    VStack(alignment: .leading, spacing: 4) {
+      HStack(alignment: .center, spacing: 10) {
+        Button {
+          if installed { settings.cleanupModelId = spec.id }
+        } label: {
+          Image(systemName: selected && installed ? "checkmark.circle.fill" : "circle")
+            .font(.system(size: 15))
+            .foregroundColor(selected && installed ? .white : Mono.textFaint)
+        }
+        .buttonStyle(.plain)
+        .disabled(!installed)
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text(isGemma ? "Gemma 4 E2B" : spec.label)
+            .font(.system(size: 13, weight: selected && installed ? .semibold : .regular))
+            .foregroundColor(Mono.text)
+          Text(isGemma
+               ? (mlxInstalled
+                  ? "Runtime: MLX (Apple GPU). Same Gemma 4 E2B as STT."
+                  : "Runtime: MLX on this Mac. Get pulls GPU weights for the same Gemma 4 E2B, not a new model.")
+               : spec.textCapable
+               ? "Text cleanup only. Audio never goes to this model."
+               : spec.note)
+            .font(.system(size: 11)).foregroundColor(Mono.textDim)
+        }
+        Spacer()
+        if downloading {
+          ProgressView(value: models.progress[spec.id] ?? 0)
+            .progressViewStyle(.linear).frame(width: 90)
+          Button("Cancel") {
+            models.cancel(spec)
+            if isGemma, let mlx { models.cancel(mlx) }
+          }.font(.system(size: 11))
+        } else if installed {
+          if spec.kind == .llm || isGemma {
+            Button {
+              models.delete(spec)
+              if isGemma, let mlx { models.delete(mlx) }
+            } label: { Image(systemName: "trash") }
+              .buttonStyle(.plain).foregroundColor(Mono.textFaint).help("Delete model files")
+          }
+        } else if isGemma, let mlx {
+          Button("Get · \(mlx.sizeLabel)") { models.download(mlx) }.font(.system(size: 12))
+        } else if spec.kind == .llm || spec.textCapable {
+          Button("Get · \(spec.sizeLabel)") { models.download(spec) }.font(.system(size: 12))
+        } else {
+          Text("Get it under Models").font(.system(size: 11)).foregroundColor(Mono.textFaint)
+        }
+      }
+      if let err = models.errors[spec.id] {
+        Text(err).font(.system(size: 11))
+          .foregroundColor(Color(hex: 0xFF453A)).padding(.leading, 25)
+      }
+    }
+  }
+
+  private var ollamaRow: some View {
+    let selected = settings.cleanupModelId == ModelCatalog.ollamaId
+    return VStack(alignment: .leading, spacing: 6) {
+      HStack(alignment: .center, spacing: 10) {
+        Button {
+          settings.cleanupModelId = ModelCatalog.ollamaId
+          if ollamaModels.isEmpty { refreshOllama() }
+        } label: {
+          Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+            .font(.system(size: 15))
+            .foregroundColor(selected ? .white : Mono.textFaint)
+        }
+        .buttonStyle(.plain)
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Ollama")
+            .font(.system(size: 13, weight: selected ? .semibold : .regular))
+            .foregroundColor(Mono.text)
+          Text("Any model you have pulled, e.g. `ollama pull gemma4:e2b`")
+            .font(.system(size: 11)).foregroundColor(Mono.textDim)
+        }
+        Spacer()
+        Button("Refresh") { refreshOllama() }.font(.system(size: 12))
+      }
+
+      if selected {
+        if ollamaModels.isEmpty {
+          Text(ollamaChecked
+               ? "No models found at \(settings.ollamaHost). Start Ollama, then `ollama pull gemma4:e2b` and hit Refresh."
+               : "Checking \(settings.ollamaHost)…")
+            .font(.system(size: 11)).foregroundColor(Mono.textFaint).padding(.leading, 25)
+        } else {
+          Picker("Model", selection: $settings.ollamaModel) {
+            Text("None").tag("")
+            ForEach(ollamaModels, id: \.self) { Text($0).tag($0) }
+          }
+          .font(.system(size: 13)).padding(.leading, 25)
+        }
+        TextField("Server", text: $settings.ollamaHost)
+          .textFieldStyle(.roundedBorder)
+          .font(.system(size: 12, design: .monospaced))
+          .padding(.leading, 25)
+          .onSubmit { refreshOllama() }
+      }
+    }
+  }
+
+  private func refreshOllama() {
+    OllamaRuntime.list { names in
+      ollamaModels = names
+      ollamaChecked = true
+      if !names.contains(settings.ollamaModel) { settings.ollamaModel = names.first ?? "" }
+    }
+  }
+
+  private var engineLabel: String {
+    let spec = settings.activeModel
+    switch spec.kind {
+    case .appleSystem: return "Apple on-device speech"
+    case .whisperCpp: return "\(spec.label) · whisper.cpp"
+    case .qwenAsr:
+      return MLXRuntime.gemmaAsrUsesMlx(spec)
+        ? "\(spec.label) · MLX"
+        : "\(spec.label) · llama.cpp audio"
+    case .autoResolve: return "Auto"
+    default: return "\(spec.label) · sherpa-onnx"
     }
   }
 
@@ -280,9 +421,13 @@ struct DashboardView: View {
 
   @ViewBuilder
   private func modelRow(_ spec: ModelSpec) -> some View {
+    let mlx = ModelCatalog.spec(ModelCatalog.mlxId)
+    let isGemma = spec.id == ModelCatalog.gemmaAsrId
+    let mlxInstalled = mlx.map { ModelStore.mlxInstalled($0) } ?? false
     let active = settings.activeModelId == spec.id
-    let installed = models.isInstalled(spec)
+    let installed = models.isInstalled(spec) || (isGemma && mlxInstalled)
     let downloading = models.progress[spec.id] != nil
+      || (isGemma && mlx.map { models.progress[$0.id] != nil } == true)
 
     VStack(alignment: .leading, spacing: 6) {
       HStack(alignment: .center, spacing: 10) {
@@ -304,27 +449,34 @@ struct DashboardView: View {
 
         Spacer()
 
-        Text(spec.sizeLabel)
+        Text(isGemma ? (mlx?.sizeLabel ?? spec.sizeLabel) : spec.sizeLabel)
           .font(.system(size: 11))
           .foregroundColor(Mono.textFaint)
 
-        if spec.kind == .appleSystem {
+        if spec.kind == .appleSystem || spec.kind == .autoResolve {
           EmptyView()
         } else if downloading {
-          ProgressView(value: models.progress[spec.id] ?? 0)
+          ProgressView(value: models.progress[spec.id] ?? (isGemma ? models.progress[ModelCatalog.mlxId] : nil) ?? 0)
             .progressViewStyle(.linear)
             .frame(width: 90)
-          Button("Cancel") { models.cancel(spec) }
+          Button("Cancel") {
+            models.cancel(spec)
+            if isGemma, let mlx { models.cancel(mlx) }
+          }
             .font(.system(size: 11))
         } else if installed {
           Button {
             models.delete(spec)
+            if isGemma, let mlx { models.delete(mlx) }
           } label: {
             Image(systemName: "trash")
           }
           .buttonStyle(.plain)
           .foregroundColor(Mono.textFaint)
           .help("Delete model files")
+        } else if isGemma, let mlx {
+          Button("Get") { models.download(mlx) }
+            .font(.system(size: 12))
         } else {
           Button("Get") { models.download(spec) }
             .font(.system(size: 12))
@@ -354,9 +506,7 @@ struct DashboardView: View {
       HStack {
         Text("Engine").foregroundColor(Mono.text)
         Spacer()
-        Text(settings.activeModel.kind == .appleSystem
-             ? "Apple on-device speech · English"
-             : "\(settings.activeModel.label) · sherpa-onnx")
+        Text(engineLabel)
           .foregroundColor(Mono.textDim)
       }
       .font(.system(size: 13))
@@ -385,7 +535,7 @@ struct DashboardView: View {
           .font(.caption).foregroundColor(Mono.textDim)
       }
       Text("Vocabulary").font(.headline)
-      Text("One name, acronym or bit of jargon per line. Biases Parakeet TDT and Nemotron decoding, and primes the Apex Hinglish model. Other engines ignore it.")
+      Text("One name, acronym or bit of jargon per line. Primes Swift/Apex (whisper.cpp prompt), biases Parakeet/Nemotron, and is the HOTWORDS list Gemma may correct toward.")
         .font(.caption).foregroundColor(Mono.textDim)
       TextEditor(text: $settings.vocabulary)
         .font(.system(size: 12, design: .monospaced))

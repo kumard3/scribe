@@ -22,11 +22,22 @@ final class AsrRuntime: @unchecked Sendable {
       dlog("qwen-asr evicted after idle")
     }
     evict = w
-    queue.asyncAfter(deadline: .now() + 30, execute: w)
+    queue.asyncAfter(deadline: .now() + 120, execute: w)
+  }
+
+  func warm(modelPath: String, mmprojPath: String) {
+    queue.async {
+      let key = modelPath + "|" + mmprojPath
+      if self.loadedKey == key, self.handle != nil { return }
+      if let h = self.handle { cllama_asr_free(h) }
+      self.handle = cllama_asr_load(modelPath, mmprojPath)
+      self.loadedKey = self.handle != nil ? key : ""
+      dlog(self.handle == nil ? "qwen-asr warm failed" : "qwen-asr warmed")
+    }
   }
 
   /// Transcribes mono float PCM; `completion` on the main queue, nil on failure.
-  func transcribe(modelPath: String, mmprojPath: String,
+  func transcribe(modelPath: String, mmprojPath: String, instruction: String = "",
                   samples: [Float], sampleRate: Int,
                   completion: @escaping (String?) -> Void) {
     queue.async {
@@ -43,7 +54,8 @@ final class AsrRuntime: @unchecked Sendable {
       var text: String?
       samples.withUnsafeBufferPointer { buf in
         if let c = cllama_asr_transcribe(h, buf.baseAddress, Int32(samples.count),
-                                         Int32(sampleRate), 1024) {
+                                         Int32(sampleRate), 1024, instruction,
+                                         Romanizer.wantsLatinOnly ? 1 : 0) {
           text = String(cString: c)
           cllama_free_str(c)
         }

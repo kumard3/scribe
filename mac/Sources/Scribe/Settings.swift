@@ -193,10 +193,21 @@ final class Settings: ObservableObject {
   @AppStorage("learnCorrections") var learnCorrections: Bool = true {
     willSet { objectWillChange.send() }
   }
-  @AppStorage("activeModel") var activeModelId: String = ModelCatalog.systemId {
+  @AppStorage("activeModel") var activeModelId: String = ModelCatalog.autoId {
     willSet { objectWillChange.send() }
   }
   @AppStorage("language") var language: String = defaultSpeechLanguage() {
+    willSet { objectWillChange.send() }
+  }
+  @AppStorage("dictationStyle") var dictationStyle: String = DictationStyle.auto.rawValue {
+    willSet { objectWillChange.send() }
+  }
+  /// Pause that closes a live ASR chunk. Spec range 400–700 ms.
+  @AppStorage("chunkPauseMs") var chunkPauseMs: Int = 550 {
+    willSet { objectWillChange.send() }
+  }
+  /// Gemma-as-microphone stays behind this flag for A/B. Off by default.
+  @AppStorage("showGemmaAsr") var showGemmaAsr: Bool = false {
     willSet { objectWillChange.send() }
   }
   @AppStorage("useGpu") var useGpu: Bool = false {
@@ -231,6 +242,16 @@ final class Settings: ObservableObject {
   @AppStorage("autoCleanLLM") var autoCleanLLM: Bool = false {
     willSet { objectWillChange.send() }
   }
+  /// A cleanupModels id, or ModelCatalog.ollamaId to route through Ollama.
+  @AppStorage("cleanupModelId") var cleanupModelId: String = ModelCatalog.gemmaAsrId {
+    willSet { objectWillChange.send() }
+  }
+  @AppStorage("ollamaModel") var ollamaModel: String = "" {
+    willSet { objectWillChange.send() }
+  }
+  @AppStorage("ollamaHost") var ollamaHost: String = "http://127.0.0.1:11434" {
+    willSet { objectWillChange.send() }
+  }
   @AppStorage("onboardedV1") var onboarded: Bool = false {
     willSet { objectWillChange.send() }
   }
@@ -244,6 +265,12 @@ final class Settings: ObservableObject {
       defaults.set(false, forKey: "autoCleanLLM")
       defaults.set(true, forKey: "cleanupSafetyMigrationV1")
     }
+    if !defaults.bool(forKey: "sttPipelineV2") {
+      defaults.set(true, forKey: "sttPipelineV2")
+      if defaults.string(forKey: "activeModel") == ModelCatalog.gemmaAsrId {
+        defaults.set(ModelCatalog.autoId, forKey: "activeModel")
+      }
+    }
     // migrate from the old preset-enum storage
     if let old = UserDefaults.standard.string(forKey: "toggleHotkey"),
        let preset = ToggleHotkey(rawValue: old) {
@@ -253,8 +280,20 @@ final class Settings: ObservableObject {
     }
   }
 
+  var storedModel: ModelSpec {
+    ModelCatalog.spec(activeModelId) ?? ModelCatalog.spec(ModelCatalog.autoId)!
+  }
+
   var activeModel: ModelSpec {
-    ModelCatalog.spec(activeModelId) ?? ModelCatalog.all[0]
+    let stored = storedModel
+    if stored.kind == .autoResolve {
+      return ModelCatalog.resolveAuto { spec in
+        spec.kind == .appleSystem || FileManager.default.fileExists(
+          atPath: ModelStore.dir(for: spec).appendingPathComponent(spec.fileName).path
+        )
+      }
+    }
+    return stored
   }
 
   var holdKey: HoldKey {

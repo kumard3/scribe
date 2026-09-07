@@ -15,7 +15,9 @@ enum DebugCLI {
       Romanizer.selfTest()
       Paster.selfTest()
       Vocabulary.selfTest()
+      PauseChunker.selfTest()
       CorrectionWatcher.selfTest()
+      OllamaRuntime.selfTest()
       exit(0)
     }
     if CommandLine.arguments.contains("--selftest-transcription-safety") {
@@ -23,8 +25,11 @@ enum DebugCLI {
       exit(0)
     }
     runNativeWorkerIfRequested()
+    runArkasrIfRequested()
+    runQwenAsrServeIfRequested()
     runQwenAsrIfRequested()
     runLLMTestIfRequested()
+    runOllamaTestIfRequested()
     runAppleStreamIfRequested()
     runAppleIfRequested()
     let args = CommandLine.arguments
@@ -73,13 +78,40 @@ enum DebugCLI {
       FileHandle.standardError.write("LLM load failed\n".data(using: .utf8)!)
       exit(3)
     }
-    let prompt = "<|im_start|>system\n" + LLMRuntime.cleanupInstruction +
-      "<|im_end|>\n<|im_start|>user\n" +
-      "um so i will send the report tomorrow okay<|im_end|>\n<|im_start|>assistant\n"
-    let result = engine.generate(prompt: prompt, maxTokens: 80, temperature: 0.2)
-      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let result = engine.chat(
+      system: LLMRuntime.cleanupInstruction,
+      user: "um so i will send the report tomorrow okay",
+      maxTokens: 80, temperature: 0.2
+    ).trimmingCharacters(in: .whitespacesAndNewlines)
     print(result)
     exit(result.isEmpty ? 1 : 0)
+  }
+
+  /// `Scribe --ollama-test [model]`, checks the server is reachable and that a
+  /// cleanup round-trip comes back as usable text.
+  private static func runOllamaTestIfRequested() {
+    guard CommandLine.arguments.contains("--ollama-test") else { return }
+    var models: [String] = []
+    var done = false
+    OllamaRuntime.list { models = $0; done = true }
+    while !done {
+      _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+    }
+    print("server: \(OllamaRuntime.host)")
+    print("models: \(models.isEmpty ? "none" : models.joined(separator: ", "))")
+    guard let model = argument(after: "--ollama-test") ?? models.first else { exit(1) }
+    print("using:  \(model)")
+    var reply: String??
+    OllamaRuntime.chat(
+      model: model, instruction: LLMRuntime.cleanupInstruction,
+      text: "um so i will send the report tomorrow okay", maxTokens: 80
+    ) { reply = $0 }
+    while reply == nil {
+      _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+    }
+    let text = reply.flatMap { $0 } ?? ""
+    print("reply:  \(text)")
+    exit(text.isEmpty ? 1 : 0)
   }
 
   private static func argument(after flag: String) -> String? {
@@ -110,6 +142,13 @@ enum DebugCLI {
     precondition(SileroVAD.paddedRanges(
       [0..<4, 58..<65], sampleCount: 60, padding: 5
     ) == [0..<9, 53..<60])
+    // Breath-sized segments must be glued back up to the window budget.
+    let packed = SileroVAD.pack(
+      [[Float](repeating: 1, count: 4), [Float](repeating: 2, count: 4),
+       [Float](repeating: 3, count: 5), [Float](repeating: 4, count: 10)],
+      limit: 10
+    )
+    precondition(packed.map(\.count) == [8, 5, 10], "pack: \(packed.map(\.count))")
     let retrySegments: [[Float]] = [
       Array(repeating: 1, count: 20),
       Array(repeating: 2, count: 4),
@@ -160,6 +199,13 @@ enum DebugCLI {
     )
     precondition(!truncated.accepted)
     precondition(truncated.text.contains("review everything"))
+    let hot = TranscriptCleanupValidator.choose(
+      raw: "Chamo 4 E2B on Scribe",
+      cleaned: "Gemma 4 E2B on Scribe.",
+      hotwords: ["Gemma", "E2B", "Scribe"]
+    )
+    precondition(hot.accepted, "hotword spelling must pass: \(hot.reason)")
+    PauseChunker.selfTest()
     let silence = AudioConditioner.process16k(Array(repeating: 0, count: 16_000))
     precondition(silence.allSatisfy { $0 == 0 })
     let loud = (0..<16_000).map { i in
@@ -219,10 +265,90 @@ enum DebugCLI {
     exit(exitCode)
   }
 
-  /// `Scribe --asr file.wav model.gguf mmproj.gguf`, headless Srota check.
+  /// `Scribe --arkasr file.wav <model-id>`, headless check for the Audio8
+  /// ONNX bundles.
+  private static func runArkasrIfRequested() {
+    let args = CommandLine.arguments
+    guard let i = args.firstIndex(of: "--arkasr"), args.count > i + 2 else { return }
+    guard let spec = ModelCatalog.spec(args[i + 2]) else {
+      FileHandle.standardError.write("unknown model id \(args[i + 2])\n".data(using: .utf8)!)
+      exit(2)
+    }
+    guard let wave = SherpaOnnxReadWave(args[i + 1]) else {
+      FileHandle.standardError.write("cannot read \(args[i + 1])\n".data(using: .utf8)!)
+      exit(2)
+    }
+    defer { SherpaOnnxFreeWave(wave) }
+    let n = Int(wave.pointee.num_samples)
+    let rate = Int(wave.pointee.sample_rate)
+    let samples = [Float](UnsafeBufferPointer(start: wave.pointee.samples, count: n))
+    let started = Date()
+    do {
+      let engine = try ArkasrRuntime.make(spec)
+      let loaded = Date()
+      let text = try engine.transcribe(samples: samples, sampleRate: rate)
+      FileHandle.standardError.write(String(
+        format: "load %.2fs | transcribe %.2fs | audio %.1fs\n",
+        loaded.timeIntervalSince(started), Date().timeIntervalSince(loaded),
+        Double(n) / Double(rate)).data(using: .utf8)!)
+      print(text)
+      exit(text.isEmpty ? 1 : 0)
+    } catch {
+      FileHandle.standardError.write("arkasr failed: \(error.localizedDescription)\n".data(using: .utf8)!)
+      exit(3)
+    }
+  }
+
+  /// `Scribe --asr-serve model.gguf mmproj.gguf [--asr-instruction "…"]`
+  /// Loads once, then transcribes WAV paths from stdin until QUIT/EOF.
+  private static func runQwenAsrServeIfRequested() {
+    let args = CommandLine.arguments
+    guard let i = args.firstIndex(of: "--asr-serve"), args.count > i + 2 else { return }
+    setbuf(stdout, nil)
+    let instruction = argument(after: "--asr-instruction") ?? ""
+    let latinOnly: Int32 = args.contains("--latin-only") ? 1 : 0
+    guard let h = cllama_asr_load(args[i + 1], args[i + 2]) else {
+      FileHandle.standardError.write("asr model load failed\n".data(using: .utf8)!)
+      exit(3)
+    }
+    FileHandle.standardOutput.write("READY\n".data(using: .utf8)!)
+    fflush(stdout)
+    while let line = readLine(strippingNewline: true) {
+      if line == "QUIT" { break }
+      guard !line.isEmpty else { continue }
+      let text: String
+      if let wave = SherpaOnnxReadWave(line) {
+        defer { SherpaOnnxFreeWave(wave) }
+        let n = Int(wave.pointee.num_samples)
+        let rate = Int(wave.pointee.sample_rate)
+        let source = [Float](UnsafeBufferPointer(start: wave.pointee.samples, count: n))
+        text = transcribeQwenAudio(
+          h, samples: source, sampleRate: rate,
+          instruction: instruction, latinOnly: latinOnly, vad: false
+        )
+      } else {
+        text = ""
+      }
+      writeAsrServeResult(text)
+    }
+    cllama_asr_free(h)
+    exit(0)
+  }
+
+  private static func writeAsrServeResult(_ text: String) {
+    let data = text.data(using: .utf8) ?? Data()
+    FileHandle.standardOutput.write("\(data.count)\n".data(using: .utf8)!)
+    if !data.isEmpty { FileHandle.standardOutput.write(data) }
+    fflush(stdout)
+  }
+
+  /// `Scribe --asr file.wav model.gguf mmproj.gguf [--asr-instruction "…"]`,
+  /// headless multimodal ASR check and the one-shot worker fallback.
   private static func runQwenAsrIfRequested() {
     let args = CommandLine.arguments
     guard let i = args.firstIndex(of: "--asr"), args.count > i + 3 else { return }
+    let instruction = argument(after: "--asr-instruction") ?? ""
+    let latinOnly: Int32 = args.contains("--latin-only") ? 1 : 0
     guard let wave = SherpaOnnxReadWave(args[i + 1]) else {
       FileHandle.standardError.write("cannot read \(args[i + 1])\n".data(using: .utf8)!)
       exit(2)
@@ -235,19 +361,41 @@ enum DebugCLI {
     let n = Int(wave.pointee.num_samples)
     let rate = Int(wave.pointee.sample_rate)
     let source = [Float](UnsafeBufferPointer(start: wave.pointee.samples, count: n))
-    let resampled = SileroVAD.resampleTo16k(source, from: rate)
+    let skipVad = args.contains("--asr-no-vad")
+    let text = transcribeQwenAudio(
+      h, samples: source, sampleRate: rate,
+      instruction: instruction, latinOnly: latinOnly, vad: !skipVad
+    )
+    print(text)
+    FileHandle.standardError.write("freeing…\n".data(using: .utf8)!)
+    cllama_asr_free(h)
+    FileHandle.standardError.write("freed ok\n".data(using: .utf8)!)
+    exit(text.isEmpty ? 1 : 0)
+  }
+
+  private static func transcribeQwenAudio(
+    _ h: OpaquePointer, samples: [Float], sampleRate: Int,
+    instruction: String, latinOnly: Int32, vad: Bool
+  ) -> String {
+    let resampled = SileroVAD.resampleTo16k(samples, from: sampleRate)
     let audio = Settings.shared.conditionAudio
       ? AudioConditioner.process16k(resampled) : resampled
-    let maxN = SileroVAD.maxSegmentSamples(for: .qwenAsr)
-    let detected = SileroVAD.shared?.segments16k(audio) ?? []
-    let base = detected.isEmpty ? [audio] : detected
-    let windows = base.flatMap {
-      SileroVAD.split($0, max: maxN, overlap: SileroVAD.hardSplitOverlapSamples)
+    let windows: [[Float]]
+    if vad {
+      let maxN = SileroVAD.maxSegmentSamples(for: .qwenAsr)
+      let detected = SileroVAD.shared?.segments16k(audio) ?? []
+      let base = detected.isEmpty ? [audio] : SileroVAD.pack(detected, limit: maxN)
+      windows = base.flatMap {
+        SileroVAD.split($0, max: maxN, overlap: SileroVAD.hardSplitOverlapSamples)
+      }
+    } else {
+      windows = audio.isEmpty ? [] : [audio]
     }
     var parts: [String] = []
     for window in windows where !window.isEmpty {
       let c = window.withUnsafeBufferPointer {
-        cllama_asr_transcribe(h, $0.baseAddress, Int32(window.count), 16_000, 1024)
+        cllama_asr_transcribe(h, $0.baseAddress, Int32(window.count), 16_000, 1024,
+                              instruction, latinOnly)
       }
       if let c {
         let cleaned = AsrRuntime.cleanOutput(String(cString: c))
@@ -255,12 +403,7 @@ enum DebugCLI {
         if !cleaned.isEmpty { parts.append(cleaned) }
       }
     }
-    let text = TranscriptMerger.merge(parts)
-    print(text)
-    FileHandle.standardError.write("freeing…\n".data(using: .utf8)!)
-    cllama_asr_free(h)
-    FileHandle.standardError.write("freed ok\n".data(using: .utf8)!)
-    exit(text.isEmpty ? 1 : 0)
+    return TranscriptMerger.merge(parts)
   }
 
   private static func runAppleIfRequested() {

@@ -125,7 +125,7 @@ elif [ "$WHISPER_STALE" = "1" ]; then
 fi
 
 echo "Building Scribe ($CONFIG, $SCRIBE_ARCHS)…"
-swift build -c "$CONFIG" "${SWIFT_ARCH_FLAGS[@]}"
+swift build -c "$CONFIG" "${SWIFT_ARCH_FLAGS[@]}" "${JOB_FLAG[@]}"
 
 case "$CONFIG" in
   release) PRODUCT_CONFIG="Release" ;;
@@ -133,7 +133,7 @@ case "$CONFIG" in
   *) echo "Unsupported configuration: $CONFIG"; exit 1 ;;
 esac
 # A single --arch does not land in .build/apple/Products, so ask SPM directly.
-PRODUCTS="$(swift build -c "$CONFIG" "${SWIFT_ARCH_FLAGS[@]}" --show-bin-path)"
+PRODUCTS="$(swift build -c "$CONFIG" "${SWIFT_ARCH_FLAGS[@]}" "${JOB_FLAG[@]}" --show-bin-path)"
 BIN="$PRODUCTS/Scribe"
 APP="Scribe.app"
 rm -rf "$APP"

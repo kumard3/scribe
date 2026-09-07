@@ -3,6 +3,12 @@ import Foundation
 /// User vocabulary: names, jargon and acronyms the recognizer keeps getting
 /// wrong. Terms bias transducer decoding directly and prime whisper.cpp.
 enum Vocabulary {
+  /// Apple's recognizer hears the product's own name as "Chris" with nothing to bias it.
+  static let base = [
+    "Scribe", "Gemma", "E2B", "E4B", "chunking", "on-device",
+    "whisper.cpp", "Hinglish", "Oriserve", "Apex", "Swift",
+  ]
+
   static var terms: [String] {
     Settings.shared.vocabulary
       .split(whereSeparator: \.isNewline)
@@ -10,9 +16,15 @@ enum Vocabulary {
       .filter { !$0.isEmpty }
   }
 
+  /// What every engine biases toward: the built-in terms plus the user's.
+  static var biasTerms: [String] {
+    var seen = Set<String>()
+    return (base + terms).filter { seen.insert($0.lowercased()).inserted }
+  }
+
   /// sherpa wants one term per line, tokens space-separated inside a term.
   static var hotwordsBuffer: String? {
-    let list = terms
+    let list = biasTerms
     guard !list.isEmpty else { return nil }
     return list.joined(separator: "\n")
   }
@@ -37,7 +49,7 @@ enum Vocabulary {
   /// whisper.cpp has no hotword decoding, but it conditions on an initial
   /// prompt, which is enough to pull spellings toward known terms.
   static var whisperPrompt: String? {
-    let list = terms
+    let list = biasTerms
     guard !list.isEmpty else { return nil }
     return list.joined(separator: ", ")
   }
@@ -75,6 +87,10 @@ enum Vocabulary {
     assert(isLearnable(heard: "foo", corrected: "") == false)
     // Too long to be a vocabulary term, that is a rewrite not a correction.
     assert(isLearnable(heard: "a", corrected: "one two three four") == false)
+    assert(biasTerms.contains("Scribe"))
+    assert(biasTerms.contains("E2B"))
+    assert(biasTerms.contains("Hinglish"))
+    assert(biasTerms.filter { $0.lowercased() == "scribe" }.count == 1)
     print("Vocabulary selftest ok")
   }
 }

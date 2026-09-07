@@ -7,21 +7,37 @@ import Speech
 /// path on supported systems.
 @available(macOS 26.0, *)
 final class ModernSpeechSession: @unchecked Sendable {
+  private static let cacheLock = NSLock()
+  private static var cachedLocale = ""
+  private static var cached: ModernSpeechSession?
+
+  static func cached(for locale: String) -> ModernSpeechSession? {
+    cacheLock.lock()
+    defer { cacheLock.unlock() }
+    return cachedLocale == locale ? cached : nil
+  }
+
+  static func store(_ session: ModernSpeechSession, locale: String) {
+    cacheLock.lock()
+    cachedLocale = locale
+    cached = session
+    cacheLock.unlock()
+  }
+
   private let transcriber: SpeechTranscriber
   private let analyzer: SpeechAnalyzer
   private let converter: ModernAnalyzerInputConverter
-  private let inputBuilder: AsyncStream<AnalyzerInput>.Continuation
-  private let inputSequence: AsyncStream<AnalyzerInput>
   private let stateLock = NSLock()
 
-  private var finalized: [String] = []
-  private var volatile = ""
+  private var inputBuilder: AsyncStream<AnalyzerInput>.Continuation?
   private var resultTask: Task<Void, Never>?
   private var analysisTask: Task<CMTime?, Error>?
-  private var finished = false
-  private let onUpdate: (String) -> Void
+  private var finalized: [String] = []
+  private var volatile = ""
+  private var finished = true
+  private var onUpdate: (String) -> Void = { _ in }
 
-  init(locale identifier: String, onUpdate: @escaping (String) -> Void) async throws {
+  init(locale identifier: String) async throws {
     guard let locale = await SpeechTranscriber.supportedLocale(
       equivalentTo: Locale(identifier: identifier)
     ) else {
@@ -31,8 +47,11 @@ final class ModernSpeechSession: @unchecked Sendable {
       )
     }
     let transcriber = SpeechTranscriber(locale: locale, preset: .transcription)
-    if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
-      try await request.downloadAndInstall()
+    if let _ = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+      throw NSError(
+        domain: "Scribe.ModernSpeech", code: 5,
+        userInfo: [NSLocalizedDescriptionKey: "Apple Transcription assets are not installed"]
+      )
     }
     guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
     else {
@@ -44,12 +63,22 @@ final class ModernSpeechSession: @unchecked Sendable {
     self.transcriber = transcriber
     self.analyzer = SpeechAnalyzer(modules: [transcriber])
     self.converter = ModernAnalyzerInputConverter(analyzerFormat: format)
-    (self.inputSequence, self.inputBuilder) = AsyncStream.makeStream(of: AnalyzerInput.self)
-    self.onUpdate = onUpdate
+    let context = AnalysisContext()
+    context.contextualStrings[.general] = Vocabulary.biasTerms
+    try await analyzer.setContext(context)
     try await analyzer.prepareToAnalyze(in: format)
   }
 
-  func start() {
+  func startTurn(onUpdate: @escaping (String) -> Void) {
+    stateLock.lock()
+    self.onUpdate = onUpdate
+    finalized = []
+    volatile = ""
+    finished = false
+    stateLock.unlock()
+
+    let (stream, builder) = AsyncStream.makeStream(of: AnalyzerInput.self)
+    inputBuilder = builder
     resultTask = Task { [weak self] in
       guard let self else { return }
       do {
@@ -70,16 +99,15 @@ final class ModernSpeechSession: @unchecked Sendable {
         dlog("SpeechAnalyzer results error: \(error.localizedDescription)")
       }
     }
-    analysisTask = Task { try await analyzer.analyzeSequence(inputSequence) }
+    analysisTask = Task { try await analyzer.analyzeSequence(stream) }
   }
 
-  /// Called only by AVAudioEngine's capture callback.
   func accept(_ buffer: AVAudioPCMBuffer) {
     let shouldIgnore = stateLock.withLock { finished }
     guard !shouldIgnore else { return }
     do {
       if let converted = try converter.convert(buffer) {
-        inputBuilder.yield(AnalyzerInput(buffer: converted))
+        inputBuilder?.yield(AnalyzerInput(buffer: converted))
       }
     } catch {
       dlog("SpeechAnalyzer convert error: \(error.localizedDescription)")
@@ -97,7 +125,7 @@ final class ModernSpeechSession: @unchecked Sendable {
     Task { [weak self] in
       guard let self else { return }
       do {
-        inputBuilder.finish()
+        inputBuilder?.finish()
         let lastTime = try await analysisTask?.value
         if let lastTime { try await analyzer.finalizeAndFinish(through: lastTime) }
         else { await analyzer.cancelAndFinishNow() }
@@ -116,9 +144,6 @@ final class ModernSpeechSession: @unchecked Sendable {
   }
 }
 
-/// Converts arbitrary microphone PCM into the exact format selected by
-/// SpeechAnalyzer. `AnalyzerInputConverter` existed in early SDK examples but
-/// is not part of the released macOS 26 SDK, so keep this small adapter local.
 @available(macOS 26.0, *)
 private final class ModernAnalyzerInputConverter: @unchecked Sendable {
   private let analyzerFormat: AVAudioFormat
@@ -129,7 +154,6 @@ private final class ModernAnalyzerInputConverter: @unchecked Sendable {
     self.analyzerFormat = analyzerFormat
   }
 
-  /// AVAudioEngine invokes this serially on its render callback.
   func convert(_ input: AVAudioPCMBuffer) throws -> AVAudioPCMBuffer? {
     if input.format == analyzerFormat { return input }
     if sourceFormat != input.format || converter == nil {

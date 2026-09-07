@@ -6,15 +6,18 @@ import ObjCCatch
 import FluidAudio
 
 func dlog(_ s: String) {
+  NSLog("Scribe %@", s)
   let url = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent("Library/Logs/Scribe.log")
   let line = "\(Date()) \(s)\n"
-  if let h = try? FileHandle(forWritingTo: url) {
+  guard let data = line.data(using: .utf8) else { return }
+  if FileManager.default.fileExists(atPath: url.path),
+     let h = try? FileHandle(forWritingTo: url) {
+    defer { try? h.close() }
     h.seekToEndOfFile()
-    try? h.write(contentsOf: line.data(using: .utf8)!)
-    try? h.close()
+    try? h.write(contentsOf: data)
   } else {
-    try? line.write(to: url, atomically: true, encoding: .utf8)
+    try? data.write(to: url)
   }
 }
 
@@ -28,6 +31,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
 
   @Published var isRecording = false
   @Published var lastText = ""
+  @Published var lastPendingText = ""
   @Published var lastRawText = ""
   @Published var level: Float = 0
   @Published var phase: Phase = .idle
@@ -59,14 +63,42 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
   private var qwenSpec: ModelSpec?
   private var offlineSpec: ModelSpec?
   private var fluidSpec: ModelSpec?
+  private var arkasrSpec: ModelSpec?
   private var sherpaSamples: [Float] = []
   private var hitCaptureLimit = false
   private var hwRate = 16000
+  // Incremental qwenAsr state, owned by sherpaQueue. Chunks of consumed audio
+  // are transcribed in short-lived workers while recording continues; only
+  // their text survives here, so memory stays flat no matter how long the
+  // dictation runs and a crashed or leaked job leaves nothing resident.
+  private var qwenGen = 0             // bumped on finalize/restart; stale job results are dropped
+  private var qwenChunkInFlight = false
+  private var qwenFinalized = false
+  private var qwenFinishPending = false
+  private var qwenFinishSpec: ModelSpec?
+  private var qwenCommitted = ""      // merged transcript of chunks already consumed
+  private var qwenEverChunked = false
+  private var whisperSpec: ModelSpec?
+  private var whisperChunker = PauseChunker()
+  private var whisperGen = 0
+  private var whisperChunkInFlight = false
+  private var whisperFinalized = false
+  private var whisperFinishPending = false
+  private var whisperFinishSpec: ModelSpec?
+  private var whisperCommitted = ""
+  private var whisperPendingRaw = ""
+  private var whisperReady: [[Float]] = []
   private var onBufferCurrent: ((AVAudioPCMBuffer) -> Void)?
   private var configObserver: NSObjectProtocol?
   private var poppedSinceStart = false
   private var maxLevel: Float = 0
   private var silenceRestarts = 0
+  private var applePendingBuffers: [AVAudioPCMBuffer] = []
+  private let appleBufLock = NSLock()
+  private var appleWaitingToFinish = false
+  private var applePrepareGen = 0
+  private var appleSessionLocale = ""
+  private var transcribeWatch: DispatchWorkItem?
   private let sherpaQueue = DispatchQueue(label: "ai.scribe.sherpa")
   // Past 15 minutes we stop buffering rather than grow without a bound. Use
   // the actual hardware rate because microphones may run at 44.1, 48 or 96 kHz.
@@ -102,6 +134,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
         case .qwenAsr: self.beginQwen(spec)
         case .whisperCpp: self.beginWhisperCpp(spec)
         case .fluidParakeet: self.beginFluid(spec)
+        case .arkasrOnnx, .arkOnnx: self.beginArkasr(spec)
         default: self.beginSherpa(spec)
         }
       }
@@ -154,7 +187,8 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     engine.stop()
     guard let rate = startEngine(onBuffer: onBuffer) else { return }
     if rate != hwRate {
-      if sherpa != nil || qwenSpec != nil || offlineSpec != nil {
+      if sherpa != nil || qwenSpec != nil || offlineSpec != nil || arkasrSpec != nil
+          || whisperSpec != nil {
         dlog("hw rate changed \(hwRate) → \(rate), dropping \(sherpaSamples.count) buffered samples")
         sherpaSamples.removeAll()
       }
@@ -245,6 +279,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
 
   private func markListening() {
     lastText = ""
+    lastPendingText = ""
     lastRawText = ""
     isRecording = true
     phase = .listening
@@ -278,35 +313,138 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
 
   @available(macOS 26.0, *)
   private func beginModernApple(_ spec: ModelSpec) {
-    set("Preparing Apple Transcription…")
+    appleWaitingToFinish = false
+    appleBufLock.lock()
+    applePendingBuffers.removeAll()
+    appleBufLock.unlock()
+    applePrepareGen += 1
+    let prepareGen = applePrepareGen
+    let onText: (String) -> Void = { [weak self] text in
+      DispatchQueue.main.async {
+        guard let self else { return }
+        self.lastText = spec.romanize ? Romanizer.hinglish(text) : text
+      }
+    }
+    appleSessionLocale = spec.locale
+    if let cached = ModernSpeechSession.cached(for: spec.locale) {
+      dlog("apple analyzer cache hit locale=\(spec.locale)")
+      cached.startTurn(onUpdate: onText)
+      modernAppleSession = cached
+      guard let rate = startEngine(onBuffer: { [weak self] buffer in
+        (self?.modernAppleSession as? ModernSpeechSession)?.accept(buffer)
+      }) else {
+        modernAppleSession = nil
+        return
+      }
+      hwRate = rate
+      markListening()
+      return
+    }
+    guard let rate = startEngine(onBuffer: { [weak self] buffer in
+      self?.routeModernAppleBuffer(buffer)
+    }) else { return }
+    hwRate = rate
+    markListening()
     Task { [weak self] in
       guard let self else { return }
+      let t0 = Date()
       do {
-        let session = try await ModernSpeechSession(locale: spec.locale) { [weak self] text in
-          DispatchQueue.main.async {
-            guard let self else { return }
-            self.lastText = spec.romanize ? Romanizer.hinglish(text) : text
-          }
-        }
+        let session = try await ModernSpeechSession(locale: spec.locale)
+        dlog(String(format: "apple analyzer prepared in %.2fs", Date().timeIntervalSince(t0)))
         await MainActor.run {
-          guard !self.isRecording else { return }
-          self.modernAppleSession = session
-          session.start()
-          guard let rate = self.startEngine(onBuffer: { buffer in session.accept(buffer) }) else {
-            self.modernAppleSession = nil
-            return
-          }
-          self.hwRate = rate
-          self.markListening()
+          guard self.applePrepareGen == prepareGen else { return }
+          self.attachModernSession(session, onText: onText)
         }
       } catch {
         dlog("SpeechAnalyzer setup error: \(error.localizedDescription); falling back")
         await MainActor.run {
-          self.set("Apple Transcription unavailable, using compatibility engine")
-          self.beginLegacyApple(spec)
+          guard self.applePrepareGen == prepareGen else { return }
+          if self.isRecording {
+            self.attachLegacyAppleWhileRecording(spec)
+          } else if self.appleWaitingToFinish {
+            self.appleWaitingToFinish = false
+            self.set("Ready")
+            self.finish(with: self.lastText)
+          }
         }
       }
     }
+  }
+
+  @available(macOS 26.0, *)
+  private func routeModernAppleBuffer(_ buffer: AVAudioPCMBuffer) {
+    if let session = modernAppleSession as? ModernSpeechSession {
+      session.accept(buffer)
+      return
+    }
+    if let request {
+      request.append(buffer)
+      detectApplePause(buffer)
+      return
+    }
+    guard let copy = Self.copyPCM(buffer) else { return }
+    appleBufLock.lock()
+    applePendingBuffers.append(copy)
+    appleBufLock.unlock()
+  }
+
+  @available(macOS 26.0, *)
+  private func attachModernSession(_ session: ModernSpeechSession, onText: @escaping (String) -> Void) {
+    appleBufLock.lock()
+    let pending = applePendingBuffers
+    applePendingBuffers.removeAll()
+    appleBufLock.unlock()
+    session.startTurn(onUpdate: onText)
+    for buf in pending { session.accept(buf) }
+    modernAppleSession = session
+    if appleWaitingToFinish {
+      appleWaitingToFinish = false
+      finishModernApple(session)
+    }
+  }
+
+  @available(macOS 26.0, *)
+  private func finishModernApple(_ session: ModernSpeechSession) {
+    modernAppleSession = nil
+    phase = .transcribing
+    set("Finishing…")
+    let locale = appleSessionLocale
+    session.finish { [weak self] text in
+      guard let self else { return }
+      ModernSpeechSession.store(session, locale: locale)
+      self.set("Ready")
+      self.finish(with: text)
+    }
+  }
+
+  private func attachLegacyAppleWhileRecording(_ spec: ModelSpec) {
+    if recognizer == nil || recognizerLocale != spec.locale {
+      recognizer = SFSpeechRecognizer(locale: Locale(identifier: spec.locale))
+      recognizerLocale = spec.locale
+    }
+    guard let recognizer, recognizer.isAvailable else {
+      set("\(spec.label) isn’t available on this Mac")
+      return
+    }
+    appleBufLock.lock()
+    let pending = applePendingBuffers
+    applePendingBuffers.removeAll()
+    appleBufLock.unlock()
+    startAppleTask(recognizer)
+    for buf in pending { request?.append(buf) }
+  }
+
+  private static func copyPCM(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+    guard let out = AVAudioPCMBuffer(
+      pcmFormat: buffer.format, frameCapacity: buffer.frameLength
+    ) else { return nil }
+    out.frameLength = buffer.frameLength
+    guard let src = buffer.floatChannelData, let dst = out.floatChannelData else { return out }
+    let n = Int(buffer.frameLength)
+    for ch in 0..<Int(buffer.format.channelCount) {
+      dst[ch].update(from: src[ch], count: n)
+    }
+    return out
   }
 
   private func beginLegacyApple(_ spec: ModelSpec) {
@@ -368,7 +506,9 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     let req = SFSpeechAudioBufferRecognitionRequest()
     req.shouldReportPartialResults = true
     if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
-    req.addsPunctuation = true
+    req.addsPunctuation = !Settings.shared.activeModel.romanize
+      && !Settings.shared.activeModel.locale.lowercased().hasPrefix("hi")
+    req.contextualStrings = Vocabulary.biasTerms
     request = req
 
     task = recognizer.recognitionTask(with: req) { [weak self] result, error in
@@ -502,12 +642,14 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
   private func beginQwen(_ spec: ModelSpec) {
     guard !isRecording else { return }
     SherpaEngineCache.shared.unload()
-    LLMRuntime.shared.release()
+    let mlx = MLXRuntime.gemmaAsrUsesMlx(spec)
+    if !mlx { LLMRuntime.shared.release() }
     let dir = ModelStore.dir(for: spec)
     let model = dir.appendingPathComponent(spec.fileName)
     let mmproj = dir.appendingPathComponent(spec.mmprojFileName)
-    guard FileManager.default.fileExists(atPath: model.path),
-          FileManager.default.fileExists(atPath: mmproj.path) else {
+    let ggufReady = FileManager.default.fileExists(atPath: model.path)
+      && FileManager.default.fileExists(atPath: mmproj.path)
+    guard mlx || ggufReady else {
       set("\(spec.label) isn’t downloaded, get it in the Dashboard")
       return
     }
@@ -515,6 +657,22 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     task = nil
     qwenSpec = spec
     sherpaSamples = []
+    AsrRuntime.shared.warm(
+      modelPath: dir.appendingPathComponent(spec.fileName).path,
+      mmprojPath: dir.appendingPathComponent(spec.mmprojFileName).path
+    )
+    set("Loading Gemma…")
+    sherpaQueue.async { [weak self] in
+      guard let self else { return }
+      self.qwenGen += 1
+      self.qwenChunkInFlight = false
+      self.qwenFinalized = false
+      self.qwenFinishPending = false
+      self.qwenFinishSpec = nil
+      self.qwenCommitted = ""
+      self.qwenEverChunked = false
+      DiagnosticAudioStore.endSession()
+    }
     guard let rate = startEngine(onBuffer: { [weak self] buffer in
       self?.consumeQwen(buffer)
     }) else { return }
@@ -539,10 +697,9 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     markListening()
   }
 
-  private func beginWhisperCpp(_ spec: ModelSpec) {
+  private func beginArkasr(_ spec: ModelSpec) {
     guard !isRecording else { return }
-    let model = ModelStore.dir(for: spec).appendingPathComponent(spec.fileName)
-    guard FileManager.default.fileExists(atPath: model.path) else {
+    guard ModelStore.bundleInstalled(spec) else {
       set("\(spec.label) isn’t downloaded, get it in the Dashboard")
       return
     }
@@ -552,7 +709,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     recognizer = nil
     request = nil
     task = nil
-    offlineSpec = spec
+    arkasrSpec = spec
     sherpaSamples = []
     guard let rate = startEngine(onBuffer: { [weak self] buffer in
       self?.consumeSherpa(buffer)
@@ -561,13 +718,343 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     markListening()
   }
 
+  private func beginWhisperCpp(_ spec: ModelSpec) {
+    guard !isRecording else { return }
+    let model = ModelStore.dir(for: spec).appendingPathComponent(spec.fileName)
+    guard FileManager.default.fileExists(atPath: model.path) else {
+      set("\(spec.label) isn’t downloaded, get it in the Dashboard")
+      return
+    }
+    SherpaEngineCache.shared.unload()
+    AsrRuntime.shared.release()
+    recognizer = nil
+    request = nil
+    task = nil
+    whisperSpec = spec
+    sherpaSamples = []
+    lastPendingText = ""
+    guard let rate = startEngine(onBuffer: { [weak self] buffer in
+      self?.consumeWhisper(buffer)
+    }) else { return }
+    hwRate = rate
+    sherpaQueue.async { [weak self] in
+      guard let self else { return }
+      self.whisperGen += 1
+      self.whisperChunkInFlight = false
+      self.whisperFinalized = false
+      self.whisperFinishPending = false
+      self.whisperFinishSpec = nil
+      self.whisperCommitted = ""
+      self.whisperPendingRaw = ""
+      self.whisperReady = []
+      var pause = Settings.shared.chunkPauseMs
+      if pause < 400 { pause = 400 }
+      if pause > 700 { pause = 700 }
+      self.whisperChunker = PauseChunker(sampleRate: rate, pauseMs: pause)
+      DiagnosticAudioStore.endSession()
+    }
+    markListening()
+  }
+
+  private func consumeWhisper(_ buffer: AVAudioPCMBuffer) {
+    guard let ch = buffer.floatChannelData?[0] else { return }
+    let samples = [Float](UnsafeBufferPointer(start: ch, count: Int(buffer.frameLength)))
+    sherpaQueue.async { [weak self] in
+      guard let self else { return }
+      DiagnosticAudioStore.stream(samples, sampleRate: self.hwRate)
+      self.appendCaptured(samples)
+      let chunks = self.whisperChunker.feed(samples)
+      if !chunks.isEmpty { self.whisperReady.append(contentsOf: chunks) }
+      self.maybeSpawnWhisperChunk()
+    }
+  }
+
+  private func maybeSpawnWhisperChunk() {
+    guard let spec = whisperSpec, isRecording || whisperFinishPending,
+          !whisperChunkInFlight, !whisperFinalized else { return }
+    guard !whisperReady.isEmpty else { return }
+    let slice = whisperReady.removeFirst()
+    whisperChunkInFlight = true
+    let gen = whisperGen
+    NativeTranscriptionWorker.shared.transcribe(
+      spec: spec, samples: slice, sampleRate: hwRate,
+      language: WhisperDecode.language(for: spec), provider: "cpu",
+      saveDiagnostic: false,
+      timeout: TranscriptionLimits.chunkWorkerTimeout(
+        audioSeconds: Double(slice.count) / Double(max(hwRate, 1)))
+    ) { [weak self] result in
+      guard let self else { return }
+      self.sherpaQueue.async {
+        guard self.whisperGen == gen else { return }
+        self.whisperChunkInFlight = false
+        if case .success(let raw) = result {
+          let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+          if !text.isEmpty { self.acceptWhisperRaw(text, spec: spec) }
+        } else if case .failure(let error) = result {
+          dlog("whisper chunk failed: \(error.localizedDescription)")
+        }
+        if self.whisperFinishPending, self.whisperReady.isEmpty, let finishSpec = self.whisperFinishSpec {
+          self.whisperFinishSpec = nil
+          self.whisperFinishPending = false
+          self.finalizeWhisper(spec: finishSpec)
+        } else {
+          self.maybeSpawnWhisperChunk()
+        }
+      }
+    }
+  }
+
+  /// sherpaQueue. Raw ASR is shown immediately; Gemma only rewrites this chunk.
+  private func acceptWhisperRaw(_ text: String, spec: ModelSpec) {
+    whisperPendingRaw = TranscriptMerger.merge([whisperPendingRaw, text], maxOverlapWords: 4)
+    let committed = whisperCommitted
+    let pending = whisperPendingRaw
+    let gen = whisperGen
+    DispatchQueue.main.async {
+      self.lastText = committed
+      self.lastPendingText = pending
+    }
+    guard Settings.shared.autoCleanLLM, LLMRuntime.isAvailable else {
+      whisperCommitted = TranscriptMerger.merge([whisperCommitted, text], maxOverlapWords: 4)
+      whisperPendingRaw = ""
+      let shown = whisperCommitted
+      DispatchQueue.main.async {
+        self.lastText = shown
+        self.lastPendingText = ""
+      }
+      return
+    }
+    let raw = text
+    LLMRuntime.shared.process(
+      instruction: LLMRuntime.chunkCleanupInstruction(
+        previous: committed, hotwords: Vocabulary.biasTerms),
+      text: raw, maxTokens: 256
+    ) { [weak self] cleaned in
+      guard let self else { return }
+      self.sherpaQueue.async {
+        guard self.whisperGen == gen else { return }
+        let decision = TranscriptCleanupValidator.choose(
+          raw: raw, cleaned: cleaned, hotwords: Vocabulary.biasTerms)
+        self.whisperCommitted = TranscriptMerger.merge(
+          [self.whisperCommitted, decision.text], maxOverlapWords: 4)
+        if self.whisperPendingRaw == pending {
+          self.whisperPendingRaw = ""
+        }
+        let shown = self.whisperCommitted
+        let rest = self.whisperPendingRaw
+        DispatchQueue.main.async {
+          self.lastText = shown
+          self.lastPendingText = rest
+        }
+      }
+    }
+  }
+
+  private func finalizeWhisper(spec: ModelSpec) {
+    whisperGen += 1
+    whisperFinalized = true
+    whisperFinishPending = false
+    whisperFinishSpec = nil
+    if let last = whisperChunker.flush() { whisperReady.append(last) }
+    DiagnosticAudioStore.endSession()
+    dlog("whisper finalize: \(whisperReady.count) leftover chunk(s), \(whisperCommitted.count) chars")
+    if !whisperReady.isEmpty {
+      whisperFinalized = false
+      whisperFinishPending = true
+      whisperFinishSpec = spec
+      maybeSpawnWhisperChunk()
+      return
+    }
+    let text = TranscriptMerger.merge([whisperCommitted, whisperPendingRaw], maxOverlapWords: 4)
+    whisperPendingRaw = ""
+    sherpaSamples.removeAll()
+    DispatchQueue.main.async {
+      self.lastPendingText = ""
+      self.set("Ready")
+      self.finish(with: text, alreadyCleaned: Settings.shared.autoCleanLLM && LLMRuntime.isAvailable)
+    }
+  }
+
   private func consumeQwen(_ buffer: AVAudioPCMBuffer) {
     guard let ch = buffer.floatChannelData?[0] else { return }
     let samples = [Float](UnsafeBufferPointer(start: ch, count: Int(buffer.frameLength)))
     sherpaQueue.async { [weak self] in
       guard let self else { return }
+      DiagnosticAudioStore.stream(samples, sampleRate: self.hwRate)
       self.appendCaptured(samples)
+      self.maybeSpawnQwenChunk()
     }
+  }
+
+  /// Called only on sherpaQueue. Fires a background worker once enough new
+  /// audio has accumulated past the tail window; the slice keeps an overlap
+  /// with the previous chunk so TranscriptMerger can stitch boundary words.
+  private func maybeSpawnQwenChunk() {
+    guard let spec = qwenSpec, isRecording, !qwenChunkInFlight, !qwenFinalized else { return }
+    let rate = max(hwRate, 1)
+    let tailSamples = Int(Double(rate) * QwenStreaming.tailSeconds)
+    let chunkSamples = Int(Double(rate) * (qwenEverChunked
+      ? QwenStreaming.chunkSeconds : QwenStreaming.firstChunkSeconds))
+    guard sherpaSamples.count >= tailSamples + chunkSamples else { return }
+    let cut = sherpaSamples.count - tailSamples
+    let slice = Array(sherpaSamples[0..<cut])
+    let keep = max(0, cut - Int(Double(rate) * QwenStreaming.overlapSeconds))
+    qwenChunkInFlight = true
+    let gen = qwenGen
+    transcribeQwen(
+      spec: spec, samples: slice, sampleRate: hwRate,
+      timeout: TranscriptionLimits.chunkWorkerTimeout(
+        audioSeconds: Double(slice.count) / Double(rate))
+    ) { [weak self] result in
+      guard let self else { return }
+      self.sherpaQueue.async {
+        guard self.qwenGen == gen else { return } // dictation restarted or finalized mid-job
+        self.qwenChunkInFlight = false
+        if case .success(let raw) = result {
+          // Consume even when the text came back empty (a silent stretch);
+          // only failures keep their audio for a later retry. The diagnostic
+          // stream already captured this audio live in consumeQwen.
+          let removeCount = min(keep, self.sherpaSamples.count)
+          self.sherpaSamples.removeFirst(removeCount)
+          let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+          if !text.isEmpty {
+            self.qwenCommitted = TranscriptMerger.merge([self.qwenCommitted, text])
+            self.qwenEverChunked = true
+            let preview = self.applyRomanization(self.qwenCommitted)
+            DispatchQueue.main.async { self.lastText = preview }
+          }
+        } else if case .failure(let error) = result {
+          dlog("background chunk failed, audio kept for next window: \(error.localizedDescription)")
+        }
+        if self.qwenFinishPending, let finishSpec = self.qwenFinishSpec {
+          self.qwenFinishSpec = nil
+          self.qwenFinishPending = false
+          self.finalizeQwen(spec: finishSpec)
+        } else {
+          self.maybeSpawnQwenChunk()
+        }
+      }
+    }
+  }
+
+  /// Called only on sherpaQueue. Transcribes whatever was never consumed by a
+  /// background chunk and stitches it onto the committed text.
+  private func finalizeQwen(spec: ModelSpec) {
+    qwenGen += 1
+    let gen = qwenGen
+    qwenFinalized = true
+    qwenFinishPending = false
+    qwenFinishSpec = nil
+    let backlog = sherpaSamples
+    sherpaSamples.removeAll()
+    DiagnosticAudioStore.endSession()
+    let committedSoFar = qwenCommitted
+    dlog("qwen finalize: \(backlog.count) samples tail, \(committedSoFar.count) chars committed")
+    let rate = max(hwRate, 1)
+    let finish: (String) -> Void = { text in
+      DispatchQueue.main.async {
+        self.set("Ready")
+        self.finish(with: text)
+      }
+    }
+    guard !backlog.isEmpty else {
+      if committedSoFar.isEmpty {
+        DispatchQueue.main.async {
+          self.set("No speech detected, check the mic and the model in Dashboard → Models")
+          self.phase = .idle
+          HUD.shared.hide()
+        }
+      } else {
+        finish(committedSoFar)
+      }
+      return
+    }
+    transcribeQwen(
+      spec: spec, samples: backlog, sampleRate: hwRate,
+      timeout: TranscriptionLimits.chunkWorkerTimeout(
+        audioSeconds: Double(backlog.count) / Double(rate))
+    ) { [weak self] result in
+      guard let self else { return }
+      self.sherpaQueue.async {
+        guard self.qwenGen == gen, self.qwenFinalized else { return }
+        switch result {
+        case .success(let raw):
+          let merged = TranscriptMerger.merge([committedSoFar, raw])
+          finish(merged.isEmpty ? committedSoFar : merged)
+        case .failure(let error):
+          dlog("qwen tail failed: \(error.localizedDescription)")
+          if committedSoFar.isEmpty {
+            DispatchQueue.main.async {
+              self.set("\(error.localizedDescription), use Retry last recording")
+              self.phase = .idle
+              HUD.shared.hide()
+            }
+          } else {
+            dlog("qwen tail failed, inserting committed chunks only")
+            finish(committedSoFar)
+          }
+        }
+      }
+    }
+  }
+
+  private func transcribeQwen(
+    spec: ModelSpec, samples: [Float], sampleRate: Int,
+    timeout: TimeInterval,
+    completion: @escaping (Result<String, Error>) -> Void
+  ) {
+    if MLXRuntime.gemmaAsrUsesMlx(spec) {
+      NativeTranscriptionWorker.shared.transcribe(
+        spec: spec, samples: samples, sampleRate: sampleRate,
+        language: Settings.shared.language, provider: "cpu",
+        saveDiagnostic: false, timeout: timeout, completion: completion
+      )
+      return
+    }
+    let dir = ModelStore.dir(for: spec)
+    AsrRuntime.shared.transcribe(
+      modelPath: dir.appendingPathComponent(spec.fileName).path,
+      mmprojPath: dir.appendingPathComponent(spec.mmprojFileName).path,
+      instruction: ModelCatalog.asrPrompt(for: spec),
+      samples: samples, sampleRate: sampleRate
+    ) { text in
+      if let text, !text.isEmpty {
+        completion(.success(text))
+      } else {
+        NativeTranscriptionWorker.shared.transcribe(
+          spec: spec, samples: samples, sampleRate: sampleRate,
+          language: Settings.shared.language, provider: "cpu",
+          saveDiagnostic: false, timeout: timeout, completion: completion
+        )
+      }
+    }
+  }
+
+  private func armTranscribeWatch() {
+    transcribeWatch?.cancel()
+    let w = DispatchWorkItem { [weak self] in
+      guard let self, self.phase == .transcribing else { return }
+      dlog("transcribe watchdog fired")
+      self.sherpaQueue.async {
+        self.qwenGen += 1
+        self.qwenFinalized = true
+        self.qwenFinishPending = false
+        let text = self.qwenCommitted
+        DispatchQueue.main.async {
+          guard self.phase == .transcribing else { return }
+          if text.isEmpty {
+            self.set("Timed out, audio kept, use Retry last recording")
+            self.phase = .idle
+            HUD.shared.hide()
+          } else {
+            self.set("Ready")
+            self.finish(with: text)
+          }
+        }
+      }
+    }
+    transcribeWatch = w
+    DispatchQueue.main.asyncAfter(deadline: .now() + 35, execute: w)
   }
 
   private func consumeSherpa(_ buffer: AVAudioPCMBuffer) {
@@ -615,17 +1102,17 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     isRecording = false
     level = 0
 
-    if #available(macOS 26.0, *),
-       let session = modernAppleSession as? ModernSpeechSession {
-      modernAppleSession = nil
-      phase = .transcribing
-      set("Finishing…")
-      session.finish { [weak self] text in
-        guard let self else { return }
-        self.set("Ready")
-        self.finish(with: text)
+    if #available(macOS 26.0, *) {
+      if let session = modernAppleSession as? ModernSpeechSession {
+        finishModernApple(session)
+        return
       }
-      return
+      if applePrepareGen != 0, modernAppleSession == nil, request == nil {
+        appleWaitingToFinish = true
+        phase = .transcribing
+        set("Finishing…")
+        return
+      }
     }
 
     if let spec = fluidSpec {
@@ -660,6 +1147,52 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
             }
           }
         }
+      }
+      return
+    }
+
+    if let spec = arkasrSpec {
+      arkasrSpec = nil
+      phase = .transcribing
+      set("Transcribing…")
+      let rate = hwRate
+      sherpaQueue.async { [weak self] in
+        guard let self else { return }
+        let samples = self.sherpaSamples
+        self.sherpaSamples = []
+        if Settings.shared.keepLatestRecording {
+          DiagnosticAudioStore.saveLatest(samples: samples, sampleRate: rate)
+        }
+        ArkasrRuntime.shared.transcribe(spec: spec, samples: samples, sampleRate: rate) { result in
+          switch result {
+          case let .success(text):
+            dlog("arkasr transcribed \(text.count) chars from \(samples.count) samples")
+            self.set("Ready")
+            self.finish(with: text)
+          case let .failure(error):
+            dlog("arkasr failed: \(error.localizedDescription)")
+            self.set("\(error.localizedDescription), audio kept, use Retry last recording")
+            self.phase = .idle
+            HUD.shared.hide()
+          }
+        }
+      }
+      return
+    }
+
+    if let spec = whisperSpec {
+      whisperSpec = nil
+      phase = .transcribing
+      set("Finishing…")
+      sherpaQueue.async { [weak self] in
+        guard let self else { return }
+        if self.whisperChunkInFlight || !self.whisperReady.isEmpty {
+          self.whisperFinishSpec = spec
+          self.whisperFinishPending = true
+          self.maybeSpawnWhisperChunk()
+          return
+        }
+        self.finalizeWhisper(spec: spec)
       }
       return
     }
@@ -700,28 +1233,18 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     if let spec = qwenSpec {
       qwenSpec = nil
       phase = .transcribing
-      set("Transcribing…")
-      let rate = hwRate
+      set("Finishing…")
+      armTranscribeWatch()
       sherpaQueue.async { [weak self] in
         guard let self else { return }
-        let samples = self.sherpaSamples
-        self.sherpaSamples = []
-        NativeTranscriptionWorker.shared.transcribe(
-          spec: spec, samples: samples, sampleRate: rate,
-          language: Settings.shared.language, provider: "cpu"
-        ) { result in
-          switch result {
-          case let .success(text):
-            dlog("qwen worker transcribed \(text.count) chars from \(samples.count) samples")
-            self.set("Ready")
-            self.finish(with: text)
-          case let .failure(error):
-            dlog("qwen worker failed: \(error.localizedDescription)")
-            self.set(error.localizedDescription)
-            self.phase = .idle
-            HUD.shared.hide()
-          }
+        // A chunk job is mid-flight: let it land (it consumes its audio and
+        // updates the committed text), then finalize from its completion.
+        if self.qwenChunkInFlight {
+          self.qwenFinishSpec = spec
+          self.qwenFinishPending = true
+          return
         }
+        self.finalizeQwen(spec: spec)
       }
       return
     }
@@ -768,7 +1291,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     }
   }
 
-  private func finish(with text: String) {
+  private func finish(with text: String, alreadyCleaned: Bool = false) {
     // Un-punctuated engines (streaming Zipformer, CTC) get on-device punctuation
     // restored before the spoken-command pass. Runs off the main thread.
     let kind = Settings.shared.activeModel.kind
@@ -778,11 +1301,13 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
       set("Adding punctuation…")
       DispatchQueue.global(qos: .userInitiated).async { [weak self] in
         let punctuated = PunctuationRuntime.shared.punctuate(text)
-        DispatchQueue.main.async { self?.finishProcessed(with: punctuated) }
+        DispatchQueue.main.async {
+          self?.finishProcessed(with: punctuated, alreadyCleaned: alreadyCleaned)
+        }
       }
       return
     }
-    finishProcessed(with: text)
+    finishProcessed(with: text, alreadyCleaned: alreadyCleaned)
   }
 
   func importedResult(_ text: String) {
@@ -796,14 +1321,15 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     }
   }
 
-  private func finishProcessed(with text: String) {
+  private func finishProcessed(with text: String, alreadyCleaned: Bool = false) {
+    transcribeWatch?.cancel()
+    transcribeWatch = nil
     var finalText = VoiceCommands.apply(text, allowDestructive: true)
-    if Settings.shared.romanizeHindi {
-      finalText = Romanizer.mixed(finalText)
-    }
+    finalText = Romanizer.normalizeScript(finalText)
     dlog("finish text=\(finalText.count) chars")
     lastRawText = finalText
     lastText = finalText
+    lastPendingText = ""
     guard !finalText.isEmpty else {
       set("No speech detected, check the mic and the model in Dashboard → Models")
       phase = .idle
@@ -811,11 +1337,9 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
       return
     }
 
-    // Optional on-device AI cleanup before insertion (Gemma 4). Runs off the
-    // main thread; falls back to the raw text on any failure.
-    let llm = ModelCatalog.llmModel
-    if Settings.shared.autoCleanLLM,
-       let path = ModelStore.ggufFile(in: ModelStore.dir(for: llm))?.path {
+    // Optional AI cleanup before insertion. Skip when live chunks already went
+    // through Gemma so a second pass cannot rewrite earlier utterances.
+    if !alreadyCleaned, Settings.shared.autoCleanLLM, LLMRuntime.isAvailable {
       phase = .postProcessing
       set("Cleaning up…")
       SherpaEngineCache.shared.unload()
@@ -824,7 +1348,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
       // remain resident for five minutes.
       AsrRuntime.shared.release {
         LLMRuntime.shared.process(
-          modelPath: path, instruction: LLMRuntime.cleanupInstruction,
+          instruction: LLMRuntime.cleanupInstruction,
           text: finalText, maxTokens: 1024
         ) { cleaned in
           let decision = TranscriptCleanupValidator.choose(raw: finalText, cleaned: cleaned)

@@ -527,6 +527,23 @@ final class SileroVAD {
   /// Hard-cap segment length, silero's max_speech_duration nudges a split but
   /// doesn't guarantee one, so chop any run-on segment before it reaches the
   /// recognizer.
+  /// Consecutive speech segments glued back together up to `limit`. The VAD cuts
+  /// at every breath, which gave 50 windows averaging 2.8 s on a 2.5 minute
+  /// recording, several of them a single word. A dedicated recognizer handles
+  /// that fine, but an omni model transcribing "the" in isolation has nothing to
+  /// reason from and guesses at names. Only the mtmd path packs.
+  static func pack(_ segments: [[Float]], limit: Int) -> [[Float]] {
+    var packed: [[Float]] = []
+    for segment in segments {
+      if let last = packed.last, last.count + segment.count <= limit {
+        packed[packed.count - 1] = last + segment
+      } else {
+        packed.append(segment)
+      }
+    }
+    return packed
+  }
+
   static func split(_ seg: [Float], max: Int, overlap: Int = 0) -> [[Float]] {
     guard seg.count > max else { return [seg] }
     let safeOverlap = Swift.max(0, Swift.min(overlap, max / 2))

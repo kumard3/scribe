@@ -58,18 +58,22 @@ struct HUDView: View {
           .foregroundColor(.green)
         Text("Inserted")
           .foregroundColor(.white)
-      } else if dictation.phase == .transcribing {
+      } else if dictation.phase == .transcribing || dictation.phase == .postProcessing {
         ProgressView()
           .controlSize(.small)
           .tint(.white)
-        Text("Transcribing…")
-          .foregroundColor(.white)
+        if dictation.lastText.isEmpty && dictation.lastPendingText.isEmpty {
+          Text(dictation.status.isEmpty ? "Transcribing…" : dictation.status)
+            .foregroundColor(.white)
+            .lineLimit(1)
+        } else {
+          hudTranscript
+        }
       } else {
         LevelBars(level: dictation.level)
-        Text(tail(dictation.lastText.isEmpty ? "Listening…" : dictation.lastText))
+        hudTranscript
           .lineLimit(1)
           .truncationMode(.head)
-          .foregroundColor(.white)
       }
     }
     .font(.system(size: 14, weight: .medium))
@@ -78,6 +82,21 @@ struct HUDView: View {
     .background(Capsule().fill(Color.black.opacity(0.87)))
     .overlay(Capsule().strokeBorder(Color.white.opacity(0.12)))
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+
+  @ViewBuilder
+  private var hudTranscript: some View {
+    let cleaned = dictation.lastText
+    let pending = dictation.lastPendingText
+    if cleaned.isEmpty && pending.isEmpty {
+      Text("Listening…").foregroundColor(.white)
+    } else if pending.isEmpty {
+      Text(tail(cleaned)).foregroundColor(.white)
+    } else {
+      (Text(tail(cleaned)).foregroundColor(.white)
+        + Text((cleaned.isEmpty ? "" : " ") + tail(pending))
+        .foregroundColor(Color.white.opacity(0.45)))
+    }
   }
 
   private func tail(_ s: String) -> String {

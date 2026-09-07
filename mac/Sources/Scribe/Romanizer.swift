@@ -77,6 +77,27 @@ enum Romanizer {
     return transform(words.joined(separator: " "), kCFStringTransformStripDiacritics)
   }
 
+  nonisolated static let devanagariLanguages: Set<String> = ["hi", "mr"]
+
+  /// Devanagari in the output of a language that does not use it is the
+  /// recognizer slipping script, not the speaker: Gemma 4 wrote a stretch of
+  /// spoken English as "और सी आई थिंक व्हाट कैन बी". Converting it back is the
+  /// only thing that holds, the model ignores a Latin-only instruction.
+  /// Auto-detect is left alone, there the script may well be what was spoken.
+  static var wantsLatinOnly: Bool {
+    if Settings.shared.romanizeHindi { return true }
+    let language = Settings.shared.language
+    return language != "auto" && !devanagariLanguages.contains(language)
+  }
+
+  static func normalizeScript(_ s: String) -> String {
+    wantsLatinOnly ? mixed(s) : s
+  }
+
+  static func hasDevanagari(_ s: String) -> Bool {
+    s.unicodeScalars.contains { (0x0900...0x097F).contains($0.value) }
+  }
+
   static func selfTest() {
     let got = mixed("अब इसको बदलने के लिए यहाँ एक नया बटन दबाएँ")
     assert(got == "ab isko badalne ke liye yahan ek naya batan dabayen",
@@ -84,6 +105,9 @@ enum Romanizer {
     assert(mixed("main कल office जाऊँगा") == "main kal office jaunga",
            "romanizer mixed: \(mixed("main कल office जाऊँगा"))")
     assert(mixed("plain english stays") == "plain english stays")
+    // The real slip: English words the recognizer wrote in Devanagari.
+    assert(!hasDevanagari(mixed("और सी आई थिंक व्हाट कैन बी द बेटर ऑप्शन विल बी")),
+           "romanizer left devanagari: \(mixed("और सी आई थिंक व्हाट कैन बी द बेटर ऑप्शन विल बी"))")
     print("Romanizer selftest ok")
   }
 
