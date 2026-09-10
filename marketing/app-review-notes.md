@@ -170,6 +170,30 @@ Review" on the submission page enable. Before that first click it stays
 disabled no matter what you attach or reply. Release is Manual, so approval
 still needs a Release click.
 
+## Status, 2026-09-11
+
+Rejected 2026-09-09 (reviewed on iPad Air 11" M3, build 1.0 (5)). The 2.1
+request is closed; no functional issues. Two metadata items:
+
+- **1.5 Safety:** a GitHub issues page is not an acceptable Support URL. Added
+  `website/src/pages/support.astro` (contact email, FAQ), deployed, and set the
+  Support URL on the iOS and Mac 1.0 listings to
+  `https://scribe-site.kumard3.workers.dev/support`.
+- **4.1(c) Copycats:** "the app's name contains a brand that belongs to the
+  developer Scribe". At least six other "Scribe" apps exist, including "Scribe -
+  Speech to Text" (Hive AI, on-device STT, 2020). Kumar chose to keep the name
+  and contest it: the reply argues "scribe" is a descriptive common word used by
+  many unrelated developers, asks which developer/trademark is meant, and says we
+  rename if they hold a registered trademark.
+
+Resubmitted 2026-09-11 02:20 IST, WAITING_FOR_REVIEW (API-verified). App Review
+Board appeal filed the same night on 4.1 only (form at
+https://developer.apple.com/contact/request/app-review/appeal/, topic App
+Rejection, same argument in 1,416 chars); Apple confirmed receipt on screen. That
+was the one appeal allowed for this submission. If the Board upholds 4.1(c), the
+only path left is a rename: app.json `name` + permission strings and
+`ios/Scribe*/Info.plist` CFBundleDisplayName, so it needs a new build.
+
 ---
 
 ## 1. The screen recording (Kumar, ~3 minutes)

@@ -1,0 +1,51 @@
+---
+import Base from '../layouts/Base.astro';
+import Icon from '../components/Icon.astro';
+import { webSiteSchema, breadcrumbSchema } from '../lib/seo';
+
+const email = 'kumardeepanshu157200@gmail.com';
+const schemas = [
+  webSiteSchema,
+  breadcrumbSchema([
+    { name: 'Home', path: '/' },
+    { name: 'Support', path: '/support' },
+  ]),
+];
+---
+<Base
+  title="Support · Scribe"
+  description="Get help with Scribe: contact the developer, report a bug, and answers to common questions."
+  anchors={false}
+  schemas={schemas}
+>
+  <main class="wrap prose">
+    <div class="kicker">Support</div>
+    <h1>Support</h1>
+
+    <h2>Contact</h2>
+    <p>Email <a href={`mailto:${email}?subject=Scribe%20support`}>{email}</a> with any question, problem, or feature request. Every message is read by the developer.</p>
+    <p>To help us fix a problem faster, include your device model, your iOS or Android version, and which speech model you had selected.</p>
+    <p>You can also report bugs on <a href="https://github.com/kumard3/scribe/issues">GitHub</a>.</p>
+
+    <h2>Common questions</h2>
+
+    <h3>Does Scribe need an internet connection?</h3>
+    <p>No for dictation with an offline model. The default engine is your phone's built-in speech recognition. Any other model in Models is a one-time download; once it finishes, dictation runs with the network off.</p>
+
+    <h3>A model download failed or is stuck.</h3>
+    <p>Model files download once from Hugging Face or GitHub, so they need a working connection. Check that you are online, then open Models and tap the model again to retry.</p>
+
+    <h3>Scribe can't hear me.</h3>
+    <p>Scribe needs the microphone and speech recognition permissions. If you declined them, turn them back on in your phone's Settings under Scribe.</p>
+
+    <h3>Where are my transcripts stored?</h3>
+    <p>Only on your device. We do not run a server and never receive your audio or text. You can delete items in History, or everything from Settings → Data → Delete all data.</p>
+
+    <h3>Does Scribe cost anything?</h3>
+    <p>No. Scribe is free, with no account, no ads, and no in-app purchases.</p>
+
+    <p>See the <a href="/privacy">Privacy Policy</a> for exactly what Scribe processes and where.</p>
+
+    <a class="back" href="/"><Icon name="back" /> Back to home</a>
+  </main>
+</Base>
