@@ -2,6 +2,7 @@ import { ReactElement, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
+  Image,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -61,7 +62,12 @@ const SLIDES: Slide[] = [
   {
     title: BRAND,
     body: 'Speak. See it as text. Instantly. And entirely on your phone.',
-    render: () => <WaveMark />,
+    render: () =>
+      Platform.OS === 'ios' ? (
+        <Image source={require('../../assets/bolkit-mark.png')} style={styles.brandMark} />
+      ) : (
+        <WaveMark />
+      ),
   },
   {
     title: 'Private by design',
@@ -170,6 +176,7 @@ const styles = StyleSheet.create({
     marginBottom: 44,
   },
   wave: { flexDirection: 'row', alignItems: 'center', gap: 9, height: 88 },
+  brandMark: { width: 84, height: 43.5 },
   bar: { width: 9, borderRadius: 5, backgroundColor: theme.text },
   title: { color: theme.text, fontSize: 34, fontWeight: '800', letterSpacing: -0.5, marginBottom: 16, textAlign: 'center' },
   body: { color: theme.textDim, fontSize: 16, lineHeight: 24, textAlign: 'center' },

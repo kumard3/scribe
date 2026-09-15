@@ -185,6 +185,12 @@ was rebuilt full-bleed without Grok's watermark or baked tile corners, with the 
 The build-6 submission was canceled via the API, build 7 attached, and a new submission `111f8087` created and submitted
 18:46 IST: WAITING_FOR_REVIEW.
 
+Kumar then asked for the logo everywhere. The mark was traced to a clean vector (`marketing/logo/bolkit-mark.svg`,
+`bolkit-icon.svg`) and applied to: the iOS app icon (re-rendered from the SVG), the iOS onboarding tile
+(`assets/bolkit-mark*.png`; Android keeps the animated bars), the site favicon, nav mark, PWA icons and OG image
+(deployed), and App Store screenshot 1. Build 1.0.0 (8): submission `111f8087` canceled, build 8 attached, and new
+submission `63f82807` submitted 19:17 IST: WAITING_FOR_REVIEW.
+
 ---
 
 ## Status, 2026-09-11

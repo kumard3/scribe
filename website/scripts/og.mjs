@@ -1,4 +1,4 @@
-// Generates the social/OG image + PWA/app icons for the Scribe site.
+// Generates the social/OG image + PWA/app icons for the Bolkit site.
 // Run once (assets are committed as static files): node scripts/og.mjs
 import sharp from 'sharp';
 import { fileURLToPath } from 'node:url';
@@ -7,30 +7,11 @@ import { dirname, resolve } from 'node:path';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pub = resolve(root, 'public');
 
-// Scribe app-icon glyph: three rounded pill-bars (heights 320/540/400) on a
-// gradient squircle, matching assets/icon.png.
-const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#161618"/><stop offset="1" stop-color="#000000"/>
-    </linearGradient>
-  </defs>
-  <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
-  <rect x="2" y="2" width="1020" height="1020" rx="222" fill="none" stroke="#2A2A2E" stroke-width="3"/>
-  <g fill="#fff">
-    <rect x="262" y="352" width="116" height="320" rx="58"/>
-    <rect x="454" y="242" width="116" height="540" rx="58"/>
-    <rect x="646" y="312" width="116" height="400" rx="58"/>
-  </g>
-</svg>`;
+// Bolkit app icon: wave-to-cursor mark on a gradient squircle (marketing/logo/bolkit-icon.svg).
+const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#161618"/><stop offset="1" stop-color="#060607"/></linearGradient><linearGradient id="ink" x1="0" y1="323" x2="0" y2="686" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FAFAFA"/><stop offset="1" stop-color="#D4D4D4"/></linearGradient></defs><rect width="1024" height="1024" rx="224" fill="url(#bg)"/><rect x="2" y="2" width="1020" height="1020" rx="222" fill="none" stroke="#2A2A2E" stroke-width="3"/><path d="M180 520 C236 520 236 553 292 553 C342 553 342 343 392 343 C441 343 441 666 490 666 C547.5 666 547.5 469 605 469 C664.5 469 664.5 520 724 520 C757 520 757 520 790 520" fill="none" stroke="url(#ink)" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/><rect x="821" y="426" width="40" height="170" rx="20" fill="url(#ink)"/></svg>`;
 
 // 1200x630 social card.
 const W = 1200, H = 630, PAD = 84;
-const markBars = [
-  { x: PAD, y: 78, w: 11, h: 36 },
-  { x: PAD + 17, y: 66, w: 11, h: 60 },
-  { x: PAD + 34, y: 72, w: 11, h: 48 },
-];
 const wave = Array.from({ length: 58 }, (_, i) => {
   const c = 1 - Math.abs(i - 29) / 29;
   const h = 8 + c * 60 + (i % 4) * 5;
@@ -47,8 +28,8 @@ const ogSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}
   <rect width="${W}" height="${H}" fill="#000000"/>
   <rect width="${W}" height="${H}" fill="url(#glow)"/>
   <rect x="1" y="1" width="${W - 2}" height="${H - 2}" fill="none" stroke="#232327" stroke-width="2"/>
-  ${markBars.map((b) => `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="${b.w / 2}" fill="#fff"/>`).join('')}
-  <text x="${PAD + 60}" y="103" font-family="Helvetica,Arial,sans-serif" font-size="38" font-weight="700" fill="#f5f5f7">Bolkit</text>
+  <g transform="translate(${PAD} 72) scale(0.0826) translate(-160 -323)"><path d="M180 520 C236 520 236 553 292 553 C342 553 342 343 392 343 C441 343 441 666 490 666 C547.5 666 547.5 469 605 469 C664.5 469 664.5 520 724 520 C757 520 757 520 790 520" fill="none" stroke="#fff" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/><rect x="821" y="426" width="40" height="170" rx="20" fill="#fff"/></g>
+  <text x="${PAD + 74}" y="103" font-family="Helvetica,Arial,sans-serif" font-size="38" font-weight="700" fill="#f5f5f7">Bolkit</text>
   <text x="${PAD}" y="248" font-family="Helvetica,Arial,sans-serif" font-size="78" font-weight="700" fill="#f5f5f7" letter-spacing="-2">Voice to text that</text>
   <text x="${PAD}" y="338" font-family="Helvetica,Arial,sans-serif" font-size="78" font-weight="700" fill="#76767e" letter-spacing="-2">never leaves your device.</text>
   <text x="${PAD}" y="420" font-family="Helvetica,Arial,sans-serif" font-size="27" fill="#b6b6bd">100% on-device  ·  Free &amp; open source  ·  No account  ·  59 languages</text>
