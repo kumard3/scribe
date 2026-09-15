@@ -1,7 +1,7 @@
 // Terms every engine biases toward, whether or not the user added any.
 // Apple's recognizer hears the product's own name as "Chris" without it.
 export const BASE_VOCAB = [
-  'Scribe',
+  'Bolkit',
   'Gemma',
   'E2B',
   'E4B',

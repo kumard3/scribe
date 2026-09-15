@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://scribe-site.kumard3.workers.dev/sitemap-index.xml
+Sitemap: https://bolkit-site.kumard3.workers.dev/sitemap-index.xml

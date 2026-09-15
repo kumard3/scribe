@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Scribe</string>
+	<string>Bolkit</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Scribe</string>
+	<string>Bolkit</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
@@ -44,7 +44,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>4</string>
+	<string>6</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSMinimumSystemVersion</key>
@@ -59,11 +59,11 @@
 		<true/>
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Scribe uses the microphone to turn your speech into text on-device.</string>
+	<string>Bolkit uses the microphone to turn your speech into text on-device.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Scribe only reads an audio or video file you explicitly choose to import for transcription. Nothing is uploaded.</string>
+	<string>Bolkit only reads an audio or video file you explicitly choose to import for transcription. Nothing is uploaded.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Scribe uses on-device speech recognition to transcribe your voice without sending audio anywhere.</string>
+	<string>Bolkit uses on-device speech recognition to transcribe your voice without sending audio anywhere.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIBackgroundModes</key>

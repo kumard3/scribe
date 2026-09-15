@@ -1,5 +1,5 @@
-export const SITE_URL = 'https://scribe-site.kumard3.workers.dev';
-export const SITE_NAME = 'Scribe';
+export const SITE_URL = 'https://bolkit-site.kumard3.workers.dev';
+export const SITE_NAME = 'Bolkit';
 
 export const REPO = 'https://github.com/kumard3/scribe';
 export const RELEASES = `${REPO}/releases`;
@@ -10,9 +10,9 @@ export const LANG_COUNT = 59;
 
 export const OG_IMAGE = '/og.png';
 
-export const SITE_TITLE = 'Scribe · Voice to text that never leaves your device';
+export const SITE_TITLE = 'Bolkit · Voice to text that never leaves your device';
 export const SITE_DESC =
-  'Scribe turns your voice into text 100% on your device. Free, offline, no account, no servers. Live dictation, long-form recording, speaker labels, and translation in 59 languages.';
+  'Bolkit turns your voice into text 100% on your device. Free, offline, no account, no servers. Live dictation, long-form recording, speaker labels, and translation in 59 languages.';
 
 export const KEYWORDS = [
   'on-device speech to text',

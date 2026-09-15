@@ -33,7 +33,7 @@ struct ScribeWidgetEntryView: View {
   var body: some View {
     VStack(spacing: 6) {
       Text("🎤").font(.system(size: 30))
-      Text("Scribe · Dictate")
+      Text("Bolkit · Dictate")
         .font(.system(size: 13, weight: .bold))
         .foregroundColor(scribeTeal)
     }
@@ -50,7 +50,7 @@ struct ScribeWidget: Widget {
     StaticConfiguration(kind: kind, provider: ScribeProvider()) { entry in
       ScribeWidgetEntryView(entry: entry)
     }
-    .configurationDisplayName("Scribe Dictate")
+    .configurationDisplayName("Bolkit Dictate")
     .description("Tap to start on-device dictation.")
     .supportedFamilies([.systemSmall])
   }

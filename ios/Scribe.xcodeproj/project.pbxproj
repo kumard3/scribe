@@ -13,7 +13,6 @@
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		193B9E8B10AA05C819F3D0F6 /* ScribeDiarizer.m in Sources */ = {isa = PBXBuildFile; fileRef = 7E064E5F0FD083A2091949F6 /* ScribeDiarizer.m */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
-		59DE083E7EFCFFDD597A8CE6 /* ScribeKeyboard.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 346AA843A2083EA8112EAB90 /* ScribeKeyboard.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		6AED75C2C937B4FD7AE92F6B /* ScribeDiarizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E55B36976B3B6E9B6A562212 /* ScribeDiarizer.swift */; };
 		9840DA4BC9219D53D90B4AAC /* ScribeWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E4998547555F46616311859 /* ScribeWidget.swift */; };
 		AE8A3BC31178C7A13EACB65D /* ScribePunctuator.m in Sources */ = {isa = PBXBuildFile; fileRef = 3DFA58FA4818535D63D18BE7 /* ScribePunctuator.m */; };
@@ -35,13 +34,6 @@
 			proxyType = 1;
 			remoteGlobalIDString = 2E0A245C143BA07067D5AE4C;
 			remoteInfo = ScribeWidget;
-		};
-		3556D7EE1FC0AFD3A095EDDC /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 0FBCBA2D26275230EAFEA6D4;
-			remoteInfo = ScribeKeyboard;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -581,12 +573,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		0DF4F4BAE43AE3A16E289957 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			name = ScribeKeyboard;
-			target = 0FBCBA2D26275230EAFEA6D4 /* ScribeKeyboard */;
-			targetProxy = 3556D7EE1FC0AFD3A095EDDC /* PBXContainerItemProxy */;
-		};
 		454830BAE6D5962AE2180E21 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = ScribeWidget;

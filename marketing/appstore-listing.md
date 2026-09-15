@@ -1,18 +1,17 @@
-# Scribe, App Store listing copy
+# Bolkit, App Store listing copy
 
 Bundle id `ai.localvoice.app` · Team Q84L632A4A · Category: Productivity · Age 4+
 
 ## App Name (30 max)
 
-**In use: `Scribe: Talk to Type` (20)**
+**In use: `Bolkit: Voice to Text` (21)**
 
-Plain `Scribe` is rejected by App Store Connect, already in use by someone else.
-Bare dictionary words are almost always reserved; distinctive phrases are not.
-The home screen name is unaffected and stays `Scribe` (CFBundleDisplayName).
+Renamed from Scribe on 2026-09-15 after Apple upheld guideline 4.1(c) twice
+("belongs to the developer: scribe"). Home screen name is `Bolkit` too.
 
 ## Subtitle (30 max)
 
-`On-device speech to text` (24)
+`Private, on-device dictation` (28)
 
 ## Promotional text (170 max)
 
@@ -27,22 +26,22 @@ dictation,speech,transcribe,voice,typing,offline,private,whisper,hindi,hinglish,
 
 ## Description
 
-Scribe turns speech into text entirely on your iPhone. Nothing is uploaded,
+Bolkit turns speech into text entirely on your iPhone. Nothing is uploaded,
 nothing is logged, and there is no account to create.
 
-Most dictation apps stream your voice to a server. Scribe does not. The speech
+Most dictation apps stream your voice to a server. Bolkit does not. The speech
 models run locally, so it works on a plane, in a basement, or with the network
 off, and your audio stays where you said it.
 
 FREE, WITH NO CATCH
-There is no subscription, no usage cap, no API key, and no paid tier. Scribe is
+There is no subscription, no usage cap, no API key, and no paid tier. Bolkit is
 open source under the MIT license.
 
 CHOOSE YOUR MODEL
 Download only the models you want, each labelled by size and accuracy: Whisper,
 Nemotron, Parakeet, Canary, Moonshine, and Zipformer. Small models are fast and
 light. Larger ones are more accurate. Swap between them any time. Models load on
-demand and unload after five minutes idle, so Scribe stays light on memory.
+demand and unload after five minutes idle, so Bolkit stays light on memory.
 
 HINGLISH THAT LOOKS RIGHT
 Hindi speech comes back in English letters, the way people actually type it, not
@@ -61,7 +60,7 @@ An optional on-device Gemma model tidies filler words and can summarise what you
 said. Like everything else here, it runs locally.
 
 PRIVACY
-No telemetry. No analytics. No accounts. Scribe has no server, so your voice is
+No telemetry. No analytics. No accounts. Bolkit has no server, so your voice is
 never sent to us. Download any model and transcription is fully offline; the
 no-download default uses your phone's own speech recognizer, which stays local
 when your language pack is installed.
@@ -83,8 +82,8 @@ Full paste-ready version, answering Apple's 2026-08-14 guideline 2.1 request:
 ## URLs
 
 - Support: https://github.com/kumard3/scribe/issues
-- Marketing: https://scribe-site.kumard3.workers.dev
-- Privacy: https://scribe-site.kumard3.workers.dev/privacy
+- Marketing: https://bolkit-site.kumard3.workers.dev
+- Privacy: https://bolkit-site.kumard3.workers.dev/privacy
 
 ## App Privacy answers
 
@@ -96,10 +95,10 @@ A signed App Store IPA already builds from a clean checkout. Rebuild it with:
 
 ```bash
 S=/tmp/scribe-release
-xcodebuild -workspace ios/Scribe.xcworkspace -scheme Scribe -configuration Release \
-  -destination 'generic/platform=iOS' -archivePath $S/Scribe.xcarchive \
+xcodebuild -workspace ios/Bolkit.xcworkspace -scheme Bolkit -configuration Release \
+  -destination 'generic/platform=iOS' -archivePath $S/Bolkit.xcarchive \
   -allowProvisioningUpdates DEVELOPMENT_TEAM=Q84L632A4A CODE_SIGN_STYLE=Automatic archive
-xcodebuild -exportArchive -archivePath $S/Scribe.xcarchive \
+xcodebuild -exportArchive -archivePath $S/Bolkit.xcarchive \
   -exportOptionsPlist ExportOptions.plist -exportPath $S/export -allowProvisioningUpdates
 ```
 
@@ -109,9 +108,9 @@ Integrations → App Store Connect API, role **App Manager**. Put the `.p8` at
 `~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8`, then:
 
 ```bash
-xcrun altool --validate-app -f $S/export/Scribe.ipa -t ios \
+xcrun altool --validate-app -f $S/export/Bolkit.ipa -t ios \
   --apiKey <KEYID> --apiIssuer <ISSUERID>
-xcrun altool --upload-app  -f $S/export/Scribe.ipa -t ios \
+xcrun altool --upload-app  -f $S/export/Bolkit.ipa -t ios \
   --apiKey <KEYID> --apiIssuer <ISSUERID>
 ```
 
@@ -119,8 +118,8 @@ xcrun altool --upload-app  -f $S/export/Scribe.ipa -t ios \
 
 Fixed:
 
-- Permission prompts said "Vox" on an app named Scribe. `ios/Vox/Info.plist` had
-  drifted from `app.json`; both now say Scribe.
+- Permission prompts said "Vox" on an app named Bolkit. `ios/Vox/Info.plist` had
+  drifted from `app.json`; both now say Bolkit.
 - `ITSAppUsesNonExemptEncryption` was missing, so App Store Connect prompted on
   every upload. Added to `Info.plist` and `app.json`.
 - iPad support removed (`TARGETED_DEVICE_FAMILY = 1`, `supportsTablet: false`).
@@ -129,7 +128,7 @@ Fixed:
 - `llama.rn` binaries were never fetched because bun skips untrusted postinstall.
   `trustedDependencies` added so a clean clone builds.
 
-- Whole project renamed Vox to Scribe: targets, project, workspace, scheme,
+- Whole project renamed Vox to Bolkit: targets, project, workspace, scheme,
   folders, extension bundle ids, and the `vox://` URL scheme (now `scribe://`,
   changed in all four places that must agree, including `App.tsx`).
 - Apple Distribution certificate created via Xcode > Settings > Apple Accounts >
@@ -161,14 +160,14 @@ Won't fix, with reasons:
   clipboard as an IPC channel because no App Group is registered, which was the
   largest guideline 4.4.1 risk in the submission. The target and its source are
   still in the repo; re-embedding it means restoring the Embed App Extensions
-  entry and the target dependency in `ios/Scribe.xcodeproj`. Android keeps its
+  entry and the target dependency in `ios/Bolkit.xcodeproj`. Android keeps its
   keyboard, that one is a real IME and can use the microphone.
 
 ## Submission log
 
 2026-07-27: Build 1.0.0 (1) **uploaded to App Store Connect**. App record created
-as **"Scribe: Talk to Type"** (plain "Scribe" was rejected, already in use). Home
-screen name stays "Scribe" via CFBundleDisplayName.
+as **"Bolkit: Talk to Type"** (plain "Bolkit" was rejected, already in use). Home
+screen name stays "Bolkit" via CFBundleDisplayName.
 
 Upload warnings were all "Upload Symbols Failed" for prebuilt binary frameworks
 (React, ReactNativeDependencies, hermesvm, rnwhisper). These ship without dSYMs,
@@ -203,7 +202,7 @@ isn't available in this build", which is untrue of the shipping app.
 
 Uploaded to App Store Connect at 12:41. Fixes Apple's ITMS-90683 rejection of build 1.
 
-- `NSPhotoLibraryUsageDescription` added. Required because `Scribe` and
+- `NSPhotoLibraryUsageDescription` added. Required because `Bolkit` and
   `ExpoFileSystem` reference `PHAsset` and the Photos framework is linked, even
   though the app never opens the photo library.
 - Build number 2 on the app AND both extensions. Mismatched extension build numbers

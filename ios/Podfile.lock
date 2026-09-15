@@ -1,10 +1,10 @@
 PODS:
-  - EXConstants (56.0.17):
+  - EXConstants (56.0.25):
     - ExpoModulesCore
   - EXJSONUtils (56.0.0)
   - EXManifests (56.0.4):
     - ExpoModulesCore
-  - Expo (56.0.9):
+  - Expo (56.0.21):
     - ExpoModulesCore
     - ExpoModulesJSI
     - hermes-engine
@@ -30,15 +30,15 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - expo-dev-client (56.0.19):
+  - expo-dev-client (56.0.26):
     - EXManifests
     - expo-dev-launcher
     - expo-dev-menu
     - expo-dev-menu-interface
     - EXUpdatesInterface
-  - expo-dev-launcher (56.0.19):
+  - expo-dev-launcher (56.0.27):
     - EXManifests
-    - expo-dev-launcher/Main (= 56.0.19)
+    - expo-dev-launcher/Main (= 56.0.27)
     - expo-dev-menu
     - expo-dev-menu-interface
     - ExpoModulesCore
@@ -67,7 +67,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - expo-dev-launcher/Main (56.0.19):
+  - expo-dev-launcher/Main (56.0.27):
     - EXManifests
     - expo-dev-launcher/Unsafe
     - expo-dev-menu
@@ -98,7 +98,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - expo-dev-launcher/Unsafe (56.0.19):
+  - expo-dev-launcher/Unsafe (56.0.27):
     - EXManifests
     - expo-dev-menu
     - expo-dev-menu-interface
@@ -128,8 +128,8 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - expo-dev-menu (56.0.16):
-    - expo-dev-menu/Main (= 56.0.16)
+  - expo-dev-menu (56.0.23):
+    - expo-dev-menu/Main (= 56.0.23)
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -152,7 +152,7 @@ PODS:
     - ReactNativeDependencies
     - Yoga
   - expo-dev-menu-interface (56.0.1)
-  - expo-dev-menu/Main (56.0.16):
+  - expo-dev-menu/Main (56.0.23):
     - EXManifests
     - expo-dev-menu-interface
     - ExpoModulesCore
@@ -178,17 +178,17 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - ExpoAsset (56.0.16):
+  - ExpoAsset (56.0.24):
     - ExpoModulesCore
-  - ExpoAudio (56.0.11):
+  - ExpoAudio (56.0.13):
     - ExpoModulesCore
   - ExpoClipboard (56.0.4):
     - ExpoModulesCore
   - ExpoDocumentPicker (56.0.4):
     - ExpoModulesCore
-  - ExpoDomWebView (56.0.5):
+  - ExpoDomWebView (56.0.6):
     - ExpoModulesCore
-  - ExpoFileSystem (56.0.7):
+  - ExpoFileSystem (56.0.11):
     - ExpoModulesCore
   - ExpoFont (56.0.5):
     - ExpoModulesCore
@@ -196,9 +196,9 @@ PODS:
     - ExpoModulesCore
   - ExpoKeepAwake (56.0.3):
     - ExpoModulesCore
-  - ExpoLogBox (56.0.12):
+  - ExpoLogBox (56.0.14):
     - React-Core
-  - ExpoModulesCore (56.0.15):
+  - ExpoModulesCore (56.0.25):
     - ExpoModulesJSI
     - hermes-engine
     - RCTRequired
@@ -222,10 +222,10 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - ExpoModulesJSI (56.0.8):
+  - ExpoModulesJSI (56.0.13):
     - React-Core
     - ReactCommon
-  - ExpoModulesWorklets (56.0.15):
+  - ExpoModulesWorklets (56.0.25):
     - ExpoModulesCore
     - ExpoModulesJSI
   - ExpoQuickActions (6.0.2):
@@ -2540,27 +2540,27 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
 SPEC CHECKSUMS:
-  EXConstants: 659c2e5593243436fd8ed4ba6225d2ebd045d84a
+  EXConstants: a6fea3d870546e8aba088aa2ed05f3c23c1b9030
   EXJSONUtils: dba2755f4e24009eaf87a876b2d615ea06c16e42
   EXManifests: 7e19be8df665a338493060a419847dae76ffcd43
-  Expo: 9ca20ca4a888b3de7c1a99f93e094c486dfe5b36
-  expo-dev-client: 7808ae7af80241175d9da6e36f762e1854a16d9e
-  expo-dev-launcher: dd74707fdbcc402122e57ef6b6d964a5ae64d1e3
-  expo-dev-menu: 1c851977caf77bb9ba81298ea03270d2b1f96bc8
+  Expo: 4f10997f47fd21fa56685c47ecd13582e728b860
+  expo-dev-client: 76a100e8fcf404abdc791edc034a6df71c600e33
+  expo-dev-launcher: 42d56a4e735df2cbcbc9d8d8b02f9c31661a29dd
+  expo-dev-menu: 3fe6c13a34d8e9b37df14ed4c9188a1c985973c9
   expo-dev-menu-interface: 65402d4affb8b418aa6cec29b3abb0e313c8f443
-  ExpoAsset: c3045ed094105f5f2bf332e36ef1bd63401c948f
-  ExpoAudio: 7774082d316ceecc2b26efeb10480bea2fa4d67e
+  ExpoAsset: 3f825e3c30de2d3e8a280b97602a8a607ce864fe
+  ExpoAudio: 2970e2d332b52bfbb64d88564105df4b422c78a4
   ExpoClipboard: 342ae52697ff1cf89b8849bee624a9a320e77d3c
   ExpoDocumentPicker: caa9c7c1071dc31262d86a8fe48f51929d291a43
-  ExpoDomWebView: 27205be8754f9992913b8a9a08e65019f2207075
-  ExpoFileSystem: d730a1cb33f2c91dec01561f0d710054fda32ae9
+  ExpoDomWebView: 4e53b05879dc73ba374f76bff93dd64c8a0d91b3
+  ExpoFileSystem: 9d47583cbcc53ab2411901c601cd0a7ca18b3c11
   ExpoFont: 6fe496f2be617ed4367f159f215dcc4ba27d37d6
   ExpoHaptics: 89364cf3c3ca2cfd54cafed42f3be3169bab6d42
   ExpoKeepAwake: 359c47a1d9ccc3a3c519bca6e39562cce230c5bb
-  ExpoLogBox: 7aa03244fe5eeced5129e4ec7ad5bd9a3994378e
-  ExpoModulesCore: e200074d9411c0e67a81ae5c23f326538422f32a
-  ExpoModulesJSI: 8028268310770bed2f3f3aec6e7bf150714841b1
-  ExpoModulesWorklets: 3a5a7126f22ccacf3189bdf0be37022efd5e4578
+  ExpoLogBox: cdad5c9402a186574fb5924ea91df1f08ba9a98a
+  ExpoModulesCore: 333f8409231bf7b677818f47f506ef1e69a947e0
+  ExpoModulesJSI: abe8cd3e19c89b38c63426be235af5ef5ac9c1d1
+  ExpoModulesWorklets: 19afe32682aa1d17fd0f73b3db85ae0850ed6431
   ExpoQuickActions: edf2c5bc044f83dc9e9ed4dc4de7fe4a5b1b0422
   ExpoSpeechRecognition: 119acf84448579e53f841d040aad76982f945e2d
   EXUpdatesInterface: 25408a97d682355eb9fb37e5aa6e22caece1881f
@@ -2570,7 +2570,7 @@ SPEC CHECKSUMS:
   GoogleToolboxForMac: d1a2cbf009c453f4d6ded37c105e2f67a32206d8
   GoogleUtilities: 4f2618a4a1e762a1ee134a1e2323bba9843e06da
   GTMSessionFetcher: 5aea5ba6bd522a239e236100971f10cb71b96ab6
-  hermes-engine: 4672d011d36df13233694b7f31590c7af6bdb045
+  hermes-engine: 71c3ca35f72df97087ea044b3d6114a56e3e2362
   llama-rn: 0aaa359b3042f69f5076ad738885fba9a895130b
   MLKitCommon: 26b779f072a182c1603d4c88a101c350cac837b1
   MLKitLanguageID: ca609e2c8706b01d1123f5d8c65f1ed7d3e385f3
@@ -2660,6 +2660,6 @@ SPEC CHECKSUMS:
   whisper-rn: 7a0e8aedccc760be11aa025cb24b76ec7c88769a
   Yoga: 77dfa8673de2874e1855002ae59c68b8be9b007b
 
-PODFILE CHECKSUM: c2bc04677cf51dcca0efacff77d0c15ac9e99d8d
+PODFILE CHECKSUM: d379bae7bafce79543a5822a0fcd7eae85c5ec4a
 
 COCOAPODS: 1.16.2

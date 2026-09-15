@@ -3,11 +3,11 @@ import assert from 'node:assert';
 import { mergeVocab } from './vocab';
 
 // The bug from the device: "Scribe" came back as "Chris" with an empty vocabulary.
-assert.deepEqual(mergeVocab([]).slice(0, 3), ['Scribe', 'Gemma', 'E2B']);
+assert.deepEqual(mergeVocab([]).slice(0, 3), ['Bolkit', 'Gemma', 'E2B']);
 assert.ok(mergeVocab([]).includes('Hinglish'));
 
 // User terms ride along, base first.
-assert.equal(mergeVocab(['Assistable'])[0], 'Scribe');
+assert.equal(mergeVocab(['Assistable'])[0], 'Bolkit');
 assert.ok(mergeVocab(['Assistable']).includes('Assistable'));
 
 // A user who typed the base term themselves does not get it twice.

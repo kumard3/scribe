@@ -152,7 +152,7 @@ const CLEANUP =
   '- Hindi/English mix or romanized Hindi → WhatsApp Hinglish. No Devanagari.\n' +
   '- Keep the same mix as the input.\n\n' +
   'Rules:\n' +
-  '- Keep English words in English spelling (office, client, call, Scribe, Gemma, chunking).\n' +
+  '- Keep English words in English spelling (office, client, call, Bolkit, Gemma, chunking).\n' +
   '- Add punctuation. Remove fillers only: um, uh, you know, like (when empty).\n' +
   '- Do not add facts. If a word is unclear, keep the ASR token.\n' +
   '- Prefer HOTWORDS spelling when the audio/text is close.\n' +
@@ -161,7 +161,7 @@ const CLEANUP =
 export type CleanupOpts = { previous?: string; hotwords?: string[] };
 
 function cleanupInstruction(opts?: CleanupOpts): string {
-  const terms = (opts?.hotwords ?? []).join(', ') || 'Scribe, Gemma, E2B, chunking, Hinglish, Oriserve, Apex, Swift';
+  const terms = (opts?.hotwords ?? []).join(', ') || 'Bolkit, Gemma, E2B, chunking, Hinglish, Oriserve, Apex, Swift';
   const prev = (opts?.previous ?? '').trim() || '(none)';
   return (
     `${CLEANUP}\n\nHOTWORDS:\n${terms}\n\nPREVIOUS:\n${prev}\n\n` +

@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "scribe-site",
+  "name": "bolkit-site",
   "compatibility_date": "2025-06-15",
   "assets": {
     "directory": "./dist",

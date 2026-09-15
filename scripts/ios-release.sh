@@ -49,7 +49,7 @@ xcodebuild -exportArchive -archivePath "$OUT/Scribe.xcarchive" \
   -exportOptionsPlist "$OUT/ExportOptions.plist" -exportPath "$OUT/export" \
   -allowProvisioningUpdates
 
-IPA="$OUT/export/Scribe.ipa"
+IPA="$(ls "$OUT"/export/*.ipa)"
 echo "==> Built $IPA ($(du -h "$IPA" | cut -f1))"
 
 if [ -z "${ASC_KEY_ID:-}" ] || [ -z "${ASC_ISSUER_ID:-}" ]; then

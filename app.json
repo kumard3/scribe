@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Scribe",
+    "name": "Bolkit",
     "slug": "localvoice",
     "version": "1.2.0",
     "orientation": "portrait",
@@ -10,8 +10,8 @@
       "supportsTablet": false,
       "bundleIdentifier": "ai.localvoice.app",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Scribe uses the microphone to transcribe your speech entirely on-device.",
-        "NSPhotoLibraryUsageDescription": "Scribe only reads an audio or video file you explicitly choose to import for transcription. Nothing is uploaded.",
+        "NSMicrophoneUsageDescription": "Bolkit uses the microphone to transcribe your speech entirely on-device.",
+        "NSPhotoLibraryUsageDescription": "Bolkit only reads an audio or video file you explicitly choose to import for transcription. Nothing is uploaded.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -36,8 +36,8 @@
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "Scribe uses the microphone to turn your speech into text on-device.",
-          "speechRecognitionPermission": "Scribe uses on-device speech recognition to transcribe your voice without sending audio anywhere.",
+          "microphonePermission": "Bolkit uses the microphone to turn your speech into text on-device.",
+          "speechRecognitionPermission": "Bolkit uses on-device speech recognition to transcribe your voice without sending audio anywhere.",
           "androidSpeechServicePackages": [
             "com.google.android.googlequicksearchbox"
           ]

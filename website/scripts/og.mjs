@@ -48,7 +48,7 @@ const ogSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}
   <rect width="${W}" height="${H}" fill="url(#glow)"/>
   <rect x="1" y="1" width="${W - 2}" height="${H - 2}" fill="none" stroke="#232327" stroke-width="2"/>
   ${markBars.map((b) => `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="${b.w / 2}" fill="#fff"/>`).join('')}
-  <text x="${PAD + 60}" y="103" font-family="Helvetica,Arial,sans-serif" font-size="38" font-weight="700" fill="#f5f5f7">Scribe</text>
+  <text x="${PAD + 60}" y="103" font-family="Helvetica,Arial,sans-serif" font-size="38" font-weight="700" fill="#f5f5f7">Bolkit</text>
   <text x="${PAD}" y="248" font-family="Helvetica,Arial,sans-serif" font-size="78" font-weight="700" fill="#f5f5f7" letter-spacing="-2">Voice to text that</text>
   <text x="${PAD}" y="338" font-family="Helvetica,Arial,sans-serif" font-size="78" font-weight="700" fill="#76767e" letter-spacing="-2">never leaves your device.</text>
   <text x="${PAD}" y="420" font-family="Helvetica,Arial,sans-serif" font-size="27" fill="#b6b6bd">100% on-device  ·  Free &amp; open source  ·  No account  ·  59 languages</text>

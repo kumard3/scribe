@@ -61,6 +61,13 @@ target 'Scribe' do
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
 
+    # Xcode 27 rejects pod targets (e.g. GoogleUtilities_Privacy bundles) below iOS 15.
+    installer.pods_project.targets.each do |t|
+      t.build_configurations.each do |cfg|
+        cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4' if cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_f < 15.0
+      end
+    end
+
     # ScribeDiarizer/ScribePunctuator call the sherpa C API from the app target; the
     # SherpaOnnx pod only puts its xcframework headers on its own target, not ours.
     sherpa_xcframework = File.join(__dir__, '..', 'node_modules', 'react-native-sherpa-onnx', 'ios', 'Frameworks', 'sherpa_onnx.xcframework')

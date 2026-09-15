@@ -1,6 +1,6 @@
 {
-  "name": "Scribe: on-device voice to text",
-  "short_name": "Scribe",
+  "name": "Bolkit: on-device voice to text",
+  "short_name": "Bolkit",
   "description": "Voice to text that never leaves your device. Free, offline, no account.",
   "start_url": "/",
   "display": "standalone",

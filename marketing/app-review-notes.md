@@ -170,6 +170,17 @@ Review" on the submission page enable. Before that first click it stays
 disabled no matter what you attach or reply. Release is Manual, so approval
 still needs a Release click.
 
+## Status, 2026-09-15
+
+Rejected a third time 2026-09-14 on 4.1(c) only ("belongs to the following developer: scribe"); the 1.5 support URL issue
+was resolved. Kumar chose to rename. The app is now **Bolkit**: ASC name "Bolkit: Voice to Text", subtitle "Private,
+on-device dictation", home screen name, in-app text, permission strings, widget, screenshots 1 and 4, the description, and
+the review notes (with a NAME CHANGE section). The site moved to https://bolkit-site.kumard3.workers.dev (support and
+privacy). Build 1.0.0 (6) was built with Xcode 27 and Expo 56.0.21, uploaded, attached, and added to TestFlight Internal.
+A reply was posted (Messages 5 to 6) and the app resubmitted 18:02 IST: WAITING_FOR_REVIEW (API-verified). Release is Manual.
+
+---
+
 ## Status, 2026-09-11
 
 Rejected 2026-09-09 (reviewed on iPad Air 11" M3, build 1.0 (5)). The 2.1
