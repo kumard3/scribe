@@ -179,6 +179,12 @@ the review notes (with a NAME CHANGE section). The site moved to https://bolkit-
 privacy). Build 1.0.0 (6) was built with Xcode 27 and Expo 56.0.21, uploaded, attached, and added to TestFlight Internal.
 A reply was posted (Messages 5 to 6) and the app resubmitted 18:02 IST: WAITING_FOR_REVIEW (API-verified). Release is Manual.
 
+Later the same day Kumar asked for a new logo made with `grok -p`. Grok's concept A (a sound wave ending in a text cursor)
+was rebuilt full-bleed without Grok's watermark or baked tile corners, with the stroke thickened for 60px
+(`marketing/logo/bolkit-icon-1024.png`, iOS AppIcon only; Android and Mac keep the bars). Build 1.0.0 (7) was uploaded.
+The build-6 submission was canceled via the API, build 7 attached, and a new submission `111f8087` created and submitted
+18:46 IST: WAITING_FOR_REVIEW.
+
 ---
 
 ## Status, 2026-09-11
