@@ -25,6 +25,7 @@ enum AudioImport {
   static func run(url: URL) {
     let d = DictationManager.shared
     guard !d.isRecording else { d.status = "Stop dictation before importing a file."; return }
+    guard !MeetingRecorder.shared.isRecording else { d.status = "Stop the meeting recording first."; return }
     let spec = Settings.shared.activeModel
     guard spec.kind != .appleSystem, spec.kind != .llm else {
       d.status = "Pick a downloaded model in the Dashboard to transcribe a file."
@@ -103,7 +104,7 @@ enum AudioImport {
 
   /// Punctuate un-punctuated engines, then apply formatting-only spoken commands.
   /// Destructive edits ("scratch that") are never applied to imported recordings.
-  private static func clean(_ text: String, spec: ModelSpec) -> String {
+  static func clean(_ text: String, spec: ModelSpec) -> String {
     var t = text
     if PunctuationRuntime.needsPunctuation(spec.kind), SupportModelStore.punctInstalled {
       t = PunctuationRuntime.shared.punctuate(t)
@@ -111,7 +112,7 @@ enum AudioImport {
     return VoiceCommands.apply(t, allowDestructive: false)
   }
 
-  private static func installed(_ spec: ModelSpec) -> Bool {
+  static func installed(_ spec: ModelSpec) -> Bool {
     let dir = ModelStore.dir(for: spec)
     let fm = FileManager.default
     switch spec.kind {
@@ -126,7 +127,7 @@ enum AudioImport {
     }
   }
 
-  private static func decode(_ url: URL) -> (samples: [Float], sampleRate: Int)? {
+  static func decode(_ url: URL) -> (samples: [Float], sampleRate: Int)? {
     guard let file = try? AVAudioFile(forReading: url) else { return nil }
     let format = file.processingFormat
     let frames = AVAudioFrameCount(file.length)
@@ -139,8 +140,9 @@ enum AudioImport {
     return (samples, Int(format.sampleRate))
   }
 
-  private static func presentSpeakers(_ turns: [SpeakerTurn], source: String) {
+  static func presentSpeakers(_ turns: [SpeakerTurn], source: String, names: [Int: String] = [:]) {
     let model = SpeakerTranscript(turns: turns)
+    model.names = names
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(model.plainText(), forType: .string)
 

@@ -46,26 +46,60 @@ struct DashboardView: View {
   @ObservedObject var settings = Settings.shared
   @ObservedObject var models = ModelStore.shared
   @ObservedObject var support = SupportModelStore.shared
+  @ObservedObject var meeting = MeetingRecorder.shared
   @State private var launchAtLogin = LoginItem.enabled
   @State private var axTrusted = AXIsProcessTrusted()
   @State private var ollamaModels: [String] = []
   @State private var ollamaChecked = false
 
-  var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 22) {
-        header
-        hotkeysCard
-        modelsCard
-        audioFileCard
-        llmCard
-        generalCard
-        if !axTrusted { permissionCard }
-        historyCard
+  enum Tab: String, CaseIterable, Identifiable {
+    case home, dictation, meetings, models, cleanup, files, history, settings
+    var id: String { rawValue }
+
+    var title: String {
+      switch self {
+      case .home: return "Home"
+      case .dictation: return "Dictation"
+      case .meetings: return "Meetings"
+      case .models: return "Models"
+      case .cleanup: return "AI Cleanup"
+      case .files: return "Files"
+      case .history: return "History"
+      case .settings: return "Settings"
       }
-      .padding(28)
     }
-    .frame(minWidth: 560, minHeight: 620)
+
+    var icon: String {
+      switch self {
+      case .home: return "house"
+      case .dictation: return "mic"
+      case .meetings: return "record.circle"
+      case .models: return "square.stack.3d.up"
+      case .cleanup: return "sparkles"
+      case .files: return "waveform"
+      case .history: return "clock"
+      case .settings: return "gearshape"
+      }
+    }
+  }
+
+  @AppStorage("dashboardTab") private var tabRaw = Tab.home.rawValue
+  private var tab: Tab { Tab(rawValue: tabRaw) ?? .home }
+
+  var body: some View {
+    HStack(spacing: 0) {
+      sidebar
+      Rectangle().fill(Mono.border).frame(width: 1)
+      ScrollView {
+        VStack(alignment: .leading, spacing: 22) {
+          content
+        }
+        .padding(28)
+        .frame(maxWidth: 720, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
+    .frame(minWidth: 820, minHeight: 620)
     .background(Mono.bg)
     .preferredColorScheme(.dark)
     .onAppear {
@@ -74,6 +108,151 @@ struct DashboardView: View {
       models.refreshInstalled()
       support.refresh()
       if settings.cleanupModelId == ModelCatalog.ollamaId { refreshOllama() }
+    }
+  }
+
+  private var sidebar: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      HStack(spacing: 10) {
+        LogoMark(size: 30)
+        Text("Scribe").font(.system(size: 17, weight: .bold)).foregroundColor(Mono.text)
+      }
+      .padding(.horizontal, 10)
+      .padding(.bottom, 18)
+
+      ForEach(visibleTabs) { t in
+        Button { tabRaw = t.rawValue } label: {
+          HStack(spacing: 10) {
+            Image(systemName: t.icon).frame(width: 18)
+            Text(t.title)
+            Spacer()
+            if t == .meetings && meeting.isRecording {
+              Circle().fill(Color.red).frame(width: 7, height: 7)
+            }
+          }
+          .font(.system(size: 13, weight: tab == t ? .semibold : .regular))
+          .foregroundColor(tab == t ? Mono.text : Mono.textDim)
+          .padding(.horizontal, 10)
+          .padding(.vertical, 7)
+          .background(RoundedRectangle(cornerRadius: 8).fill(tab == t ? Mono.surfaceAlt : .clear))
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+      }
+      Spacer()
+      statusPill.padding(.horizontal, 6)
+    }
+    .padding(14)
+    .frame(width: 200)
+    .background(Mono.surface.opacity(0.4))
+  }
+
+  private var visibleTabs: [Tab] {
+    Tab.allCases.filter { $0 != .meetings || MeetingRecorder.supported }
+  }
+
+  @ViewBuilder
+  private var content: some View {
+    switch tab {
+    case .home:
+      header
+      quickActionsCard
+      if !axTrusted { permissionCard }
+      recentCard
+    case .dictation:
+      pageTitle("Dictation", "Hold a key, talk, and your words appear wherever you type.")
+      hotkeysCard
+      vocabularyCard
+    case .meetings:
+      pageTitle("Meetings", "Record any call. Get a transcript with who said what, plus a summary.")
+      meetingCard
+    case .models:
+      pageTitle("Models", "The speech model that turns your voice into text. All of them run on this Mac.")
+      modelsCard
+    case .cleanup:
+      pageTitle("AI Cleanup", "Optional AI that tidies your text and writes meeting summaries. Runs on this Mac.")
+      llmCard
+    case .files:
+      pageTitle("Files", "Turn a recording you already have into text.")
+      audioFileCard
+    case .history:
+      pageTitle("History", "Everything you dictated. Stored only on this Mac.")
+      historyCard
+    case .settings:
+      pageTitle("Settings", "Startup, clipboard, updates and permissions.")
+      generalCard
+      if !axTrusted { permissionCard }
+    }
+  }
+
+  private func pageTitle(_ title: String, _ subtitle: String) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Text(title).font(.system(size: 24, weight: .bold)).foregroundColor(Mono.text)
+      Text(subtitle).font(.system(size: 12.5)).foregroundColor(Mono.textDim)
+    }
+  }
+
+  private var statusPill: some View {
+    HStack(spacing: 7) {
+      Circle()
+        .fill(dictation.isRecording || meeting.isRecording ? Color(hex: 0xFF453A) : .white)
+        .frame(width: 8, height: 8)
+      Text(meeting.isRecording ? "Meeting \(meeting.elapsedLabel)" : dictation.isRecording ? "Listening" : "Ready")
+        .font(.system(size: 12, weight: .medium))
+        .foregroundColor(Mono.textDim)
+        .monospacedDigit()
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 6)
+    .background(Capsule().fill(Mono.surface))
+    .overlay(Capsule().strokeBorder(Mono.border))
+  }
+
+  private var quickActionsCard: some View {
+    section("Quick actions") {
+      HStack(spacing: 10) {
+        quickAction(dictation.isRecording ? "Stop dictation" : "Start dictation", "mic") { dictation.toggle() }
+        if MeetingRecorder.supported {
+          quickAction(meeting.isRecording ? "Stop meeting" : "Record meeting", "record.circle") { meeting.toggle() }
+        }
+        quickAction("Transcribe file", "waveform") { AudioImport.present() }
+      }
+      Text("Hold \(settings.holdKey == .off ? settings.toggleLabel : settings.holdKey.label) anywhere to dictate. Model: \(settings.activeModel.label).")
+        .font(.caption).foregroundColor(Mono.textDim)
+      if !dictation.status.isEmpty {
+        Text(dictation.status).font(.caption).foregroundColor(Mono.textFaint).lineLimit(2)
+      }
+    }
+  }
+
+  private func quickAction(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      VStack(spacing: 8) {
+        Image(systemName: icon).font(.system(size: 18))
+        Text(title).font(.system(size: 12, weight: .medium))
+      }
+      .foregroundColor(Mono.text)
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 14)
+      .background(RoundedRectangle(cornerRadius: 10).fill(Mono.surfaceAlt))
+      .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Mono.border))
+    }
+    .buttonStyle(.plain)
+  }
+
+  private var recentCard: some View {
+    section("Recent") {
+      if dictation.history.isEmpty {
+        Text("Nothing yet. Your last transcripts show up here.")
+          .font(.system(size: 13)).foregroundColor(Mono.textDim)
+      } else {
+        ForEach(Array(dictation.history.prefix(4).enumerated()), id: \.offset) { _, text in
+          Text(text).font(.system(size: 12.5)).foregroundColor(Mono.text).lineLimit(2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        Button("See all history") { tabRaw = Tab.history.rawValue }.font(.caption)
+      }
     }
   }
 
@@ -109,7 +288,7 @@ struct DashboardView: View {
       Picker("Hold to talk", selection: $settings.holdKeyRaw) {
         ForEach(HoldKey.allCases) { k in Text(k.label).tag(k.rawValue) }
       }
-      Text("Hold to speak, release to insert. Works in any app.")
+      Text("Hold the key, speak, let go. The text is typed where your cursor is, in any app.")
         .font(.caption).foregroundColor(Mono.textDim)
 
       Toggle("Quick tap starts hands-free mode (tap again to stop)", isOn: $settings.tapHandsFree)
@@ -122,7 +301,7 @@ struct DashboardView: View {
         ShortcutRecorder()
       }
       .font(.system(size: 13))
-      Text("Click the shortcut, then press any key combo you like. Start/stop, works even without Accessibility.")
+      Text("Or press this shortcut once to start and again to stop. Click it to change it.")
         .font(.caption).foregroundColor(Mono.textDim)
 
       if settings.holdKey == .fn {
@@ -139,18 +318,18 @@ struct DashboardView: View {
         ForEach(DictationStyle.allCases) { s in Text(s.label).tag(s.rawValue) }
       }
       .font(.system(size: 13))
-      Text("Auto keeps mixed Indian English + WhatsApp Hinglish. English pins the English decoder. Hinglish forces romanized Hindi.")
+      Text("Auto handles English mixed with Hindi. English: English only. Hinglish: Hindi written in English letters.")
         .font(.caption).foregroundColor(Mono.textFaint)
 
       Picker("Language", selection: $settings.language) {
         ForEach(speechLanguages) { l in Text(l.label).tag(l.code) }
       }
       .font(.system(size: 13))
-      Text("Auto-detect misreads accented speech. Naming your language is the biggest accuracy win.")
+      Text("Pick the language you speak. It is more accurate than Auto-detect.")
         .font(.caption).foregroundColor(Mono.textFaint)
 
       HStack {
-        Text("Chunk pause").foregroundColor(Mono.text)
+        Text("Pause before text appears").foregroundColor(Mono.text)
         Spacer()
         Text("\(settings.chunkPauseMs) ms").foregroundColor(Mono.textDim)
       }
@@ -162,18 +341,18 @@ struct DashboardView: View {
         ),
         in: 400...700, step: 50
       )
-      Text("How long a pause closes a live chunk. Shorter feels snappier; longer holds a sentence together.")
+      Text("For live models. Shorter shows text sooner; longer keeps full sentences together.")
         .font(.caption).foregroundColor(Mono.textFaint)
 
       Toggle("Write Hindi in English letters (Hinglish)", isOn: $settings.romanizeHindi)
         .font(.system(size: 13))
-      Toggle("Adaptive mic conditioning", isOn: $settings.conditionAudio)
+      Toggle("Clean up mic audio", isOn: $settings.conditionAudio)
         .font(.system(size: 13))
-      Text("Reduces rumble and safely evens out quiet microphones. Accent recognition comes from the selected model.")
+      Text("Removes rumble and lifts quiet microphones.")
         .font(.caption).foregroundColor(Mono.textFaint)
-      Toggle("Use GPU acceleration (CoreML)", isOn: $settings.useGpu)
+      Toggle("Use the GPU and Neural Engine", isOn: $settings.useGpu)
         .font(.system(size: 13))
-      Text("Runs downloaded models on the GPU/Neural Engine when the build supports it. Falls back to CPU otherwise.")
+      Text("Faster on models that support it. Others keep using the CPU.")
         .font(.caption).foregroundColor(Mono.textFaint)
       Divider().overlay(Mono.border)
 
@@ -186,9 +365,115 @@ struct DashboardView: View {
     }
   }
 
+  private var meetingCard: some View {
+    section("Meetings") {
+      HStack(spacing: 12) {
+        if meeting.isRecording {
+          Circle().fill(Color.red).frame(width: 9, height: 9)
+          Text("Recording  \(meeting.elapsedLabel)")
+            .font(.system(size: 13, weight: .semibold)).monospacedDigit()
+        } else if meeting.isTranscribing {
+          ProgressView().controlSize(.small)
+          Text(dictation.status).font(.system(size: 12)).foregroundColor(Mono.textDim).lineLimit(1)
+        } else {
+          Image(systemName: "record.circle").foregroundColor(Mono.textDim)
+          Text("Record a call or meeting").font(.system(size: 13, weight: .semibold))
+        }
+        Spacer()
+        Button(meeting.isRecording ? "Stop" : "Record") { meeting.toggle() }
+          .disabled(meeting.isTranscribing)
+          .font(.system(size: 12, weight: .semibold))
+      }
+      if meeting.isRecording {
+        HStack(spacing: 18) {
+          levelMeter("You", meeting.youLevel)
+          levelMeter("Others", meeting.othersLevel)
+        }
+      }
+      Text("Your mic is saved as You and everything playing on this Mac (Zoom, Meet, Teams) as Others. After you stop, Scribe transcribes with your selected model, separates the other speakers, names anyone who says their name, and writes a summary. Use headphones for clean labels.")
+        .font(.caption).foregroundColor(Mono.textDim)
+
+      Divider().overlay(Mono.border)
+      Picker("Other people on the call", selection: $settings.diarizeSpeakers) {
+        Text("Auto").tag(0)
+        ForEach(1...6, id: \.self) { n in Text("\(n)").tag(n) }
+      }
+      .font(.system(size: 13))
+      Text("If you know how many other people will speak, pick the number. Auto can mix up similar voices.")
+        .font(.caption).foregroundColor(Mono.textFaint)
+      supportModelRow(
+        "Speaker model", "pyannote + campplus, separates the other speakers",
+        key: SupportModelStore.diarKey, size: SupportModelStore.diarSizeLabel
+      ) { support.downloadDiarization() }
+      HStack {
+        Text("Names and summary").foregroundColor(Mono.text)
+        Spacer()
+        Text(MeetingLLM.backendLabel == "none" ? "Turn on AI Cleanup to enable" : MeetingLLM.backendLabel)
+          .foregroundColor(Mono.textDim)
+      }
+      .font(.system(size: 13))
+      Divider().overlay(Mono.border)
+      HStack(spacing: 10) {
+        Button("System audio permission…") {
+          NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security")!)
+        }
+        Button("Open meetings folder") { meeting.revealRecordings() }
+      }
+      .font(.system(size: 12))
+
+      if !meeting.recordings.isEmpty {
+        Divider().overlay(Mono.border)
+        ForEach(Array(meeting.recordings.prefix(8).enumerated()), id: \.element.id) { i, item in
+          HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+              Text(item.date.formatted(date: .abbreviated, time: .shortened))
+                .font(.system(size: 13))
+              Text(durationLabel(item.duration) + (item.hasTranscript ? "  ·  transcribed" : ""))
+                .font(.caption).foregroundColor(Mono.textFaint).monospacedDigit()
+            }
+            Spacer()
+            if item.hasTranscript {
+              Button("Transcript") { meeting.openTranscript(item) }
+            } else {
+              Button("Transcribe") { meeting.transcribeAgain(item) }
+                .disabled(meeting.isRecording || meeting.isTranscribing)
+            }
+            Button { meeting.reveal(item) } label: { Image(systemName: "folder") }
+              .help("Show in Finder")
+          }
+          .font(.system(size: 12))
+          if i < min(meeting.recordings.count, 8) - 1 {
+            Divider().overlay(Mono.border)
+          }
+        }
+      }
+    }
+    .onAppear { meeting.refreshRecordings() }
+  }
+
+  private func levelMeter(_ label: String, _ level: Float) -> some View {
+    HStack(spacing: 8) {
+      Text(label).font(.system(size: 11, weight: .medium)).foregroundColor(Mono.textDim).frame(width: 44, alignment: .leading)
+      GeometryReader { g in
+        ZStack(alignment: .leading) {
+          Capsule().fill(Mono.surfaceAlt)
+          Capsule().fill(Color.white).frame(width: g.size.width * CGFloat(min(max(level, 0), 1)))
+        }
+      }
+      .frame(height: 6)
+      .animation(.easeOut(duration: 0.1), value: level)
+    }
+    .frame(maxWidth: .infinity)
+  }
+
+  private func durationLabel(_ t: TimeInterval) -> String {
+    let s = Int(t)
+    return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
+  }
+
   private var audioFileCard: some View {
     section("Audio file") {
-      Text("Transcribe an existing recording (mp3, m4a, wav, aac) with your selected model, fully on this Mac. Pick a downloaded model above first.")
+      Text("Pick an mp3, m4a, wav or aac file. It is transcribed with the model chosen in Models, on this Mac.")
         .font(.caption).foregroundColor(Mono.textDim)
       Button("Transcribe an audio file…") { AudioImport.present() }
         .font(.system(size: 12))
@@ -203,7 +488,7 @@ struct DashboardView: View {
           ForEach(2...6, id: \.self) { n in Text("\(n)").tag(n) }
         }
         .font(.system(size: 13))
-        Text("Auto over-segments long calls. Setting the real speaker count is the biggest accuracy win.")
+        Text("If you know how many people spoke, pick the number. It is much more accurate than Auto.")
           .font(.caption).foregroundColor(Mono.textFaint)
         supportModelRow(
           "Speaker model", "pyannote + campplus, needed to separate speakers",
@@ -254,9 +539,12 @@ struct DashboardView: View {
   }
 
   private var llmCard: some View {
-    section("AI Cleanup & Summary") {
-      Text("Punctuates dictation on this Mac. Gemma 4 E2B is one model; MLX is the Apple GPU runtime for cleanup and for Gemma STT, not a second model.")
+    section("Text AI") {
+      Text("Choose the AI that rewrites your text. Nothing is sent to the internet.")
         .font(.caption).foregroundColor(Mono.textDim)
+
+      appleIntelligenceRow
+      Divider().overlay(Mono.border)
 
       ForEach(ModelCatalog.cleanupModels) { spec in
         cleanupRow(spec)
@@ -267,9 +555,9 @@ struct DashboardView: View {
 
       if LLMRuntime.isAvailable {
         Divider().overlay(Mono.border)
-        Toggle("Clean up every dictation automatically", isOn: $settings.autoCleanLLM)
+        Toggle("Tidy every dictation automatically", isOn: $settings.autoCleanLLM)
           .font(.system(size: 13))
-        Text("Adds a moment after you stop talking while the AI rewrites your text before it's inserted.")
+        Text("Fixes punctuation and removes filler words. Adds a second or two before the text appears.")
           .font(.caption).foregroundColor(Mono.textFaint)
       }
     }
@@ -302,11 +590,9 @@ struct DashboardView: View {
             .font(.system(size: 13, weight: selected && installed ? .semibold : .regular))
             .foregroundColor(Mono.text)
           Text(isGemma
-               ? (mlxInstalled
-                  ? "Runtime: MLX (Apple GPU). Same Gemma 4 E2B as STT."
-                  : "Runtime: MLX on this Mac. Get pulls GPU weights for the same Gemma 4 E2B, not a new model.")
-               : spec.textCapable
-               ? "Text cleanup only. Audio never goes to this model."
+               ? "Best results, including Hindi and Hinglish."
+               : spec.kind == .llm
+               ? "Smallest and fastest. Lighter edits."
                : spec.note)
             .font(.system(size: 11)).foregroundColor(Mono.textDim)
         }
@@ -341,6 +627,30 @@ struct DashboardView: View {
     }
   }
 
+  private var appleIntelligenceRow: some View {
+    let ready = MeetingLLM.appleAvailable
+    return HStack(alignment: .center, spacing: 10) {
+      Image(systemName: "apple.intelligence")
+        .font(.system(size: 15))
+        .foregroundColor(ready ? .white : Mono.textFaint)
+        .frame(width: 15)
+      VStack(alignment: .leading, spacing: 2) {
+        Text("Apple Intelligence").font(.system(size: 13, weight: .semibold)).foregroundColor(Mono.text)
+        Text(MeetingLLM.appleStatus)
+          .font(.system(size: 11)).foregroundColor(Mono.textDim)
+      }
+      Spacer()
+      if ready {
+        Text("Ready").font(.system(size: 12)).foregroundColor(Mono.textDim)
+      } else {
+        Button("Open Settings") {
+          NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
+        }
+        .font(.system(size: 12))
+      }
+    }
+  }
+
   private var ollamaRow: some View {
     let selected = settings.cleanupModelId == ModelCatalog.ollamaId
     return VStack(alignment: .leading, spacing: 6) {
@@ -359,7 +669,7 @@ struct DashboardView: View {
           Text("Ollama")
             .font(.system(size: 13, weight: selected ? .semibold : .regular))
             .foregroundColor(Mono.text)
-          Text("Any model you have pulled, e.g. `ollama pull gemma4:e2b`")
+          Text("Advanced: use a model you run in Ollama.")
             .font(.system(size: 11)).foregroundColor(Mono.textDim)
         }
         Spacer()
@@ -501,10 +811,10 @@ struct DashboardView: View {
       Button("Check for Updates…") { UpdateManager.shared.checkForUpdates() }
         .font(.system(size: 12))
       Toggle("Restore previous clipboard after inserting", isOn: $settings.restoreClipboard)
-      Text("Off keeps the transcript on the clipboard so you can paste it again.")
+      Text("Off leaves the transcript on the clipboard so you can paste it again.")
         .font(.caption).foregroundColor(Mono.textDim)
       HStack {
-        Text("Engine").foregroundColor(Mono.text)
+        Text("Speech engine").foregroundColor(Mono.text)
         Spacer()
         Text(engineLabel)
           .foregroundColor(Mono.textDim)
@@ -515,7 +825,7 @@ struct DashboardView: View {
 
   private var permissionCard: some View {
     section("Permission needed") {
-      Text("Accessibility lets Scribe watch the hold key and paste into other apps.")
+      Text("Scribe needs Accessibility to notice the hold key and type into other apps.")
         .font(.system(size: 13))
         .foregroundColor(Mono.text)
       Button("Grant Accessibility…") {
@@ -527,6 +837,23 @@ struct DashboardView: View {
     }
   }
 
+  private var vocabularyCard: some View {
+    section("Vocabulary") {
+      Text("Names, brands and jargon Scribe should spell right. One per line.")
+        .font(.caption).foregroundColor(Mono.textDim)
+      TextEditor(text: $settings.vocabulary)
+        .font(.system(size: 12, design: .monospaced))
+        .frame(height: 110)
+        .border(Mono.textDim.opacity(0.3))
+      Toggle("Learn words when I fix a transcript right after dictating",
+             isOn: $settings.learnCorrections)
+      Toggle("Keep my last recording so I can retry it",
+             isOn: $settings.keepLatestRecording)
+      Text("Only the latest one is kept, on this Mac. Useful if a transcription fails.")
+        .font(.caption).foregroundColor(Mono.textDim)
+    }
+  }
+
   private var historyCard: some View {
     section("Recent transcripts") {
       Toggle("Save transcript history on this Mac", isOn: $settings.saveHistory)
@@ -534,25 +861,11 @@ struct DashboardView: View {
         Text("New dictations won’t be kept. Existing entries stay until you clear them.")
           .font(.caption).foregroundColor(Mono.textDim)
       }
-      Text("Vocabulary").font(.headline)
-      Text("One name, acronym or bit of jargon per line. Primes Swift/Apex (whisper.cpp prompt), biases Parakeet/Nemotron, and is the HOTWORDS list Gemma may correct toward.")
-        .font(.caption).foregroundColor(Mono.textDim)
-      TextEditor(text: $settings.vocabulary)
-        .font(.system(size: 12, design: .monospaced))
-        .frame(height: 90)
-        .border(Mono.textDim.opacity(0.3))
-      Toggle("Learn terms from corrections I make right after dictating",
-             isOn: $settings.learnCorrections)
-
-      Toggle("Keep the last recording so a failed transcription can be retried",
-             isOn: $settings.keepLatestRecording)
-      Text("One WAV, replaced by each offline dictation and never leaving this Mac. Turn it off and a transcription that fails takes the audio with it.")
-        .font(.caption).foregroundColor(Mono.textDim)
       if dictation.history.isEmpty {
         Text("Nothing yet, hold \(settings.holdKey == .off ? "the toggle shortcut" : settings.holdKey.label) and speak.")
           .font(.system(size: 13)).foregroundColor(Mono.textDim)
       } else {
-        ForEach(Array(dictation.history.prefix(15).enumerated()), id: \.offset) { i, text in
+        ForEach(Array(dictation.history.prefix(50).enumerated()), id: \.offset) { i, text in
           HStack(alignment: .top) {
             Text(text)
               .font(.system(size: 12.5))
@@ -570,7 +883,7 @@ struct DashboardView: View {
             .foregroundColor(Mono.textDim)
           }
           .padding(.vertical, 3)
-          if i < min(dictation.history.count, 15) - 1 {
+          if i < min(dictation.history.count, 50) - 1 {
             Divider().overlay(Mono.border)
           }
         }

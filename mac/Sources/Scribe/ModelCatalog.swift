@@ -112,7 +112,7 @@ enum ModelCatalog {
     ModelSpec(
       id: autoId, kind: .autoResolve,
       label: "Auto · Hinglish + Indian English",
-      note: "Apex if downloaded, else Swift, else Built-in. Audio never goes to Gemma.",
+      note: "Picks the best model you have downloaded for English mixed with Hindi.",
       archive: "", sizeBytes: 0, live: true, quality: .best
     ),
     ModelSpec(
@@ -171,7 +171,7 @@ enum ModelCatalog {
     ModelSpec(
       id: gemmaAsrId, kind: .qwenAsr,
       label: "Gemma 4 E2B · Audio",
-      note: "Google · same Gemma 4 E2B as cleanup · MLX GPU if downloaded, else llama.cpp · slower than Swift/Apex",
+      note: "Google · understands audio directly · good with mixed languages · slower",
       archive: "", sizeBytes: 3_398_849_248, live: false,
       directURL: "https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_0.gguf",
       fileName: "gemma-4-E2B-it-Q4_0.gguf",
@@ -331,7 +331,7 @@ enum ModelCatalog {
     ModelSpec(
       id: mlxId, kind: .mlx,
       label: "Gemma 4 E2B",
-      note: "GPU runtime files for Gemma 4 E2B on this Mac (MLX). Not a different model.",
+      note: "Gemma 4 E2B for this Mac's GPU.",
       archive: "", sizeBytes: 3_583_000_000, live: false, quality: .best,
       bundleFiles: Self.hfFiles(
         repo: "mlx-community/gemma-4-e2b-it-4bit",
@@ -401,8 +401,9 @@ enum ModelCatalog {
               let language = speechLanguages.first(where: { $0.code == settings.language }) {
       parts.append("The audio is in \(language.label). Write the transcript in \(language.label).")
     }
-    if let terms = Vocabulary.whisperPrompt {
-      parts.append("These names appear in the audio, spell them exactly: \(terms).")
+    // Only the user's own terms: audio LLMs recite a listed vocabulary into short clips.
+    if !Vocabulary.terms.isEmpty {
+      parts.append("These names may appear in the audio, spell them exactly if heard: \(Vocabulary.terms.joined(separator: ", ")).")
     }
     return parts.joined(separator: " ")
   }

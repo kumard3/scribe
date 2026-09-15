@@ -22,6 +22,8 @@
   <string>14.0</string>
   <key>LSUIElement</key>
   <true/>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Scribe records meeting audio playing on this Mac so it can transcribe the call on-device.</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>Scribe transcribes your voice into text on-device.</string>
   <key>NSSpeechRecognitionUsageDescription</key>

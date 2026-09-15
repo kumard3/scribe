@@ -22,7 +22,10 @@ let package = Package(
     // keeps the Conformer and wires ChatSession.respond(audios:).
     .package(
       url: "https://github.com/ml-explore/mlx-swift-lm",
-      revision: "8c14b17a1eaa465606803c20e9907f968d8c0182"
+      revision: "8c14b17a1eaa465606803c20e9907f968d8c0182",
+      // Its FoundationModels adapter targets the 27 beta API and fails on the
+      // Xcode 27.0 SDK; Scribe doesn't use it.
+      traits: []
     ),
     .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
     .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
@@ -67,6 +70,8 @@ let package = Package(
           "-lggml-base",
           "-lggml-cpu",
           "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",
+          // FoundationModels only exists on macOS 26+; the app still launches on 14.
+          "-Xlinker", "-weak_framework", "-Xlinker", "FoundationModels",
         ])
       ]
     ),

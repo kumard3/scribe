@@ -109,6 +109,9 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
   func toggle() { isRecording ? stop() : start() }
 
   func start() {
+    guard !MeetingRecorder.shared.isRecording else {
+      set("Stop the meeting recording to dictate."); return
+    }
     let spec = Settings.shared.activeModel
     dlog("start() isRecording=\(isRecording) model=\(spec.id)")
     wantsStop = false
@@ -1019,7 +1022,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
       samples: samples, sampleRate: sampleRate
     ) { text in
       if let text, !text.isEmpty {
-        completion(.success(text))
+        completion(.success(Vocabulary.stripPromptEcho(text)))
       } else {
         NativeTranscriptionWorker.shared.transcribe(
           spec: spec, samples: samples, sampleRate: sampleRate,

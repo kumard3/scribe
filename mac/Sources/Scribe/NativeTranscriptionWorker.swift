@@ -43,8 +43,9 @@ final class NativeTranscriptionWorker: @unchecked Sendable {
     language: String, provider: String,
     saveDiagnostic: Bool = true,
     timeout: TimeInterval? = nil,
-    completion: @escaping (Result<String, Error>) -> Void
+    completion finish: @escaping (Result<String, Error>) -> Void
   ) {
+    let completion: (Result<String, Error>) -> Void = { finish($0.map(Vocabulary.stripPromptEcho)) }
     if MLXRuntime.gemmaAsrUsesMlx(spec) {
       if saveDiagnostic, Settings.shared.keepLatestRecording {
         DiagnosticAudioStore.saveLatest(samples: samples, sampleRate: sampleRate)

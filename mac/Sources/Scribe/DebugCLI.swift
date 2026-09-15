@@ -1,4 +1,7 @@
 import Foundation
+import AppKit
+import SwiftUI
+import AVFoundation
 import CSherpa
 import CLlama
 import Speech
@@ -18,12 +21,16 @@ enum DebugCLI {
       PauseChunker.selfTest()
       CorrectionWatcher.selfTest()
       OllamaRuntime.selfTest()
+      MeetingPipeline.selfTest()
       exit(0)
     }
     if CommandLine.arguments.contains("--selftest-transcription-safety") {
       transcriptionSafetySelfTest()
       exit(0)
     }
+    runMeetingCaptureTestIfRequested()
+    runRenderDashboardIfRequested()
+    runMeetingProcessIfRequested()
     runNativeWorkerIfRequested()
     runArkasrIfRequested()
     runQwenAsrServeIfRequested()
@@ -545,3 +552,107 @@ enum DebugCLI {
     }
   }
 }
+
+/// `open -W -n Scribe.app --args --meeting-capture-test <seconds> <dir>` records the
+/// mic and system audio tracks for N seconds and writes peaks to <dir>/result.txt.
+/// Launch via `open` so TCC attributes the prompts to Scribe, not the terminal.
+private func runMeetingCaptureTestIfRequested() {
+  let args = CommandLine.arguments
+  guard let i = args.firstIndex(of: "--meeting-capture-test"), args.count > i + 2,
+        let seconds = Double(args[i + 1]) else { return }
+  let dir = URL(fileURLWithPath: args[i + 2], isDirectory: true)
+  var lines: [String] = []
+  defer {
+    try? lines.joined(separator: "\n").write(to: dir.appendingPathComponent("result.txt"), atomically: true, encoding: .utf8)
+    exit(0)
+  }
+  do {
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let mic = try TrackWriter(url: dir.appendingPathComponent("you.caf"))
+    let system = try TrackWriter(url: dir.appendingPathComponent("others.caf"))
+    guard #available(macOS 14.4, *) else { lines.append("unsupported"); return }
+    let tap = SystemAudioTap(writer: system)
+    try tap.start()
+    let engine = AVAudioEngine()
+    let input = engine.inputNode
+    input.installTap(onBus: 0, bufferSize: 4096, format: input.outputFormat(forBus: 0)) { buffer, _ in mic.append(buffer) }
+    try engine.start()
+    lines.append("started")
+    FileManager.default.createFile(atPath: dir.appendingPathComponent("started").path, contents: nil)
+    RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+    input.removeTap(onBus: 0)
+    engine.stop()
+    tap.stop()
+    lines.append("micPeak=\(mic.peak) systemPeak=\(system.peak) tapCallbacks=\(tap.callbacks) tapInputPeak=\(tap.inputPeak) tapFormat=\(tap.formatLabel)")
+  } catch {
+    lines.append("error=\(error.localizedDescription)")
+  }
+}
+
+/// `Scribe --render-dashboard <dir>` draws every dashboard tab to <dir>/<tab>.png.
+private func runRenderDashboardIfRequested() {
+  let args = CommandLine.arguments
+  guard let i = args.firstIndex(of: "--render-dashboard"), args.count > i + 1 else { return }
+  let dir = URL(fileURLWithPath: args[i + 1], isDirectory: true)
+  try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+  _ = NSApplication.shared
+  for tab in DashboardView.Tab.allCases {
+    UserDefaults.standard.set(tab.rawValue, forKey: "dashboardTab")
+    let host = NSHostingView(rootView: DashboardView())
+    host.frame = NSRect(x: 0, y: 0, width: 920, height: 700)
+    let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+    window.contentView = host
+    host.layoutSubtreeIfNeeded()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+    guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { continue }
+    host.cacheDisplay(in: host.bounds, to: rep)
+    try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("\(tab.rawValue).png"))
+  }
+  UserDefaults.standard.set(DashboardView.Tab.home.rawValue, forKey: "dashboardTab")
+  if let screen = NSScreen.main {
+    let layout = NotchLayout(screen: screen)
+    let host = NSHostingView(rootView: NotchHUDView(meeting: MeetingRecorder.shared, layout: layout))
+    host.frame = NSRect(origin: .zero, size: layout.frame.size)
+    let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+    window.contentView = host
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+      host.cacheDisplay(in: host.bounds, to: rep)
+      try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("notch.png"))
+    }
+    print("notch: hasNotch=\(layout.hasNotch) notchWidth=\(layout.notchWidth) frame=\(layout.frame)")
+  }
+  exit(0)
+}
+
+/// `Scribe --meeting-process <dir> <model-id>` runs the full meeting pipeline on a
+/// recording folder (you.caf + others.caf), fetching the speaker models if missing.
+private func runMeetingProcessIfRequested() {
+  let args = CommandLine.arguments
+  guard let i = args.firstIndex(of: "--meeting-process"), args.count > i + 2,
+        let spec = ModelCatalog.spec(args[i + 2]) else { return }
+  let dir = URL(fileURLWithPath: args[i + 1], isDirectory: true)
+  if !SupportModelStore.diarInstalled {
+    print("downloading speaker models…")
+    Task { @MainActor in SupportModelStore.shared.downloadDiarization() }
+    let deadline = Date().addingTimeInterval(600)
+    while !SupportModelStore.diarInstalled, Date() < deadline {
+      RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+    }
+  }
+  print("speaker models: \(SupportModelStore.diarInstalled), llm: \(MeetingLLM.backendLabel)")
+  var output: MeetingPipeline.Output?
+  DispatchQueue.global().async {
+    output = MeetingPipeline.run(
+      dir: dir, spec: spec, language: Settings.shared.language,
+      provider: Settings.shared.sherpaProvider(for: spec), speakerCount: args.count > i + 3 ? Int(args[i + 3]) ?? 0 : 0
+    ) { print("  \($0)") }
+  }
+  while output == nil { RunLoop.main.run(until: Date().addingTimeInterval(0.2)) }
+  let out = output!
+  print("NAMES: \(out.names.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" })")
+  print("TRANSCRIPT:\n" + MeetingPipeline.text(out.turns, names: out.names))
+  print("SUMMARY:\n" + (out.summary ?? "(none)"))
+  exit(0)
+}
+

@@ -449,6 +449,11 @@ final class SileroVAD {
 
   /// Split 16 kHz mono samples into speech segments.
   func segments16k(_ samples: [Float]) -> [[Float]] {
+    ranges16k(samples).map { Array(samples[$0]) }
+  }
+
+  /// Padded speech ranges (sample indices) in 16 kHz mono samples.
+  func ranges16k(_ samples: [Float]) -> [Range<Int>] {
     guard !samples.isEmpty else { return [] }
     lock.lock()
     defer { lock.unlock() }
@@ -471,7 +476,7 @@ final class SileroVAD {
     drain(&ranges)
     return Self.paddedRanges(
       ranges, sampleCount: samples.count, padding: Self.speechPaddingSamples
-    ).map { Array(samples[$0]) }
+    )
   }
 
   private func drain(_ out: inout [Range<Int>]) {

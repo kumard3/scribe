@@ -19,7 +19,7 @@ final class HUD {
       return
     }
     DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-      guard !DictationManager.shared.isRecording else { return }
+      guard !DictationManager.shared.isRecording, !MeetingRecorder.shared.isRecording else { return }
       self?.panel?.orderOut(nil)
     }
   }
@@ -50,10 +50,16 @@ final class HUD {
 
 struct HUDView: View {
   @ObservedObject var dictation: DictationManager
+  @ObservedObject var meeting = MeetingRecorder.shared
 
   var body: some View {
     HStack(spacing: 12) {
-      if dictation.phase == .inserted {
+      if meeting.isRecording {
+        Circle().fill(Color.red).frame(width: 9, height: 9)
+        Text("Recording meeting  \(meeting.elapsedLabel)")
+          .foregroundColor(.white)
+          .monospacedDigit()
+      } else if dictation.phase == .inserted {
         Image(systemName: "checkmark.circle.fill")
           .foregroundColor(.green)
         Text("Inserted")
@@ -62,18 +68,12 @@ struct HUDView: View {
         ProgressView()
           .controlSize(.small)
           .tint(.white)
-        if dictation.lastText.isEmpty && dictation.lastPendingText.isEmpty {
-          Text(dictation.status.isEmpty ? "Transcribing…" : dictation.status)
-            .foregroundColor(.white)
-            .lineLimit(1)
-        } else {
-          hudTranscript
-        }
+        Text("Transcribing…")
+          .foregroundColor(.white)
       } else {
         LevelBars(level: dictation.level)
-        hudTranscript
-          .lineLimit(1)
-          .truncationMode(.head)
+        Text("Listening")
+          .foregroundColor(.white)
       }
     }
     .font(.system(size: 14, weight: .medium))
@@ -83,25 +83,6 @@ struct HUDView: View {
     .overlay(Capsule().strokeBorder(Color.white.opacity(0.12)))
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
-
-  @ViewBuilder
-  private var hudTranscript: some View {
-    let cleaned = dictation.lastText
-    let pending = dictation.lastPendingText
-    if cleaned.isEmpty && pending.isEmpty {
-      Text("Listening…").foregroundColor(.white)
-    } else if pending.isEmpty {
-      Text(tail(cleaned)).foregroundColor(.white)
-    } else {
-      (Text(tail(cleaned)).foregroundColor(.white)
-        + Text((cleaned.isEmpty ? "" : " ") + tail(pending))
-        .foregroundColor(Color.white.opacity(0.45)))
-    }
-  }
-
-  private func tail(_ s: String) -> String {
-    s.count > 58 ? "…" + String(s.suffix(58)) : s
-  }
 }
 
 struct LevelBars: View {
@@ -109,7 +90,7 @@ struct LevelBars: View {
 
   var body: some View {
     HStack(spacing: 3) {
-      ForEach(0..<5, id: \.self) { i in
+      ForEach(weights.indices, id: \.self) { i in
         Capsule()
           .fill(Color.white)
           .frame(width: 3, height: barHeight(i))
@@ -119,8 +100,9 @@ struct LevelBars: View {
     .animation(.easeOut(duration: 0.09), value: level)
   }
 
+  private let weights: [CGFloat] = [0.35, 0.6, 0.85, 1.0, 0.7, 0.9, 0.55, 0.3]
+
   private func barHeight(_ i: Int) -> CGFloat {
-    let weights: [CGFloat] = [0.45, 0.75, 1.0, 0.75, 0.45]
-    return 5 + CGFloat(min(max(level, 0), 1)) * 20 * weights[i]
+    4 + CGFloat(min(max(level, 0), 1)) * 20 * weights[i]
   }
 }

@@ -54,6 +54,26 @@ enum Vocabulary {
     return list.joined(separator: ", ")
   }
 
+  /// Removes a run of 4+ vocabulary words in a row, the shape of a model reciting its prompt.
+  static func stripPromptEcho(_ text: String) -> String {
+    let known = Set(biasTerms.flatMap { $0.lowercased().split(separator: " ").map(String.init) })
+    let words = text.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+    let key = { (w: String) in w.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ",.;:")) }
+    var out: [String] = []
+    var i = 0
+    while i < words.count {
+      var j = i
+      while j < words.count, known.contains(key(words[j])) { j += 1 }
+      if j - i >= 4 {
+        i = j
+      } else {
+        out.append(words[i])
+        i += 1
+      }
+    }
+    return out.filter { !$0.isEmpty }.joined(separator: " ")
+  }
+
   static func add(_ term: String) {
     let clean = term.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !clean.isEmpty, clean.count <= 40 else { return }
@@ -91,6 +111,9 @@ enum Vocabulary {
     assert(biasTerms.contains("E2B"))
     assert(biasTerms.contains("Hinglish"))
     assert(biasTerms.filter { $0.lowercased() == "scribe" }.count == 1)
+    let leak = "Scribe Gemma E2B E4B chunking on-device whisper.cpp Hinglish Oriserve Apex Swift Are bhai mast kar diya"
+    assert(stripPromptEcho(leak) == "Are bhai mast kar diya", stripPromptEcho(leak))
+    assert(stripPromptEcho("I tested Gemma E2B chunking today") == "I tested Gemma E2B chunking today")
     print("Vocabulary selftest ok")
   }
 }

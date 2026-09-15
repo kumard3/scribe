@@ -23,6 +23,7 @@ final class UpdateManager {
 struct ScribeApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
   @StateObject private var dictation = DictationManager.shared
+  @StateObject private var meeting = MeetingRecorder.shared
 
   init() {
     DebugCLI.runIfRequested()
@@ -32,15 +33,14 @@ struct ScribeApp: App {
     MenuBarExtra {
       MenuContent(dictation: dictation)
     } label: {
-      Image(systemName: dictation.isRecording ? "waveform" : "mic")
+      Image(systemName: meeting.isRecording ? "record.circle" : dictation.isRecording ? "waveform" : "mic")
     }
     .menuBarExtraStyle(.menu)
 
     Window("Scribe", id: "dashboard") {
       DashboardView()
     }
-    .windowResizability(.contentSize)
-    .defaultSize(width: 600, height: 680)
+    .defaultSize(width: 920, height: 700)
   }
 }
 
@@ -87,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct MenuContent: View {
   @ObservedObject var dictation: DictationManager
   @ObservedObject var settings = Settings.shared
+  @ObservedObject var meeting = MeetingRecorder.shared
   @Environment(\.openWindow) private var openWindow
 
   var body: some View {
@@ -131,6 +132,15 @@ struct MenuContent: View {
 
     Button("Transcribe audio file…") {
       AudioImport.present()
+    }
+
+    if MeetingRecorder.supported {
+      Button(meeting.isRecording
+        ? "Stop meeting recording (\(meeting.elapsedLabel))"
+        : meeting.isTranscribing ? "Transcribing meeting…" : "Record meeting") {
+        meeting.toggle()
+      }
+      .disabled(meeting.isTranscribing)
     }
 
     if FileManager.default.fileExists(atPath: DiagnosticAudioStore.latestURL.path) {
