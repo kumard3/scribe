@@ -201,3 +201,57 @@ private final class ModernAnalyzerInputConverter: @unchecked Sendable {
     }
   }
 }
+
+/// Whole-track, on-device transcription with word timings, for meetings: Apple hears the full
+/// conversation instead of VAD fragments, and the timings put each word on the right speaker.
+@available(macOS 26.0, *)
+enum AppleLongForm {
+  struct Word {
+    let text: String
+    let start: Double
+    let end: Double
+    /// Apple's own result chunk (about a sentence) this word came in.
+    let phrase: Int
+  }
+
+  static var available: Bool { SpeechTranscriber.isAvailable }
+
+  static func words(samples: [Float], sampleRate: Int, locale identifier: String) async throws -> [Word] {
+    guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: identifier)) else {
+      throw NSError(domain: "Scribe.ModernSpeech", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "\(identifier) is not available in Apple Transcription"])
+    }
+    let transcriber = SpeechTranscriber(
+      locale: locale, transcriptionOptions: [], reportingOptions: [], attributeOptions: [.audioTimeRange])
+    if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+      try await request.downloadAndInstall()
+    }
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("scribe-apple-\(UUID().uuidString).wav")
+    defer { try? FileManager.default.removeItem(at: url) }
+    try WaveFile.write(samples: samples, sampleRate: sampleRate, to: url)
+    let file = try AVAudioFile(forReading: url)
+    let analyzer = SpeechAnalyzer(modules: [transcriber])
+    let context = AnalysisContext()
+    context.contextualStrings[.general] = Vocabulary.biasTerms
+    try await analyzer.setContext(context)
+    let collect = Task { () -> [Word] in
+      var out: [Word] = []
+      var phrase = 0
+      for try await result in transcriber.results {
+        phrase += 1
+        for run in result.text.runs {
+          guard let range = run[AttributeScopes.SpeechAttributes.TimeRangeAttribute.self] else { continue }
+          let text = String(result.text[run.range].characters).trimmingCharacters(in: .whitespacesAndNewlines)
+          if !text.isEmpty { out.append(Word(text: text, start: range.start.seconds, end: range.end.seconds, phrase: phrase)) }
+        }
+      }
+      return out
+    }
+    if let last = try await analyzer.analyzeSequence(from: file) {
+      try await analyzer.finalizeAndFinish(through: last)
+    } else {
+      await analyzer.cancelAndFinishNow()
+    }
+    return try await collect.value
+  }
+}

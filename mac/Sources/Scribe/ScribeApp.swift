@@ -37,7 +37,7 @@ struct ScribeApp: App {
     }
     .menuBarExtraStyle(.menu)
 
-    Window("Scribe", id: "dashboard") {
+    Window("Bolkit", id: "dashboard") {
       DashboardView()
     }
     .defaultSize(width: 920, height: 700)
@@ -137,10 +137,9 @@ struct MenuContent: View {
     if MeetingRecorder.supported {
       Button(meeting.isRecording
         ? "Stop meeting recording (\(meeting.elapsedLabel))"
-        : meeting.isTranscribing ? "Transcribing meeting…" : "Record meeting") {
+        : "Record meeting") {
         meeting.toggle()
       }
-      .disabled(meeting.isTranscribing)
     }
 
     if FileManager.default.fileExists(atPath: DiagnosticAudioStore.latestURL.path) {
@@ -174,9 +173,9 @@ struct MenuContent: View {
     Text(dictation.status).font(.caption)
 
     Divider()
-    Text("Scribe \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
+    Text("Bolkit \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
       .font(.caption)
-    Button("Quit Scribe") { NSApp.terminate(nil) }
+    Button("Quit Bolkit") { NSApp.terminate(nil) }
       .keyboardShortcut("q")
   }
 

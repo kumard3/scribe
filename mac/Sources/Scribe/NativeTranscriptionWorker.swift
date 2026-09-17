@@ -24,8 +24,8 @@ final class NativeTranscriptionWorker: @unchecked Sendable {
 
     var errorDescription: String? {
       switch self {
-      case .executableMissing: return "Scribe transcription worker is unavailable"
-      case .helperMissing: return "The on-device Hinglish runtime is missing, reinstall Scribe"
+      case .executableMissing: return "Bolkit transcription worker is unavailable"
+      case .helperMissing: return "The on-device Hinglish runtime is missing, reinstall Bolkit"
       case .timedOut:
         return "Transcription timed out, audio kept, use Retry last recording"
       case let .memoryLimitExceeded(bytes):
@@ -116,6 +116,75 @@ final class NativeTranscriptionWorker: @unchecked Sendable {
 
   func releaseQwen() {
     queue.async { self.quitQwenSession() }
+  }
+
+  /// Sherpa models only (not whisper.cpp, Qwen/Gemma audio): one child process loads the model once for
+  /// all clips. Per-clip workers reloaded a 600 MB model 339 times (42 min) for one meeting. Blocking.
+  func transcribeBatch(
+    spec: ModelSpec, clips: [[Float]], sampleRate: Int, language: String, provider: String,
+    progress: (Int) -> Void
+  ) throws -> [String] {
+    guard spec.kind != .whisperCpp, spec.kind != .qwenAsr, !MLXRuntime.gemmaAsrUsesMlx(spec) else {
+      throw WorkerError.failed(-1, "batch not supported for \(spec.id)")
+    }
+    guard let executable = Bundle.main.executableURL else { throw WorkerError.executableMissing }
+    let fm = FileManager.default
+    let dir = fm.temporaryDirectory.appendingPathComponent("scribe-batch-\(UUID().uuidString)", isDirectory: true)
+    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: dir) }
+    var paths: [String] = []
+    for (i, clip) in clips.enumerated() {
+      let url = dir.appendingPathComponent("\(i).wav")
+      try WaveFile.write(samples: clip, sampleRate: sampleRate, to: url)
+      paths.append(url.path)
+    }
+    let list = dir.appendingPathComponent("list.txt")
+    try paths.joined(separator: "\n").write(to: list, atomically: true, encoding: .utf8)
+    let stdoutURL = dir.appendingPathComponent("out.txt")
+    fm.createFile(atPath: stdoutURL.path, contents: nil)
+    let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+    defer { try? stdoutHandle.close() }
+
+    let process = Process()
+    process.executableURL = executable
+    process.arguments = ["--transcribe-batch", list.path, spec.id, "--language", language, "--provider", provider]
+    process.environment = ProcessInfo.processInfo.environment
+    let stderrURL = dir.appendingPathComponent("err.txt")
+    fm.createFile(atPath: stderrURL.path, contents: nil)
+    let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+    defer { try? stderrHandle.close() }
+    process.standardOutput = stdoutHandle
+    process.standardError = stderrHandle
+    try process.run()
+
+    let longest = Double(clips.map(\.count).max() ?? 0) / Double(max(sampleRate, 1))
+    let total = Double(clips.reduce(0) { $0 + $1.count }) / Double(max(sampleRate, 1))
+    // ponytail: one loaded model plus the longest clip; measured 1.9 GB peak for Parakeet 0.6B on 30 s clips.
+    let memoryLimit = min(ProcessInfo.processInfo.physicalMemory / 2,
+                          max(3_000_000_000, TranscriptionLimits.workerMemoryLimit(for: spec, audioSeconds: longest)))
+    let deadline = Date().addingTimeInterval(TranscriptionLimits.workerTimeout(audioSeconds: total) + 120)
+    var done = 0
+    while process.isRunning, Date() < deadline {
+      if Self.residentBytes(process.processIdentifier) > memoryLimit {
+        Self.stop(process)
+        throw WorkerError.memoryLimitExceeded(memoryLimit)
+      }
+      let lines = ((try? String(contentsOf: stdoutURL, encoding: .utf8)) ?? "").filter { $0 == "\n" }.count
+      if lines != done { done = lines; progress(done) }
+      Thread.sleep(forTimeInterval: 0.2)
+    }
+    if process.isRunning {
+      Self.stop(process)
+      throw WorkerError.timedOut
+    }
+    let texts = ((try? String(contentsOf: stdoutURL, encoding: .utf8)) ?? "")
+      .split(separator: "\n")
+      .map { (try? JSONDecoder().decode(String.self, from: Data($0.utf8))) ?? "" }
+    guard process.terminationStatus == 0, texts.count == clips.count else {
+      let detail = ((try? String(contentsOf: stderrURL, encoding: .utf8)) ?? "").suffix(400)
+      throw WorkerError.failed(process.terminationStatus, "batch returned \(texts.count) of \(clips.count): \(detail)")
+    }
+    return texts.map(Vocabulary.stripPromptEcho)
   }
 
   private static func ggufReady(_ spec: ModelSpec) -> Bool {

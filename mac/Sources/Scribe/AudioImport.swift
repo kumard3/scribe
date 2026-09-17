@@ -117,7 +117,7 @@ enum AudioImport {
     let fm = FileManager.default
     switch spec.kind {
     case .qwenAsr:
-      if MLXRuntime.gemmaAsrUsesMlx(spec) { return true }
+      if spec.id == ModelCatalog.gemmaAsrId { return MLXRuntime.isAvailable }
       return fm.fileExists(atPath: dir.appendingPathComponent(spec.fileName).path)
         && fm.fileExists(atPath: dir.appendingPathComponent(spec.mmprojFileName).path)
     case .whisperCpp:

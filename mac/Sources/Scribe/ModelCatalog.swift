@@ -347,13 +347,23 @@ enum ModelCatalog {
         ])
     ),
     ModelSpec(
-      id: "qwen-cleanup-0.5b", kind: .llm,
+      id: "qwen-cleanup-0.5b", kind: .mlx,
       label: "Qwen 2.5 · 0.5B",
       note: "Tiny on-device cleanup & summary · offline · under 1 GB peak",
-      archive: "", sizeBytes: 491_400_032, live: false,
-      directURL: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-      fileName: "qwen2.5-0.5b-instruct-q4_k_m.gguf",
-      sha256: "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db"
+      archive: "", sizeBytes: 289_598_797, live: false,
+      bundleFiles: Self.hfFiles(
+        repo: "mlx-community/Qwen2.5-0.5B-Instruct-4bit",
+        files: [
+          ("config.json", 783),
+          ("added_tokens.json", 605),
+          ("special_tokens_map.json", 613),
+          ("tokenizer_config.json", 7_308),
+          ("vocab.json", 2_776_833),
+          ("merges.txt", 1_671_853),
+          ("tokenizer.json", 7_031_673),
+          ("model.safetensors.index.json", 44_209),
+          ("model.safetensors", 278_064_920),
+        ])
     ),
   ]
 
@@ -383,6 +393,10 @@ enum ModelCatalog {
     "Transcribe this audio verbatim. Output only the spoken words, with no " +
     "commentary, no speaker labels and no timestamps."
 
+  static let hinglishInstruction =
+    "The speaker mixes Hindi and English in one sentence. Write every word " +
+    "in Latin script the way Hinglish is typed, never in Devanagari."
+
   /// What actually goes with the audio: the base ask, the picked language and
   /// the user's vocabulary. Left of the audio marker on purpose, see cllama.c.
   static func asrPrompt(for spec: ModelSpec) -> String {
@@ -393,10 +407,7 @@ enum ModelCatalog {
     // to Devanagari and transliterating after. Naming one language here instead
     // makes it render the whole mixed sentence in that script.
     if settings.romanizeHindi {
-      parts.append(
-        "The speaker mixes Hindi and English in one sentence. Write every word " +
-        "in Latin script the way Hinglish is typed, never in Devanagari."
-      )
+      parts.append(hinglishInstruction)
     } else if settings.language != "auto",
               let language = speechLanguages.first(where: { $0.code == settings.language }) {
       parts.append("The audio is in \(language.label). Write the transcript in \(language.label).")
@@ -435,7 +446,7 @@ enum ModelCatalog {
   /// Models that can run AI Cleanup & Summary: the dedicated small LLM plus the
   /// multimodal ASR models that are full instruction LLMs anyway.
   static var cleanupModels: [ModelSpec] {
-    all.filter { $0.kind == .llm || $0.textCapable }
+    all.filter { $0.kind == .llm || $0.textCapable || ($0.kind == .mlx && $0.id != mlxId) }
   }
 }
 

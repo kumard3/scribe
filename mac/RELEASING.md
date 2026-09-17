@@ -1,12 +1,12 @@
-# Releasing Scribe for macOS
+# Releasing Bolkit for macOS
 
-Scribe 1.3.0 and later use Sparkle 2 for automatic updates. The app checks this
+Bolkit (named Scribe up to 1.3.0) uses Sparkle 2, since 1.3.0, for automatic updates. The app checks this
 feed on launch and users can also choose **Check for Updates…**:
 
 `https://github.com/kumard3/scribe/releases/download/scribe-macos-updates/appcast.xml`
 
 Updates are rolled out in daily Sparkle cohorts. The archive, appcast, and
-release notes are signed with Scribe's Ed25519 key. The private key is stored in
+release notes are signed with the app's Ed25519 key. The private key is stored in
 the local login Keychain under `ai.scribe.mac.updates`; the app contains only
 the public key.
 
@@ -62,9 +62,9 @@ the next copy as a different app and revoke its Microphone and Accessibility
 grants, which looks exactly like the app silently breaking:
 
 ```bash
-osascript -e 'quit app "Scribe"'
-ditto Scribe.app /Applications/Scribe.app     # no rm -rf first
-open /Applications/Scribe.app
+osascript -e 'quit app "Bolkit"'
+ditto Bolkit.app /Applications/Bolkit.app     # no rm -rf first
+open /Applications/Bolkit.app
 ```
 
 If permissions were already lost, reset and re-grant them:

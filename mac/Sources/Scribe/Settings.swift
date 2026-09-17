@@ -246,6 +246,10 @@ final class Settings: ObservableObject {
   @AppStorage("cleanupModelId") var cleanupModelId: String = ModelCatalog.gemmaAsrId {
     willSet { objectWillChange.send() }
   }
+  /// Meetings use Apple's on-device speech (best on English calls) instead of the dictation model.
+  @AppStorage("meetingAppleSpeech") var meetingAppleSpeech: Bool = true {
+    willSet { objectWillChange.send() }
+  }
   @AppStorage("ollamaModel") var ollamaModel: String = "" {
     willSet { objectWillChange.send() }
   }

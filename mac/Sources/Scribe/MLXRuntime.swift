@@ -1,4 +1,6 @@
 import Foundation
+import MLX
+import MLXLLM
 import MLXVLM
 import MLXLMCommon
 import MLXHuggingFace
@@ -12,8 +14,8 @@ actor MLXEngine {
   private var container: ModelContainer?
   private var loadedDir: String?
 
-  func generate(dir: URL, instruction: String, text: String, maxTokens: Int) async throws -> String {
-    let container = try await ensure(dir: dir)
+  func generate(dir: URL, vision: Bool, instruction: String, text: String, maxTokens: Int) async throws -> String {
+    let container = try await ensure(dir: dir, vision: vision)
     let session = ChatSession(
       container,
       instructions: instruction,
@@ -29,7 +31,7 @@ actor MLXEngine {
       .appendingPathComponent("scribe-mlx-\(UUID().uuidString).wav")
     defer { try? FileManager.default.removeItem(at: wav) }
     try WaveFile.write(samples: pcm, sampleRate: 16_000, to: wav)
-    let container = try await ensure(dir: dir)
+    let container = try await ensure(dir: dir, vision: true)
     var processing = UserInput.Processing()
     processing.audio.sampleRate = 16_000
     processing.audio.channels = 1
@@ -44,24 +46,25 @@ actor MLXEngine {
   func release() {
     container = nil
     loadedDir = nil
+    Memory.clearCache()
   }
 
-  private func ensure(dir: URL) async throws -> ModelContainer {
+  /// `vision` models (Gemma audio) load through MLXVLM, text-only ones (Qwen) through MLXLLM.
+  private func ensure(dir: URL, vision: Bool) async throws -> ModelContainer {
     if loadedDir == dir.path, let container { return container }
     container = nil
     loadedDir = nil
-    let configuration = ModelConfiguration(
-      directory: dir,
-      extraEOSTokens: ["<turn|>", "<end_of_turn>"]
-    )
-    let loaded = try await VLMModelFactory.shared.loadContainer(
-      from: LocalDirDownloader(dir: dir),
-      using: #huggingFaceTokenizerLoader(),
-      configuration: configuration
-    )
+    let downloader = LocalDirDownloader(dir: dir)
+    let loaded = vision
+      ? try await VLMModelFactory.shared.loadContainer(
+          from: downloader, using: #huggingFaceTokenizerLoader(),
+          configuration: ModelConfiguration(directory: dir, extraEOSTokens: ["<turn|>", "<end_of_turn>"]))
+      : try await LLMModelFactory.shared.loadContainer(
+          from: downloader, using: #huggingFaceTokenizerLoader(),
+          configuration: ModelConfiguration(directory: dir))
     container = loaded
     loadedDir = dir.path
-    dlog("mlx vlm loaded \(dir.lastPathComponent)")
+    dlog("mlx \(vision ? "vlm" : "llm") loaded \(dir.lastPathComponent)")
     return loaded
   }
 }
@@ -88,6 +91,12 @@ final class MLXRuntime: @unchecked Sendable {
   private var evict: DispatchWorkItem?
   private let lock = NSLock()
 
+  private init() {
+    // The buffer cache defaults to ~1.5x the GPU working set (12.9 GB measured on an 18 GB Mac):
+    // every variable-length audio piece allocates new sizes, so a meeting fills it and swaps the Mac.
+    Memory.cacheLimit = 256 << 20
+  }
+
   static var isAvailable: Bool {
     guard let spec = ModelCatalog.spec("gemma4-e2b-mlx") else { return false }
     return ModelStore.mlxInstalled(spec)
@@ -97,19 +106,19 @@ final class MLXRuntime: @unchecked Sendable {
     spec.id == ModelCatalog.gemmaAsrId && isAvailable
   }
 
-  func process(instruction: String, text: String, maxTokens: Int32,
+  func process(spec: ModelSpec, instruction: String, text: String, maxTokens: Int32,
                completion: @escaping (String?) -> Void) {
-    guard let spec = ModelCatalog.spec("gemma4-e2b-mlx"),
-          ModelStore.mlxInstalled(spec) else {
+    guard ModelStore.mlxInstalled(spec) else {
       DispatchQueue.main.async { completion(nil) }
       return
     }
     let dir = ModelStore.dir(for: spec)
+    let vision = spec.id == ModelCatalog.mlxId
     Task {
       let out: String?
       do {
         let raw = try await self.engine.generate(
-          dir: dir, instruction: instruction, text: text, maxTokens: Int(maxTokens)
+          dir: dir, vision: vision, instruction: instruction, text: text, maxTokens: Int(maxTokens)
         )
         out = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         self.scheduleEvict()

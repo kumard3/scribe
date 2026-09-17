@@ -72,7 +72,7 @@ enum SystemAudioTapError: LocalizedError {
   }
 }
 
-/// Records everything the Mac plays, except Scribe itself, through a Core Audio
+/// Records everything the Mac plays, except Bolkit itself, through a Core Audio
 /// process tap on a private aggregate device (macOS 14.4+). The first start shows
 /// the system audio recording prompt; if the user declines, the track is silent.
 @available(macOS 14.4, *)
@@ -103,7 +103,7 @@ final class SystemAudioTap {
 
     let outputUID = try defaultOutputUID()
     let aggregate: [String: Any] = [
-      kAudioAggregateDeviceNameKey: "Scribe Meeting Capture",
+      kAudioAggregateDeviceNameKey: "Bolkit Meeting Capture",
       kAudioAggregateDeviceUIDKey: UUID().uuidString,
       kAudioAggregateDeviceMainSubDeviceKey: outputUID,
       kAudioAggregateDeviceIsPrivateKey: true,

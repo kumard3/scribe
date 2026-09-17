@@ -18,17 +18,33 @@ final class MeetingRecorder: ObservableObject {
 
   @Published private(set) var isRecording = false
   @Published private(set) var elapsed: TimeInterval = 0
-  @Published private(set) var isTranscribing = false
+  @Published private(set) var processing: URL?
+  @Published private(set) var step = ""
+  @Published private(set) var queued: [URL] = []
+  @Published private(set) var failures: [URL: String] = [:]
   @Published private(set) var recordings: [MeetingItem] = []
   @Published private(set) var youLevel: Float = 0
   @Published private(set) var othersLevel: Float = 0
+  @Published var openMeetingID: URL?
+
+  var isTranscribing: Bool { processing != nil }
+
+  enum JobState: Equatable {
+    case idle, queued, running(String), failed(String)
+  }
+
+  func state(_ dir: URL) -> JobState {
+    if processing == dir { return .running(step) }
+    if queued.contains(dir) { return .queued }
+    if let error = failures[dir] { return .failed(error) }
+    return .idle
+  }
 
   struct MeetingItem: Identifiable {
     let id: URL
     let date: Date
     let duration: TimeInterval
     let hasTranscript: Bool
-    var transcriptURL: URL { id.appendingPathComponent("transcript.txt") }
   }
 
   private var folder: URL?
@@ -69,23 +85,23 @@ final class MeetingRecorder: ObservableObject {
     .sorted { $0.date > $1.date }
   }
 
-  func openTranscript(_ item: MeetingItem) { NSWorkspace.shared.open(item.transcriptURL) }
-
   func reveal(_ item: MeetingItem) { NSWorkspace.shared.activateFileViewerSelecting([item.id]) }
 
-  func transcribeAgain(_ item: MeetingItem) {
-    guard !isRecording, !isTranscribing else { return }
-    transcribe(item.id, heardSystem: true)
+  func enqueue(_ dir: URL) {
+    guard processing != dir, !queued.contains(dir) else { return }
+    failures[dir] = nil
+    queued.append(dir)
+    runNext()
   }
 
   func start() {
     let d = DictationManager.shared
-    guard !isRecording, !isTranscribing else { return }
+    guard !isRecording else { return }
     guard Self.supported else { d.status = "Meeting recording needs macOS 14.4 or later."; return }
     guard !d.isRecording else { d.status = "Stop dictation before recording a meeting."; return }
     AVCaptureDevice.requestAccess(for: .audio) { granted in
       DispatchQueue.main.async {
-        guard granted else { d.status = "Enable Microphone for Scribe in System Settings."; return }
+        guard granted else { d.status = "Enable Microphone for Bolkit in System Settings."; return }
         self.begin()
       }
     }
@@ -144,9 +160,14 @@ final class MeetingRecorder: ObservableObject {
     teardown()
     isRecording = false
     NotchHUD.shared.hide()
+    if !heardSystem {
+      DictationManager.shared.status =
+        "No system audio was captured: allow Bolkit under System Settings > Privacy & Security > System Audio Recording."
+    }
     // AVAudioFile finalizes the CAF on deinit; let in-flight audio callbacks release the writers first.
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-      self.transcribe(dir, heardSystem: heardSystem)
+      self.refreshRecordings()
+      self.enqueue(dir)
     }
   }
 
@@ -172,46 +193,32 @@ final class MeetingRecorder: ObservableObject {
 
   // MARK: - processing
 
-  private func transcribe(_ dir: URL, heardSystem: Bool) {
-    let d = DictationManager.shared
-    let systemHint = heardSystem ? "" :
-      " No system audio was captured: allow Scribe under System Settings > Privacy & Security > System Audio Recording."
-    let spec = Settings.shared.activeModel
-    guard spec.kind != .appleSystem, spec.kind != .llm, AudioImport.installed(spec) else {
-      d.status = "Meeting saved. Download a model in the Dashboard to transcribe it." + systemHint
-      refreshRecordings()
+  private func runNext() {
+    guard processing == nil, !queued.isEmpty else { return }
+    let dir = queued.removeFirst()
+    let spec = MeetingPipeline.meetingModel
+    guard MeetingPipeline.canTranscribe(spec) else {
+      failures[dir] = "\(spec.label) isn't downloaded. Get it under Models, or pick a downloaded model there."
+      runNext()
       return
     }
-    isTranscribing = true
-    d.phase = .transcribing
-    d.status = "Preparing meeting transcript…"
-    HUD.shared.show()
+    processing = dir
+    step = "Starting…"
     let language = Settings.shared.language
     let provider = Settings.shared.sherpaProvider(for: spec)
     let speakers = Settings.shared.diarizeSpeakers
 
-    DispatchQueue.global(qos: .userInitiated).async {
+    DispatchQueue.global(qos: .utility).async {
       let out = MeetingPipeline.run(
         dir: dir, spec: spec, language: language, provider: provider, speakerCount: speakers
-      ) { d.status = $0 }
-      let transcript = MeetingPipeline.text(out.turns, names: out.names)
-      let file = (out.summary.map { "SUMMARY\n\($0)\n\nTRANSCRIPT\n" } ?? "") + transcript
-      try? file.write(to: dir.appendingPathComponent("transcript.txt"), atomically: true, encoding: .utf8)
-      if let summary = out.summary {
-        try? summary.write(to: dir.appendingPathComponent("summary.txt"), atomically: true, encoding: .utf8)
-      }
+      ) { self.step = $0 }
+      if !out.turns.isEmpty { MeetingDetail(out).save(to: dir) }
       DispatchQueue.main.async {
-        self.isTranscribing = false
-        d.phase = .idle
-        HUD.shared.hide()
+        if out.turns.isEmpty { self.failures[dir] = "No speech was detected in this recording." }
+        self.processing = nil
+        self.step = ""
         self.refreshRecordings()
-        guard !out.turns.isEmpty else {
-          d.status = "Meeting saved, but no speech was detected." + systemHint
-          return
-        }
-        d.importedResult(transcript)
-        d.status = "Meeting transcript ready." + systemHint
-        AudioImport.presentSpeakers(out.turns, source: "Meeting", names: out.names)
+        self.runNext()
       }
     }
   }

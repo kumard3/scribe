@@ -210,7 +210,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     let hw = input.inputFormat(forBus: 0)
     dlog("startEngine hw=\(hw.sampleRate)Hz ch=\(hw.channelCount)")
     guard hw.sampleRate > 0, hw.channelCount > 0 else {
-      set("Mic unavailable, re-enable Microphone for Scribe in System Settings")
+      set("Mic unavailable, re-enable Microphone for Bolkit in System Settings")
       return nil
     }
     input.removeTap(onBus: 0)

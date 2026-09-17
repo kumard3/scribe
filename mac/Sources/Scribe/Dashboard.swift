@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 // pureMono, same palette as the mobile app (src/ui/themes.ts)
-private enum Mono {
+enum Mono {
   static let bg = Color(hex: 0x000000)
   static let surface = Color(hex: 0x141416)
   static let surfaceAlt = Color(hex: 0x1C1C1F)
@@ -12,7 +12,7 @@ private enum Mono {
   static let textFaint = Color(hex: 0x5C5C66)
 }
 
-private extension Color {
+extension Color {
   init(hex: UInt32) {
     self.init(
       red: Double((hex >> 16) & 0xFF) / 255,
@@ -31,13 +31,30 @@ struct LogoMark: View {
       RoundedRectangle(cornerRadius: size * 0.24)
         .fill(Mono.surfaceAlt)
         .overlay(RoundedRectangle(cornerRadius: size * 0.24).strokeBorder(Mono.border))
-      HStack(spacing: size * 0.1) {
-        Capsule().fill(.white).frame(width: size * 0.1, height: size * 0.3)
-        Capsule().fill(.white).frame(width: size * 0.1, height: size * 0.52)
-        Capsule().fill(.white).frame(width: size * 0.1, height: size * 0.38)
-      }
+      BolkitMark()
+        .stroke(.white, style: StrokeStyle(lineWidth: size * 0.045, lineCap: .round, lineJoin: .round))
+        .frame(width: size * 0.66, height: size * 0.34)
     }
     .frame(width: size, height: size)
+  }
+}
+
+/// marketing/logo/bolkit-mark.svg: the wave plus the cursor bar.
+struct BolkitMark: Shape {
+  func path(in r: CGRect) -> Path {
+    let sx = r.width / 701, sy = r.height / 363
+    func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: r.minX + (x - 160) * sx, y: r.minY + (y - 323) * sy) }
+    var path = Path()
+    path.move(to: p(180, 520))
+    path.addCurve(to: p(292, 553), control1: p(236, 520), control2: p(236, 553))
+    path.addCurve(to: p(392, 343), control1: p(342, 553), control2: p(342, 343))
+    path.addCurve(to: p(490, 666), control1: p(441, 343), control2: p(441, 666))
+    path.addCurve(to: p(605, 469), control1: p(547.5, 666), control2: p(547.5, 469))
+    path.addCurve(to: p(724, 520), control1: p(664.5, 469), control2: p(664.5, 520))
+    path.addLine(to: p(790, 520))
+    path.move(to: p(841, 446))
+    path.addLine(to: p(841, 576))
+    return path
   }
 }
 
@@ -115,7 +132,7 @@ struct DashboardView: View {
     VStack(alignment: .leading, spacing: 4) {
       HStack(spacing: 10) {
         LogoMark(size: 30)
-        Text("Scribe").font(.system(size: 17, weight: .bold)).foregroundColor(Mono.text)
+        Text("Bolkit").font(.system(size: 17, weight: .bold)).foregroundColor(Mono.text)
       }
       .padding(.horizontal, 10)
       .padding(.bottom, 18)
@@ -165,8 +182,12 @@ struct DashboardView: View {
       hotkeysCard
       vocabularyCard
     case .meetings:
-      pageTitle("Meetings", "Record any call. Get a transcript with who said what, plus a summary.")
-      meetingCard
+      if let open = meeting.openMeetingID {
+        MeetingDetailView(dir: open).id(open)
+      } else {
+        pageTitle("Meetings", "Record any call. Get a transcript with who said what, plus a summary.")
+        meetingCard
+      }
     case .models:
       pageTitle("Models", "The speech model that turns your voice into text. All of them run on this Mac.")
       modelsCard
@@ -260,7 +281,7 @@ struct DashboardView: View {
     HStack(spacing: 14) {
       LogoMark(size: 48)
       VStack(alignment: .leading, spacing: 3) {
-        Text("Scribe")
+        Text("Bolkit")
           .font(.system(size: 26, weight: .bold))
           .foregroundColor(Mono.text)
         Text("Your on-device transcriber")
@@ -372,16 +393,12 @@ struct DashboardView: View {
           Circle().fill(Color.red).frame(width: 9, height: 9)
           Text("Recording  \(meeting.elapsedLabel)")
             .font(.system(size: 13, weight: .semibold)).monospacedDigit()
-        } else if meeting.isTranscribing {
-          ProgressView().controlSize(.small)
-          Text(dictation.status).font(.system(size: 12)).foregroundColor(Mono.textDim).lineLimit(1)
         } else {
           Image(systemName: "record.circle").foregroundColor(Mono.textDim)
           Text("Record a call or meeting").font(.system(size: 13, weight: .semibold))
         }
         Spacer()
         Button(meeting.isRecording ? "Stop" : "Record") { meeting.toggle() }
-          .disabled(meeting.isTranscribing)
           .font(.system(size: 12, weight: .semibold))
       }
       if meeting.isRecording {
@@ -390,19 +407,27 @@ struct DashboardView: View {
           levelMeter("Others", meeting.othersLevel)
         }
       }
-      Text("Your mic is saved as You and everything playing on this Mac (Zoom, Meet, Teams) as Others. After you stop, Scribe transcribes with your selected model, separates the other speakers, names anyone who says their name, and writes a summary. Use headphones for clean labels.")
+      Text("Your mic is saved as You and everything playing on this Mac (Zoom, Meet, Teams) as Others. After you stop, Bolkit transcribes it on this Mac, separates the other speakers, names anyone who says their name, and writes a summary. Your mic picking up the call is removed automatically.")
         .font(.caption).foregroundColor(Mono.textDim)
 
       Divider().overlay(Mono.border)
+      if MeetingPipeline.appleSpeechAvailable {
+        Toggle("Transcribe with Apple speech", isOn: $settings.meetingAppleSpeech)
+          .font(.system(size: 13))
+        Text(settings.meetingAppleSpeech
+             ? "Most accurate for English calls. Turn off for Hindi or Hinglish meetings to use your dictation model."
+             : "Using your dictation model (\(settings.activeModel.label)).")
+          .font(.caption).foregroundColor(Mono.textFaint)
+      }
       Picker("Other people on the call", selection: $settings.diarizeSpeakers) {
         Text("Auto").tag(0)
         ForEach(1...6, id: \.self) { n in Text("\(n)").tag(n) }
       }
       .font(.system(size: 13))
-      Text("If you know how many other people will speak, pick the number. Auto can mix up similar voices.")
+      Text("Auto finds up to 4 people by itself. Pick 5 or 6 for bigger calls.")
         .font(.caption).foregroundColor(Mono.textFaint)
       supportModelRow(
-        "Speaker model", "pyannote + campplus, separates the other speakers",
+        "Speaker model for 5+ people", "pyannote + campplus. Up to 4 people uses Sortformer, downloaded on first use",
         key: SupportModelStore.diarKey, size: SupportModelStore.diarSizeLabel
       ) { support.downloadDiarization() }
       HStack {
@@ -428,15 +453,12 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 2) {
               Text(item.date.formatted(date: .abbreviated, time: .shortened))
                 .font(.system(size: 13))
-              Text(durationLabel(item.duration) + (item.hasTranscript ? "  ·  transcribed" : ""))
-                .font(.caption).foregroundColor(Mono.textFaint).monospacedDigit()
+              meetingStateLine(item)
             }
             Spacer()
-            if item.hasTranscript {
-              Button("Transcript") { meeting.openTranscript(item) }
-            } else {
-              Button("Transcribe") { meeting.transcribeAgain(item) }
-                .disabled(meeting.isRecording || meeting.isTranscribing)
+            Button(item.hasTranscript ? "Open" : meeting.state(item.id) == .idle ? "Transcribe" : "View") {
+              if !item.hasTranscript, meeting.state(item.id) == .idle { meeting.enqueue(item.id) }
+              meeting.openMeetingID = item.id
             }
             Button { meeting.reveal(item) } label: { Image(systemName: "folder") }
               .help("Show in Finder")
@@ -449,6 +471,24 @@ struct DashboardView: View {
       }
     }
     .onAppear { meeting.refreshRecordings() }
+  }
+
+  @ViewBuilder
+  private func meetingStateLine(_ item: MeetingRecorder.MeetingItem) -> some View {
+    let base = durationLabel(item.duration) + (item.hasTranscript ? "  ·  transcribed" : "")
+    switch meeting.state(item.id) {
+    case .idle:
+      Text(base).font(.caption).foregroundColor(Mono.textFaint).monospacedDigit()
+    case .queued:
+      Text(base + "  ·  queued").font(.caption).foregroundColor(Mono.textDim).monospacedDigit()
+    case let .running(step):
+      HStack(spacing: 6) {
+        ProgressView().controlSize(.mini)
+        Text(step).font(.caption).foregroundColor(Mono.textDim).monospacedDigit()
+      }
+    case let .failed(error):
+      Text(error).font(.caption).foregroundColor(Color(hex: 0xFF453A)).lineLimit(2)
+    }
   }
 
   private func levelMeter(_ label: String, _ level: Float) -> some View {
@@ -591,7 +631,7 @@ struct DashboardView: View {
             .foregroundColor(Mono.text)
           Text(isGemma
                ? "Best results, including Hindi and Hinglish."
-               : spec.kind == .llm
+               : spec.kind == .llm || spec.kind == .mlx
                ? "Smallest and fastest. Lighter edits."
                : spec.note)
             .font(.system(size: 11)).foregroundColor(Mono.textDim)
@@ -605,7 +645,7 @@ struct DashboardView: View {
             if isGemma, let mlx { models.cancel(mlx) }
           }.font(.system(size: 11))
         } else if installed {
-          if spec.kind == .llm || isGemma {
+          if spec.kind == .llm || spec.kind == .mlx || isGemma {
             Button {
               models.delete(spec)
               if isGemma, let mlx { models.delete(mlx) }
@@ -614,7 +654,7 @@ struct DashboardView: View {
           }
         } else if isGemma, let mlx {
           Button("Get · \(mlx.sizeLabel)") { models.download(mlx) }.font(.system(size: 12))
-        } else if spec.kind == .llm || spec.textCapable {
+        } else if spec.kind == .llm || spec.kind == .mlx || spec.textCapable {
           Button("Get · \(spec.sizeLabel)") { models.download(spec) }.font(.system(size: 12))
         } else {
           Text("Get it under Models").font(.system(size: 11)).foregroundColor(Mono.textFaint)
@@ -825,7 +865,7 @@ struct DashboardView: View {
 
   private var permissionCard: some View {
     section("Permission needed") {
-      Text("Scribe needs Accessibility to notice the hold key and type into other apps.")
+      Text("Bolkit needs Accessibility to notice the hold key and type into other apps.")
         .font(.system(size: 13))
         .foregroundColor(Mono.text)
       Button("Grant Accessibility…") {
@@ -839,7 +879,7 @@ struct DashboardView: View {
 
   private var vocabularyCard: some View {
     section("Vocabulary") {
-      Text("Names, brands and jargon Scribe should spell right. One per line.")
+      Text("Names, brands and jargon Bolkit should spell right. One per line.")
         .font(.caption).foregroundColor(Mono.textDim)
       TextEditor(text: $settings.vocabulary)
         .font(.system(size: 12, design: .monospaced))

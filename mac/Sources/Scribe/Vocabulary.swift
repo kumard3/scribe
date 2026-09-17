@@ -5,7 +5,7 @@ import Foundation
 enum Vocabulary {
   /// Apple's recognizer hears the product's own name as "Chris" with nothing to bias it.
   static let base = [
-    "Scribe", "Gemma", "E2B", "E4B", "chunking", "on-device",
+    "Bolkit", "Gemma", "E2B", "E4B", "chunking", "on-device",
     "whisper.cpp", "Hinglish", "Oriserve", "Apex", "Swift",
   ]
 
@@ -54,8 +54,53 @@ enum Vocabulary {
     return list.joined(separator: ", ")
   }
 
-  /// Removes a run of 4+ vocabulary words in a row, the shape of a model reciting its prompt.
+  private static let instructionStems: [String] = contentWords(
+    ModelCatalog.transcribeInstruction + " " + ModelCatalog.hinglishInstruction + " The audio is in. Write the transcript in."
+  )
+
+  private static func contentWords(_ s: String) -> [String] {
+    s.lowercased().split { !$0.isLetter }.map(String.init).filter { $0.count >= 3 }
+  }
+
+  /// "transcribing" matches "transcribe", "mix" matches "mixes".
+  private static func sameStem(_ a: String, _ b: String) -> Bool {
+    let shorter = min(a.count, b.count)
+    return zip(a, b).prefix { $0 == $1 }.count >= min(5, shorter)
+  }
+
+  // Gemma drops its "Transcribe this audio verbatim" ask mid-sentence on quiet audio. A plain "transcribe this"
+  // is only cut when it can't be speech: capitalised mid-line, before a capitalised word, or ending the text.
+  private static let instructionPhrases = try! NSRegularExpression(pattern: [
+    #"(?i:\s*\btranscrib\w*\s+this\s+(audio\s+)?verbatim\b\.?)"#,
+    #"(?i:\s*\btranscrib\w*\s+this\s+audio\b\.?)"#,
+    #"(?<=\S)\s+Transcribe this\b\.?"#,
+    #"(?i:\s*\btranscribe this\b\.?)(?=\s+[A-Z])"#,
+    #"(?i:\s*\btranscribe this\.?\s*$)"#,
+  ].joined(separator: "|"))
+
+  /// Removes what a model recites from its prompt instead of transcribing: a run of 4+
+  /// vocabulary words, the instruction phrase, or a sentence made of the instruction's own words.
   static func stripPromptEcho(_ text: String) -> String {
+    let vocab = stripVocabularyRun(text)
+    let stripped = instructionPhrases
+      .stringByReplacingMatches(in: vocab, range: NSRange(vocab.startIndex..., in: vocab), withTemplate: "")
+    // What an echo leaves behind ("Uh", "I am a") is not speech.
+    if stripped != vocab, contentWords(stripped).isEmpty { return "" }
+    return stripped
+      .split(separator: ".", omittingEmptySubsequences: false)
+      .filter { sentence in
+        let words = contentWords(String(sentence))
+        guard words.count >= 4,
+              words.contains(where: { w in ["transcrib", "verbatim", "devanagari", "commentar", "timestamp", "mix"].contains { w.hasPrefix($0) } })
+        else { return true }
+        let echoed = words.filter { w in instructionStems.contains { sameStem(w, $0) } }.count
+        return Double(echoed) / Double(words.count) < 0.75
+      }
+      .joined(separator: ".")
+      .trimmingCharacters(in: .whitespaces)
+  }
+
+  private static func stripVocabularyRun(_ text: String) -> String {
     let known = Set(biasTerms.flatMap { $0.lowercased().split(separator: " ").map(String.init) })
     let words = text.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
     let key = { (w: String) in w.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ",.;:")) }
@@ -107,13 +152,32 @@ enum Vocabulary {
     assert(isLearnable(heard: "foo", corrected: "") == false)
     // Too long to be a vocabulary term, that is a rewrite not a correction.
     assert(isLearnable(heard: "a", corrected: "one two three four") == false)
-    assert(biasTerms.contains("Scribe"))
+    assert(biasTerms.contains("Bolkit"))
     assert(biasTerms.contains("E2B"))
     assert(biasTerms.contains("Hinglish"))
-    assert(biasTerms.filter { $0.lowercased() == "scribe" }.count == 1)
-    let leak = "Scribe Gemma E2B E4B chunking on-device whisper.cpp Hinglish Oriserve Apex Swift Are bhai mast kar diya"
+    assert(biasTerms.filter { $0.lowercased() == "bolkit" }.count == 1)
+    let leak = "Bolkit Gemma E2B E4B chunking on-device whisper.cpp Hinglish Oriserve Apex Swift Are bhai mast kar diya"
     assert(stripPromptEcho(leak) == "Are bhai mast kar diya", stripPromptEcho(leak))
     assert(stripPromptEcho("I tested Gemma E2B chunking today") == "I tested Gemma E2B chunking today")
+    for echo in ["Uh Transcribe this audio verbatim.", "I am a transcribing this audio verbatim.",
+                 "The sound is a mix of Hindi and English.", "Uh Transcribe this verbatim.", "um transcribe this"] {
+      precondition(stripPromptEcho(echo).isEmpty, "echo kept: \(stripPromptEcho(echo))")
+    }
+    precondition(stripPromptEcho("Hey sir this stupid. Transcribe this audio verbatim.") == "Hey sir this stupid.")
+    precondition(stripPromptEcho("Bhai kal client ko audio file bhej dena") == "Bhai kal client ko audio file bhej dena")
+    precondition(stripPromptEcho("The speaker never spoke English.") == "The speaker never spoke English.")
+    let heard: [(String, String)] = [
+      ("Hmm Transcribe this audio verbatim", "Hmm"),
+      ("OK", "OK"),
+      ("They are some Transcribe this audio verbatim.", "They are some"),
+      ("I'm already done with my GST from Transcribe this audio", "I'm already done with my GST from"),
+      ("Five percent Transcribe this Ah yes that's what it says", "Five percent Ah yes that's what it says"),
+      ("just need a review um transcribe this Okay so", "just need a review um Okay so"),
+      ("Can you transcribe this recording for me", "Can you transcribe this recording for me"),
+    ]
+    for (input, want) in heard {
+      precondition(stripPromptEcho(input) == want, "\(input) -> \(stripPromptEcho(input))")
+    }
     print("Vocabulary selftest ok")
   }
 }

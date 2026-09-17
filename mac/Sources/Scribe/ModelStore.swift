@@ -50,10 +50,11 @@ final class ModelStore: NSObject, ObservableObject {
         installed = Self.ggufFile(in: dir) != nil
       case .mlx:
         installed = Self.mlxInstalled(spec)
+        if let stale = Self.ggufFile(in: dir) { try? FileManager.default.removeItem(at: stale) }
       case .qwenAsr:
-        if spec.id == ModelCatalog.gemmaAsrId,
-           let mlx = ModelCatalog.spec(ModelCatalog.mlxId), Self.mlxInstalled(mlx) {
-          installed = true
+        if spec.id == ModelCatalog.gemmaAsrId {
+          installed = MLXRuntime.isAvailable
+          if installed { try? FileManager.default.removeItem(at: dir) }
         } else {
           let fm = FileManager.default
           installed = fm.fileExists(atPath: dir.appendingPathComponent(spec.fileName).path)

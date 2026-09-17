@@ -9,7 +9,7 @@ final class LLMEngine {
   // CPU is intentional for the 0.5B model. Current llama.cpp Metal residency
   // sets can assert during backend teardown, which would terminate Scribe.
   // The tiny model remains comfortably real-time without GPU offload.
-  init?(modelPath: String, nCtx: Int32 = 2048, nGpuLayers: Int32 = 0) {
+  init?(modelPath: String, nCtx: Int32 = 8192, nGpuLayers: Int32 = 0) {
     guard let h = cllama_load(modelPath, nCtx, nGpuLayers) else { return nil }
     handle = h
   }
@@ -35,14 +35,14 @@ final class LLMRuntime: @unchecked Sendable {
     "- Hindi/English mix or romanized Hindi → WhatsApp Hinglish. No Devanagari.\n" +
     "- Keep the same mix as the input.\n\n" +
     "Rules:\n" +
-    "- Keep English words in English spelling (office, client, call, Scribe, Gemma, chunking).\n" +
+    "- Keep English words in English spelling (office, client, call, Bolkit, Gemma, chunking).\n" +
     "- Add punctuation. Remove fillers only: um, uh, you know, like (when empty).\n" +
     "- Do not add facts. If a word is unclear, keep the ASR token.\n" +
     "- Prefer HOTWORDS spelling when the audio/text is close.\n" +
     "- Output only the cleaned transcript, nothing else."
 
   static func chunkCleanupInstruction(previous: String, hotwords: [String]) -> String {
-    let terms = hotwords.isEmpty ? "Scribe" : hotwords.joined(separator: ", ")
+    let terms = hotwords.isEmpty ? "Bolkit" : hotwords.joined(separator: ", ")
     let prev = previous.trimmingCharacters(in: .whitespacesAndNewlines)
     return cleanupInstruction + "\n\nHOTWORDS:\n\(terms)\n\n" +
       "PREVIOUS:\n\(prev.isEmpty ? "(none)" : prev)\n\n" +
@@ -81,9 +81,9 @@ final class LLMRuntime: @unchecked Sendable {
     return e
   }
 
-  /// Where cleanup runs: MLX on Apple Silicon, a downloaded GGUF, or Ollama.
+  /// Where cleanup runs: MLX whenever the model has an MLX build, llama.cpp for GGUF-only models, or Ollama.
   enum Backend {
-    case mlx
+    case mlx(ModelSpec)
     case local(path: String)
     case ollama(model: String)
   }
@@ -95,16 +95,15 @@ final class LLMRuntime: @unchecked Sendable {
       return settings.ollamaModel.isEmpty ? nil : .ollama(model: settings.ollamaModel)
     }
     let selected = settings.cleanupModelId
-    let wantsGemma = selected == ModelCatalog.gemmaAsrId
-      || selected == ModelCatalog.mlxId
-    if wantsGemma, MLXRuntime.isAvailable {
-      return .mlx
+    let gemmaMlx = ModelCatalog.spec(ModelCatalog.mlxId)
+    if selected == ModelCatalog.gemmaAsrId || selected == ModelCatalog.mlxId {
+      return MLXRuntime.isAvailable ? gemmaMlx.map(Backend.mlx) : nil
     }
-    guard let spec = ModelCatalog.spec(selected),
-          let path = ModelStore.llmPath(for: spec) else {
-      return MLXRuntime.isAvailable ? .mlx : nil
+    if let spec = ModelCatalog.spec(selected) {
+      if spec.kind == .mlx, ModelStore.mlxInstalled(spec) { return .mlx(spec) }
+      if let path = ModelStore.llmPath(for: spec) { return .local(path: path) }
     }
-    return .local(path: path)
+    return MLXRuntime.isAvailable ? gemmaMlx.map(Backend.mlx) : nil
   }
 
   static var isAvailable: Bool { backend != nil }
@@ -116,9 +115,9 @@ final class LLMRuntime: @unchecked Sendable {
     switch Self.backend {
     case .none:
       DispatchQueue.main.async { completion(nil) }
-    case .mlx:
+    case let .mlx(spec):
       MLXRuntime.shared.process(
-        instruction: instruction, text: text, maxTokens: maxTokens, completion: completion)
+        spec: spec, instruction: instruction, text: text, maxTokens: maxTokens, completion: completion)
     case let .ollama(model):
       OllamaRuntime.chat(model: model, instruction: instruction, text: text,
                          maxTokens: Int(maxTokens), completion: completion)

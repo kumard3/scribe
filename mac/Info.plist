@@ -3,15 +3,15 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>
-  <string>Scribe</string>
+  <string>Bolkit</string>
   <key>CFBundleDisplayName</key>
-  <string>Scribe</string>
+  <string>Bolkit</string>
   <key>CFBundleIdentifier</key>
   <string>ai.scribe.mac</string>
   <key>CFBundleVersion</key>
-  <string>2</string>
+  <string>3</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.3.0</string>
+  <string>1.3.1</string>
   <key>CFBundleExecutable</key>
   <string>Scribe</string>
   <key>CFBundleIconFile</key>
@@ -23,11 +23,11 @@
   <key>LSUIElement</key>
   <true/>
   <key>NSAudioCaptureUsageDescription</key>
-  <string>Scribe records meeting audio playing on this Mac so it can transcribe the call on-device.</string>
+  <string>Bolkit records meeting audio playing on this Mac so it can transcribe the call on-device.</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Scribe transcribes your voice into text on-device.</string>
+  <string>Bolkit transcribes your voice into text on-device.</string>
   <key>NSSpeechRecognitionUsageDescription</key>
-  <string>Scribe uses on-device speech recognition to turn your voice into text.</string>
+  <string>Bolkit uses on-device speech recognition to turn your voice into text.</string>
   <key>NSHighResolutionCapable</key>
   <true/>
   <key>SUFeedURL</key>

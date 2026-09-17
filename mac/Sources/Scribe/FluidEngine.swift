@@ -38,3 +38,29 @@ actor FluidEngine {
     return engine
   }
 }
+
+/// NVIDIA Sortformer v2.1, offline CoreML model from FluidAudio: diarizes a whole recording in
+/// overlapping 30 s windows with 4 speaker slots, stitched to consistent IDs. Blocking.
+enum SortformerMeeting {
+  static let maxSpeakers = 4
+
+  static func diarize(samples: [Float]) -> [SpeakerSegment]? {
+    let done = DispatchSemaphore(value: 0)
+    var out: [SpeakerSegment]?
+    Task.detached {
+      do {
+        let diarizer = OfflineSortformerDiarizer(config: .offlineV2_1, timelineConfig: .sortformerDefault)
+        try await diarizer.initializeFromHuggingFace()
+        let timeline = try diarizer.processComplete(samples)
+        out = timeline.speakers.values.flatMap(\.finalizedSegments)
+          .map { SpeakerSegment(start: Double($0.startTime), end: Double($0.endTime), speaker: $0.speakerIndex) }
+          .sorted { $0.start < $1.start }
+      } catch {
+        dlog("sortformer: \(error.localizedDescription)")
+      }
+      done.signal()
+    }
+    done.wait()
+    return out
+  }
+}

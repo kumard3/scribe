@@ -76,7 +76,7 @@ private struct WelcomeStep: View {
   var body: some View {
     VStack(spacing: 18) {
       LogoMark(size: 76)
-      Text("Welcome to Scribe")
+      Text("Welcome to Bolkit")
         .font(.system(size: 28, weight: .bold))
         .foregroundColor(.white)
       Text("Hold a key, speak, release, your words land in any app.\nEverything is transcribed on this Mac.")
@@ -113,7 +113,7 @@ private struct PermissionsStep: View {
       Text("Permissions")
         .font(.system(size: 24, weight: .bold))
         .foregroundColor(.white)
-      Text("Scribe needs three things to work everywhere.")
+      Text("Bolkit needs three things to work everywhere.")
         .font(.system(size: 13))
         .foregroundColor(OMono.dim)
 

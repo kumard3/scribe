@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build Scribe.app (menu-bar dictation agent) from the SPM executable.
+# Build Bolkit.app (menu-bar dictation agent) from the SPM executable.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -124,7 +124,7 @@ elif [ "$WHISPER_STALE" = "1" ]; then
   install_name_tool -add_rpath @executable_path "$WHISPER_CLI"
 fi
 
-echo "Building Scribe ($CONFIG, $SCRIBE_ARCHS)…"
+echo "Building Bolkit ($CONFIG, $SCRIBE_ARCHS)…"
 swift build -c "$CONFIG" "${SWIFT_ARCH_FLAGS[@]}" "${JOB_FLAG[@]}"
 
 case "$CONFIG" in
@@ -135,12 +135,16 @@ esac
 # A single --arch does not land in .build/apple/Products, so ask SPM directly.
 PRODUCTS="$(swift build -c "$CONFIG" "${SWIFT_ARCH_FLAGS[@]}" "${JOB_FLAG[@]}" --show-bin-path)"
 BIN="$PRODUCTS/Scribe"
-APP="Scribe.app"
+APP="Bolkit.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" \
   "$APP/Contents/Frameworks" "$APP/Contents/Helpers/Whisper"
 cp "$BIN" "$APP/Contents/MacOS/Scribe"
 ditto "$PRODUCTS/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
+# SwiftPM resource bundles (MLX's compiled Metal shaders, tokenizer fallbacks); MLX aborts without its metallib.
+for bundle in "$PRODUCTS"/*.bundle; do
+  ditto "$bundle" "$APP/Contents/Resources/$(basename "$bundle")"
+done
 cp Info.plist "$APP/Contents/Info.plist"
 cp .deps/silero_vad.onnx "$APP/Contents/Resources/silero_vad.onnx"
 cp "$SHERPA_DIR/lib/libsherpa-onnx-c-api.dylib" "$APP/Contents/Frameworks/"
@@ -152,13 +156,13 @@ if [ -x "$WHISPER_CLI" ]; then
   cp "$WHISPER_SRC/LICENSE" "$APP/Contents/Resources/whisper.cpp-LICENSE"
 fi
 
-# App icon from the mobile app's icon.png
-if [ -f ../assets/icon.png ] && [ ! -f Scribe.icns ]; then
+# App icon from the macOS Bolkit mark
+if [ -f ../marketing/logo/bolkit-mac-icon-1024.png ] && [ ! -f Scribe.icns ]; then
   ICONSET=$(mktemp -d)/Scribe.iconset
   mkdir -p "$ICONSET"
   for s in 16 32 128 256 512; do
-    sips -z $s $s ../assets/icon.png --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
-    sips -z $((s*2)) $((s*2)) ../assets/icon.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
+    sips -z $s $s ../marketing/logo/bolkit-mac-icon-1024.png --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
+    sips -z $((s*2)) $((s*2)) ../marketing/logo/bolkit-mac-icon-1024.png --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
   done
   iconutil -c icns "$ICONSET" -o Scribe.icns
 fi

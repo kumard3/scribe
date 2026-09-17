@@ -53,21 +53,21 @@ jobs:
       - name: Verify Developer ID and hardened runtime
         shell: bash
         run: |
-          codesign --verify --deep --strict --verbose=2 mac/Scribe.app
-          codesign -dv --verbose=4 mac/Scribe.app 2>&1 | grep "Developer ID Application"
-          codesign -dv --verbose=4 mac/Scribe.app 2>&1 | grep "runtime"
-          codesign -d --entitlements - mac/Scribe.app 2>&1 | grep "com.apple.security.device.audio-input"
+          codesign --verify --deep --strict --verbose=2 mac/Bolkit.app
+          codesign -dv --verbose=4 mac/Bolkit.app 2>&1 | grep "Developer ID Application"
+          codesign -dv --verbose=4 mac/Bolkit.app 2>&1 | grep "runtime"
+          codesign -d --entitlements - mac/Bolkit.app 2>&1 | grep "com.apple.security.device.audio-input"
 
       - name: Notarize and staple
         shell: bash
         run: |
           mkdir -p dist
-          ditto -c -k --keepParent mac/Scribe.app dist/Scribe-notarization.zip
-          xcrun notarytool submit dist/Scribe-notarization.zip \
+          ditto -c -k --keepParent mac/Bolkit.app dist/Bolkit-notarization.zip
+          xcrun notarytool submit dist/Bolkit-notarization.zip \
             --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
-          xcrun stapler staple mac/Scribe.app
-          xcrun stapler validate mac/Scribe.app
+          xcrun stapler staple mac/Bolkit.app
+          xcrun stapler validate mac/Bolkit.app
 
       - name: Create signed Sparkle feed
         env:
@@ -75,8 +75,8 @@ jobs:
         shell: bash
         run: |
           VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" mac/Info.plist)
-          rm -f dist/Scribe-notarization.zip
-          ditto -c -k --keepParent mac/Scribe.app "dist/Scribe-macOS-${VERSION}.zip"
+          rm -f dist/Bolkit-notarization.zip
+          ditto -c -k --keepParent mac/Bolkit.app "dist/Bolkit-macOS-${VERSION}.zip"
           gh release download scribe-macos-updates --pattern appcast.xml \
             --dir dist --repo "$GITHUB_REPOSITORY" || true
           printf '%s' "$SPARKLE_PRIVATE_KEY" | \
@@ -96,9 +96,9 @@ jobs:
         shell: bash
         run: |
           gh release create "$GITHUB_REF_NAME" \
-            dist/Scribe-macOS-*.zip dist/appcast.xml \
+            dist/Bolkit-macOS-*.zip dist/appcast.xml \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Scribe $GITHUB_REF_NAME" \
+            --title "Bolkit $GITHUB_REF_NAME" \
             --generate-notes
           if gh release view scribe-macos-updates --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload scribe-macos-updates dist/appcast.xml \
@@ -106,7 +106,7 @@ jobs:
           else
             gh release create scribe-macos-updates dist/appcast.xml \
               --repo "$GITHUB_REPOSITORY" \
-              --title "Scribe macOS update feed" \
+              --title "Bolkit macOS update feed" \
               --notes "Stable Sparkle update feed. Managed by release automation." \
               --latest=false
           fi

@@ -130,6 +130,15 @@ static char *generate_raw(cllama_ctx *h, const char *prompt, int max_tokens,
     return NULL;
   }
 
+  // Each call is a fresh chat, and llama_decode aborts (not errors) on a batch past n_batch.
+  llama_memory_clear(llama_get_memory(h->ctx), true);
+  const int n_ctx = (int)llama_n_ctx(h->ctx);
+  if (n_prompt >= n_ctx) {
+    free(tokens);
+    return NULL;
+  }
+  if (max_tokens > n_ctx - n_prompt) max_tokens = n_ctx - n_prompt;
+
   // Sampler chain: greedy when temperature<=0, else top-k/top-p/temp/dist.
   struct llama_sampler *smpl =
       llama_sampler_chain_init(llama_sampler_chain_default_params());

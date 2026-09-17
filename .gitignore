@@ -59,6 +59,7 @@ android/keystore.properties
 mac/.build
 mac/.deps
 mac/Scribe.app
+mac/Bolkit.app
 
 # windows app build artifacts
 windows/Scribe/bin/

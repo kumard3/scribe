@@ -6,6 +6,9 @@ import CSherpa
 import CLlama
 import Speech
 import Darwin
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 /// Headless test hooks: `Scribe --transcribe file.wav <model-id>` (sherpa) and
 /// `Scribe --apple-transcribe file.wav <locale>` print the transcript and exit
@@ -39,6 +42,8 @@ enum DebugCLI {
     runOllamaTestIfRequested()
     runAppleStreamIfRequested()
     runAppleIfRequested()
+    runTranscribeBatchIfRequested()
+    runCleanupCompareIfRequested()
     let args = CommandLine.arguments
     guard let i = args.firstIndex(of: "--transcribe"), args.count > i + 2 else { return }
     let wavPath = args[i + 1]
@@ -78,6 +83,105 @@ enum DebugCLI {
     exit(text.isEmpty ? 1 : 0)
   }
 
+  /// `Scribe --transcribe-batch <list.txt> <model-id>`: loads the model once and prints one
+  /// JSON string per WAV listed, in order and as each finishes (the parent counts lines for progress).
+  private static func runTranscribeBatchIfRequested() {
+    let args = CommandLine.arguments
+    guard let i = args.firstIndex(of: "--transcribe-batch"), args.count > i + 2,
+          let spec = ModelCatalog.spec(args[i + 2]),
+          let list = try? String(contentsOfFile: args[i + 1], encoding: .utf8) else { return }
+    guard let engine = SherpaEngine(
+      spec: spec,
+      language: argument(after: "--language") ?? Settings.shared.language,
+      provider: argument(after: "--provider") ?? Settings.shared.sherpaProvider(for: spec),
+    ) else {
+      FileHandle.standardError.write("model load failed for \(spec.id)\n".data(using: .utf8)!)
+      exit(3)
+    }
+    setvbuf(stdout, nil, _IOLBF, 0)
+    for path in list.split(separator: "\n") {
+      var text = ""
+      if let wave = SherpaOnnxReadWave(String(path)) {
+        let samples = [Float](UnsafeBufferPointer(start: wave.pointee.samples, count: Int(wave.pointee.num_samples)))
+        let rate = Int(wave.pointee.sample_rate)
+        if spec.live {
+          engine.startStream()
+          _ = engine.feed(samples, sampleRate: rate)
+          text = engine.finishStream(sampleRate: rate)
+        } else {
+          text = engine.transcribe(samples, sampleRate: rate)
+        }
+        SherpaOnnxFreeWave(wave)
+      }
+      let line = (try? JSONEncoder().encode(text)).flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+      print(line)
+    }
+    exit(0)
+  }
+
+  /// `Scribe --cleanup-compare <samples.jsonl> <out.jsonl>`: each JSON-string line goes through the
+  /// selected AI Cleanup model and Apple's on-device model with the dictation cleanup instruction,
+  /// timed and judged by the same TranscriptCleanupValidator dictation uses.
+  private static func runCleanupCompareIfRequested() {
+    let args = CommandLine.arguments
+    guard let i = args.firstIndex(of: "--cleanup-compare"), args.count > i + 2,
+          let input = try? String(contentsOfFile: args[i + 1], encoding: .utf8) else { return }
+    let samples = input.split(separator: "\n").compactMap { try? JSONDecoder().decode(String.self, from: Data($0.utf8)) }
+    let out = URL(fileURLWithPath: args[i + 2])
+    FileManager.default.createFile(atPath: out.path, contents: nil)
+    var finished = false
+    DispatchQueue.global().async {
+      for (n, raw) in samples.enumerated() {
+        var row: [String: Any] = ["raw": raw]
+        let done = DispatchSemaphore(value: 0)
+        var local: String?
+        var start = Date()
+        LLMRuntime.shared.process(instruction: LLMRuntime.cleanupInstruction, text: raw, maxTokens: 1024) {
+          local = $0
+          done.signal()
+        }
+        done.wait()
+        row["local_ms"] = Int(Date().timeIntervalSince(start) * 1000)
+        row["local"] = local ?? ""
+        let l = TranscriptCleanupValidator.choose(raw: raw, cleaned: local)
+        row["local_ok"] = l.accepted
+        row["local_reason"] = l.reason
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *), SystemLanguageModel.default.availability == .available {
+          var apple: String?
+          var failure = ""
+          start = Date()
+          Task.detached {
+            do {
+              let session = LanguageModelSession(instructions: LLMRuntime.cleanupInstruction)
+              apple = try await session.respond(to: raw, options: GenerationOptions(temperature: 0.2)).content
+            } catch {
+              failure = String(describing: error)
+            }
+            done.signal()
+          }
+          done.wait()
+          row["apple_ms"] = Int(Date().timeIntervalSince(start) * 1000)
+          row["apple"] = apple ?? ""
+          row["apple_error"] = String(failure.prefix(200))
+          let a = TranscriptCleanupValidator.choose(raw: raw, cleaned: apple)
+          row["apple_ok"] = a.accepted
+          row["apple_reason"] = a.reason
+        }
+        #endif
+        if let data = try? JSONSerialization.data(withJSONObject: row), let handle = try? FileHandle(forWritingTo: out) {
+          handle.seekToEndOfFile()
+          handle.write(data + Data("\n".utf8))
+          try? handle.close()
+        }
+        FileHandle.standardError.write("cleanup-compare \(n + 1)/\(samples.count)\n".data(using: .utf8)!)
+      }
+      finished = true
+    }
+    while !finished { RunLoop.main.run(until: Date().addingTimeInterval(0.2)) }
+    exit(0)
+  }
+
   /// `Scribe --llm-test model.gguf`, release memory/format benchmark hook.
   private static func runLLMTestIfRequested() {
     guard let path = argument(after: "--llm-test") else { return }
@@ -91,7 +195,14 @@ enum DebugCLI {
       maxTokens: 80, temperature: 0.2
     ).trimmingCharacters(in: .whitespacesAndNewlines)
     print(result)
-    exit(result.isEmpty ? 1 : 0)
+    let line = "Speaker 2: haan Jordan bhai kal client call pe pricing discuss karna hai, deck ready rakhna. "
+    let meeting = engine.chat(
+      system: MeetingPipeline.summaryInstruction, user: String(repeating: line, count: 80),
+      maxTokens: 200, temperature: 0.2
+    )
+    print("long prompt (\(line.count * 80) chars): \(meeting.prefix(200))")
+    let tooLong = engine.chat(system: "", user: String(repeating: line, count: 900), maxTokens: 20, temperature: 0.2)
+    exit(result.isEmpty || meeting.isEmpty || !tooLong.isEmpty ? 1 : 0)
   }
 
   /// `Scribe --ollama-test [model]`, checks the server is reachable and that a
@@ -608,6 +719,25 @@ private func runRenderDashboardIfRequested() {
     host.cacheDisplay(in: host.bounds, to: rep)
     try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("\(tab.rawValue).png"))
   }
+  let recordings = MeetingRecorder.shared.recordings
+  var shots = recordings.first(where: \.hasTranscript).map { m in MeetingDetailView.Mode.allCases.map { (m.id, $0, $0.rawValue) } } ?? []
+  if let pending = recordings.first(where: { !$0.hasTranscript }) {
+    MeetingRecorder.shared.enqueue(pending.id)
+    shots.append((pending.id, .transcript, "queued"))
+  }
+  do {
+    for (meetingDir, mode, name) in shots {
+      let host = NSHostingView(rootView: ScrollView { MeetingDetailView(dir: meetingDir, mode: mode).padding(28) }
+        .background(Color.black).environment(\.colorScheme, .dark))
+      host.frame = NSRect(x: 0, y: 0, width: 760, height: 700)
+      let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+      window.contentView = host
+      RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+      guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { continue }
+      host.cacheDisplay(in: host.bounds, to: rep)
+      try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("meeting-\(name).png"))
+    }
+  }
   UserDefaults.standard.set(DashboardView.Tab.home.rawValue, forKey: "dashboardTab")
   if let screen = NSScreen.main {
     let layout = NotchLayout(screen: screen)
@@ -650,6 +780,7 @@ private func runMeetingProcessIfRequested() {
   }
   while output == nil { RunLoop.main.run(until: Date().addingTimeInterval(0.2)) }
   let out = output!
+  if !out.turns.isEmpty { MeetingDetail(out).save(to: dir) }
   print("NAMES: \(out.names.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" })")
   print("TRANSCRIPT:\n" + MeetingPipeline.text(out.turns, names: out.names))
   print("SUMMARY:\n" + (out.summary ?? "(none)"))
