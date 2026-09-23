@@ -57,6 +57,8 @@ import {
 } from '../asr/settings';
 import { polish } from '../util/polish';
 import { addHistory } from '../history';
+import { saveMeeting, listMeetings } from '../meetings';
+import { MeetingsModal } from './MeetingsModal';
 import { deleteFileSafe } from '../util/files';
 import type { LanguageCode } from '../asr/types';
 
@@ -80,6 +82,8 @@ function fmtTime(sec: number): string {
 
 export function RecordScreen({ language, recordModel, onPickModel, onSaved, onBusyChange }: Props) {
   const [phase, setPhase] = useState<Phase>('idle');
+  const [meetingsOpen, setMeetingsOpen] = useState(false);
+  const [savedCount, setSavedCount] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [paused, setPaused] = useState(false);
   const [levels, setLevels] = useState<number[]>(IDLE);
@@ -125,7 +129,8 @@ export function RecordScreen({ language, recordModel, onPickModel, onSaved, onBu
 
   useEffect(() => {
     onBusyChange?.(phase === 'recording' || phase === 'processing');
-  }, [phase, onBusyChange]);
+    if (phase === 'idle' && !meetingsOpen) setSavedCount(listMeetings().length);
+  }, [phase, onBusyChange, meetingsOpen]);
 
   const reset = useCallback(() => {
     setPhase('idle');
@@ -256,6 +261,14 @@ export function RecordScreen({ language, recordModel, onPickModel, onSaved, onBu
       setPhase('done');
 
       addHistory({ text: full, language, translated: false });
+      saveMeeting({
+        transcript: baseText,
+        turns: result,
+        language,
+        durationSec: (Date.now() - startedAt.current - pausedAccum.current) / 1000,
+        audioUri: uri,
+      });
+      uri = null;
       onSaved?.();
     } catch (e: any) {
       setError(e?.message ?? String(e));
@@ -441,6 +454,7 @@ export function RecordScreen({ language, recordModel, onPickModel, onSaved, onBu
 
   return (
     <View style={styles.fill}>
+      <MeetingsModal visible={meetingsOpen} onClose={() => setMeetingsOpen(false)} />
       <View style={styles.center}>
         <Text style={styles.bigTitle}>Record</Text>
         <Text style={styles.sub}>
@@ -449,6 +463,12 @@ export function RecordScreen({ language, recordModel, onPickModel, onSaved, onBu
         {recorderBackgroundCapable && (
           <Text style={styles.subFaint}>Keeps recording in the background.</Text>
         )}
+        <Pressable style={styles.meetingsLink} onPress={() => setMeetingsOpen(true)} hitSlop={8}>
+          <Ionicons name="albums-outline" size={15} color={theme.textDim} />
+          <Text style={styles.meetingsText}>
+            Saved meetings{savedCount ? ` (${savedCount})` : ''}
+          </Text>
+        </Pressable>
       </View>
 
       <View style={styles.idleDock}>
@@ -523,6 +543,17 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
   bigTitle: { color: theme.text, fontSize: 30, fontWeight: '700' },
   sub: { color: theme.textDim, fontSize: 15, textAlign: 'center', paddingHorizontal: 30, lineHeight: 21 },
+  meetingsLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginTop: 18,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: theme.surfaceAlt,
+  },
+  meetingsText: { color: theme.textDim, fontSize: 13, fontWeight: '600' },
   subFaint: { color: theme.textFaint, fontSize: 13, textAlign: 'center', marginTop: 2 },
 
   recTop: { alignItems: 'center', paddingTop: 24, gap: 6 },

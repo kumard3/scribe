@@ -44,6 +44,14 @@ xcodebuild -workspace "$ROOT/ios/Scribe.xcworkspace" -scheme Scribe -configurati
   "${JOBS_ARG[@]}" \
   -allowProvisioningUpdates DEVELOPMENT_TEAM=$TEAM CODE_SIGN_STYLE=Automatic archive
 
+APP="$OUT/Scribe.xcarchive/Products/Applications/Scribe.app"
+echo "==> Symbol check"
+python3 "$ROOT/scripts/check-app-symbols.py" "$APP"
+
+# iOS 27 SDK apps without a scene manifest trap at launch (rejected 1.0 (9), TN3187).
+plutil -extract UIApplicationSceneManifest raw -o - "$APP/Info.plist" >/dev/null ||
+  { echo "FAIL: no UIApplicationSceneManifest in Info.plist"; exit 1; }
+
 echo "==> Exporting App Store IPA"
 xcodebuild -exportArchive -archivePath "$OUT/Scribe.xcarchive" \
   -exportOptionsPlist "$OUT/ExportOptions.plist" -exportPath "$OUT/export" \
@@ -62,6 +70,9 @@ xcrun altool --validate-app -f "$IPA" -t ios \
   --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
 
 if [ "${1:-}" = "--upload" ]; then
+  BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist")
+  [ -f "$HOME/.cache/bolkit-preflight/$BUILD" ] ||
+    { echo "FAIL: build $BUILD never passed scripts/ios-preflight.sh on a device, refusing to upload"; exit 1; }
   echo "==> Uploading"
   xcrun altool --upload-app -f "$IPA" -t ios \
     --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"

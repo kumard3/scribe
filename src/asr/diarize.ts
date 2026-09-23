@@ -2,6 +2,7 @@ import { Directory, File, Paths, DownloadTask } from 'expo-file-system';
 import { NativeModules } from 'react-native';
 import { listBundledArchives, extractArchive } from 'react-native-sherpa-onnx/extraction';
 import type { TimedUnit } from './types';
+import { speakerName } from '../meetingFormat';
 
 // On-device speaker diarization (who-said-what). Native side calls sherpa-onnx
 // OfflineSpeakerDiarization (pyannote segmentation + speaker embedding +
@@ -200,7 +201,7 @@ function speakerFor(unit: TimedUnit, diar: SpeakerSegment[]): number {
 export type SpeakerTurn = { speaker: number; text: string };
 
 export function speakerLabel(speaker: number): string {
-  return `Speaker ${speaker + 1}`;
+  return speakerName(speaker);
 }
 
 /**
@@ -252,10 +253,7 @@ function collapse(s: string): string {
   return s.replace(/\s+/g, ' ').replace(/\s+([,.!?;:])/g, '$1').trim();
 }
 
-export function turnsToText(turns: SpeakerTurn[]): string {
-  if (turns.length <= 1) return turns[0]?.text ?? '';
-  return turns.map((t) => `${speakerLabel(t.speaker)}: ${t.text}`).join('\n\n');
-}
+export { turnsToText } from '../meetingFormat';
 
 export function speakerCount(diar: SpeakerSegment[]): number {
   return new Set(diar.map((d) => d.speaker)).size;

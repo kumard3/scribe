@@ -57,7 +57,8 @@
           "enableEntitlements": true,
           "forceCxx20": true
         }
-      ]
+      ],
+      "expo-font"
     ]
   }
 }

@@ -5,5 +5,5 @@
   "ios.deploymentTarget": "16.4",
   "ios.forceStaticLinking": "[]",
   "apple.privacyManifestAggregationEnabled": "true",
-  "EXPO_USE_PRECOMPILED_MODULES": "true"
+  "EXPO_USE_PRECOMPILED_MODULES": "false"
 }
