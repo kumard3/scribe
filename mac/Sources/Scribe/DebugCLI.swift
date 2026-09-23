@@ -664,8 +664,8 @@ enum DebugCLI {
   }
 }
 
-/// `open -W -n Scribe.app --args --meeting-capture-test <seconds> <dir>` records the
-/// mic and system audio tracks for N seconds and writes peaks to <dir>/result.txt.
+/// `open -W -n Scribe.app --args --meeting-capture-test <seconds> <dir>` runs the real
+/// MeetingRecorder for N seconds (a normal Meetings folder) and writes levels to <dir>/result.txt.
 /// Launch via `open` so TCC attributes the prompts to Scribe, not the terminal.
 private func runMeetingCaptureTestIfRequested() {
   let args = CommandLine.arguments
@@ -677,27 +677,22 @@ private func runMeetingCaptureTestIfRequested() {
     try? lines.joined(separator: "\n").write(to: dir.appendingPathComponent("result.txt"), atomically: true, encoding: .utf8)
     exit(0)
   }
-  do {
-    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    let mic = try TrackWriter(url: dir.appendingPathComponent("you.caf"))
-    let system = try TrackWriter(url: dir.appendingPathComponent("others.caf"))
-    guard #available(macOS 14.4, *) else { lines.append("unsupported"); return }
-    let tap = SystemAudioTap(writer: system)
-    try tap.start()
-    let engine = AVAudioEngine()
-    let input = engine.inputNode
-    input.installTap(onBus: 0, bufferSize: 4096, format: input.outputFormat(forBus: 0)) { buffer, _ in mic.append(buffer) }
-    try engine.start()
-    lines.append("started")
-    FileManager.default.createFile(atPath: dir.appendingPathComponent("started").path, contents: nil)
-    RunLoop.main.run(until: Date().addingTimeInterval(seconds))
-    input.removeTap(onBus: 0)
-    engine.stop()
-    tap.stop()
-    lines.append("micPeak=\(mic.peak) systemPeak=\(system.peak) tapCallbacks=\(tap.callbacks) tapInputPeak=\(tap.inputPeak) tapFormat=\(tap.formatLabel)")
-  } catch {
-    lines.append("error=\(error.localizedDescription)")
+  try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+  let meeting = MeetingRecorder.shared
+  meeting.start()
+  RunLoop.main.run(until: Date().addingTimeInterval(2))
+  lines.append("recording=\(meeting.isRecording) status=\(DictationManager.shared.status)")
+  guard meeting.isRecording else { return }
+  FileManager.default.createFile(atPath: dir.appendingPathComponent("started").path, contents: nil)
+  var you: Float = 0, others: Float = 0
+  let end = Date().addingTimeInterval(seconds)
+  while Date() < end {
+    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    you = max(you, meeting.youLevel)
+    others = max(others, meeting.othersLevel)
   }
+  meeting.stop()
+  lines.append("youLevelMax=\(you) othersLevelMax=\(others)")
 }
 
 /// `Scribe --render-dashboard <dir>` draws every dashboard tab to <dir>/<tab>.png.

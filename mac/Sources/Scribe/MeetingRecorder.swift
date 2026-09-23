@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import ObjCCatch
 
 /// "Record meeting": the user's mic and everything the Mac plays go to two tracks,
 /// so the transcript can label "You" and "Others" without diarization.
@@ -51,7 +52,8 @@ final class MeetingRecorder: ObservableObject {
   private var startedAt: Date?
   private var timer: Timer?
   private var levelTimer: Timer?
-  private let engine = AVAudioEngine()
+  private var engine = AVAudioEngine()
+  private var configObserver: NSObjectProtocol?
   private var micWriter: TrackWriter?
   private var systemWriter: TrackWriter?
   private var tap: AnyObject?
@@ -123,12 +125,17 @@ final class MeetingRecorder: ObservableObject {
         tap = t
       }
 
-      let input = engine.inputNode
-      input.installTap(onBus: 0, bufferSize: 4096, format: input.outputFormat(forBus: 0)) { buffer, _ in
-        mic.append(buffer)
+      engine = AVAudioEngine()
+      if let error = startMic(mic) { throw MicError(message: error) }
+      configObserver = NotificationCenter.default.addObserver(
+        forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+      ) { [weak self] _ in
+        guard let self, self.isRecording, let mic = self.micWriter else { return }
+        dlog("meeting: audio config change, restarting mic")
+        self.engine.inputNode.removeTap(onBus: 0)
+        self.engine.stop()
+        if let error = self.startMic(mic) { d.status = error }
       }
-      engine.prepare()
-      try engine.start()
 
       micWriter = mic
       systemWriter = system
@@ -154,6 +161,39 @@ final class MeetingRecorder: ObservableObject {
     }
   }
 
+  private struct MicError: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
+  }
+
+  /// installTap raises ObjC exceptions Swift can't catch (a stale or 0-channel format killed the app
+  /// at meeting start), so it runs through ScribeTryCatch with the real hardware format.
+  private func startMic(_ mic: TrackWriter) -> String? {
+    engine.reset()
+    let input = engine.inputNode
+    let hw = input.inputFormat(forBus: 0)
+    dlog("meeting mic hw=\(hw.sampleRate)Hz ch=\(hw.channelCount)")
+    guard hw.sampleRate > 0, hw.channelCount > 0 else {
+      return "Mic unavailable, re-enable Microphone for Bolkit in System Settings."
+    }
+    input.removeTap(onBus: 0)
+    let exception = ScribeTryCatch {
+      input.installTap(onBus: 0, bufferSize: 4096, format: hw) { buffer, _ in mic.append(buffer) }
+      self.engine.prepare()
+    }
+    if let exception {
+      dlog("meeting installTap exception: \(exception.reason ?? "?")")
+      return "Mic error: \(exception.reason ?? exception.name.rawValue)"
+    }
+    do {
+      try engine.start()
+    } catch {
+      dlog("meeting engine.start error: \(error)")
+      return "Audio engine error: \(error.localizedDescription)"
+    }
+    return nil
+  }
+
   func stop() {
     guard isRecording, let dir = folder else { return }
     let heardSystem = (systemWriter?.peak ?? 0) > 0.0005
@@ -172,8 +212,12 @@ final class MeetingRecorder: ObservableObject {
   }
 
   private func teardown() {
+    if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+    configObserver = nil
     engine.inputNode.removeTap(onBus: 0)
     engine.stop()
+    engine.reset()
+    engine = AVAudioEngine()
     if #available(macOS 14.4, *) { (tap as? SystemAudioTap)?.stop() }
     tap = nil
     timer?.invalidate()

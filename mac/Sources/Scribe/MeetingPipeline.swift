@@ -95,21 +95,25 @@ enum MeetingPipeline {
     func report(_ s: String) { DispatchQueue.main.async { progress(s) } }
     let rate = TranscriptionLimits.sampleRate
     let mic = AudioImport.decode(dir.appendingPathComponent("you.caf"))?.samples ?? []
-    let others = AudioImport.decode(dir.appendingPathComponent("others.caf"))?.samples ?? []
-    saveMix(you: mic, others: others, to: dir.appendingPathComponent("meeting.m4a"))
+    let system = AudioImport.decode(dir.appendingPathComponent("others.caf"))?.samples ?? []
+    saveMix(you: mic, others: system, to: dir.appendingPathComponent("meeting.m4a"))
 
     let limit = SileroVAD.maxSegmentSamples(for: spec.kind)
-    let you = suppressEcho(mic: mic, system: others)
+    // Nothing played on the Mac: an in-person conversation, so everyone is on the mic and it gets diarized.
+    let inPerson = !system.contains(where: { abs($0) > 0.001 })
+    let you = inPerson ? [] : suppressEcho(mic: mic, system: system)
+    let others = inPerson ? mic : system
+    let people = inPerson && speakerCount > 0 ? speakerCount + 1 : speakerCount
     var pieces = vadPieces(you, speaker: Self.you, limit: limit)
     var names = [Self.you: "You"]
 
     var othersPieces: [Piece] = []
     if others.contains(where: { abs($0) > 0.001 }) {
       report("Separating speakers…")
-      let sortformer = speakerCount <= SortformerMeeting.maxSpeakers
+      let sortformer = people <= SortformerMeeting.maxSpeakers
         ? SortformerMeeting.diarize(samples: others).flatMap { $0.isEmpty ? nil : $0 } : nil
       let segments = sortformer ?? (SupportModelStore.diarInstalled
-        ? Diarizer.diarize(samples: others, sampleRate: rate, numSpeakers: speakerCount) : [])
+        ? Diarizer.diarize(samples: others, sampleRate: rate, numSpeakers: people) : [])
       dlog("meeting speakers: \(sortformer != nil ? "sortformer" : "pyannote"), \(Set(segments.map(\.speaker)).count) speaker(s), \(segments.count) segment(s)")
       othersPieces = segments.flatMap { seg -> [Piece] in
         let lo = max(0, Int(seg.start * Double(rate))), hi = min(others.count, Int(seg.end * Double(rate)))
@@ -121,7 +125,8 @@ enum MeetingPipeline {
       othersPieces = vadPieces(others, speaker: 1, limit: limit)
     }
     for id in Set(othersPieces.map(\.speaker)) {
-      names[id] = Set(othersPieces.map(\.speaker)).count > 1 ? Diarizer.speakerLabel(id - 1) : "Others"
+      names[id] = Set(othersPieces.map(\.speaker)).count > 1
+        ? Diarizer.speakerLabel(id - 1) : inPerson ? "You" : "Others"
     }
     pieces += othersPieces
     pieces.sort { $0.range.lowerBound < $1.range.lowerBound }

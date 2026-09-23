@@ -398,6 +398,8 @@ struct DashboardView: View {
           Text("Record a call or meeting").font(.system(size: 13, weight: .semibold))
         }
         Spacer()
+        Button("Full screen") { MeetingScreen.shared.show() }
+          .font(.system(size: 12))
         Button(meeting.isRecording ? "Stop" : "Record") { meeting.toggle() }
           .font(.system(size: 12, weight: .semibold))
       }
@@ -407,7 +409,7 @@ struct DashboardView: View {
           levelMeter("Others", meeting.othersLevel)
         }
       }
-      Text("Your mic is saved as You and everything playing on this Mac (Zoom, Meet, Teams) as Others. After you stop, Bolkit transcribes it on this Mac, separates the other speakers, names anyone who says their name, and writes a summary. Your mic picking up the call is removed automatically.")
+      Text("Your mic is saved as You and everything playing on this Mac (Zoom, Meet, Teams) as Others. Talking in person with nothing playing? Bolkit separates everyone on your mic into speakers instead. After you stop, it transcribes on this Mac, names anyone who says their name, and writes a summary. Your mic picking up the call is removed automatically.")
         .font(.caption).foregroundColor(Mono.textDim)
 
       Divider().overlay(Mono.border)
@@ -419,7 +421,7 @@ struct DashboardView: View {
              : "Using your dictation model (\(settings.activeModel.label)).")
           .font(.caption).foregroundColor(Mono.textFaint)
       }
-      Picker("Other people on the call", selection: $settings.diarizeSpeakers) {
+      Picker("Other people on the call or in the room", selection: $settings.diarizeSpeakers) {
         Text("Auto").tag(0)
         ForEach(1...6, id: \.self) { n in Text("\(n)").tag(n) }
       }

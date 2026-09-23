@@ -140,6 +140,9 @@ struct MenuContent: View {
         : "Record meeting") {
         meeting.toggle()
       }
+      Button(meeting.isRecording ? "Show recording full screen" : "Record meeting full screen") {
+        MeetingScreen.shared.show()
+      }
     }
 
     if FileManager.default.fileExists(atPath: DiagnosticAudioStore.latestURL.path) {
