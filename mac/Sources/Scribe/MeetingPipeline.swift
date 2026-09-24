@@ -161,7 +161,7 @@ enum MeetingPipeline {
         turns.append(SpeakerTurn(speaker: p.speaker, text: p.text))
       }
     }
-    turns = turns.map { SpeakerTurn(speaker: $0.speaker, text: AudioImport.clean($0.text, spec: spec)) }
+    turns = turns.map { SpeakerTurn(speaker: $0.speaker, text: Romanizer.normalizeScript(AudioImport.clean($0.text, spec: spec))) }
 
     var summary: String?
     if !turns.isEmpty, MeetingLLM.available {
@@ -184,11 +184,13 @@ enum MeetingPipeline {
     return false
   }
 
-  /// Apple speech when it's on and available, otherwise the dictation model.
+  /// Apple speech (English) when it's on, else Gemma for Hindi/English mixes, else the dictation model.
   static var meetingModel: ModelSpec {
-    Settings.shared.meetingAppleSpeech && appleSpeechAvailable
-      ? ModelCatalog.spec(ModelCatalog.systemId) ?? Settings.shared.activeModel
-      : Settings.shared.activeModel
+    if Settings.shared.meetingAppleSpeech, appleSpeechAvailable, let apple = ModelCatalog.spec(ModelCatalog.systemId) {
+      return apple
+    }
+    if let gemma = ModelCatalog.spec(ModelCatalog.gemmaAsrId), canTranscribe(gemma) { return gemma }
+    return Settings.shared.activeModel
   }
 
   static func canTranscribe(_ spec: ModelSpec) -> Bool {

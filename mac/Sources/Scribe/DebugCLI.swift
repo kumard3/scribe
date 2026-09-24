@@ -747,6 +747,15 @@ private func runRenderDashboardIfRequested() {
     }
     print("notch: hasNotch=\(layout.hasNotch) notchWidth=\(layout.notchWidth) frame=\(layout.frame)")
   }
+  let screenHost = NSHostingView(rootView: MeetingScreenView(meeting: MeetingRecorder.shared) {})
+  screenHost.frame = NSRect(x: 0, y: 0, width: 1440, height: 900)
+  let screenWindow = NSWindow(contentRect: screenHost.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+  screenWindow.contentView = screenHost
+  RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+  if let rep = screenHost.bitmapImageRepForCachingDisplay(in: screenHost.bounds) {
+    screenHost.cacheDisplay(in: screenHost.bounds, to: rep)
+    try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("meeting-screen.png"))
+  }
   exit(0)
 }
 

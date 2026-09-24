@@ -414,11 +414,11 @@ struct DashboardView: View {
 
       Divider().overlay(Mono.border)
       if MeetingPipeline.appleSpeechAvailable {
-        Toggle("Transcribe with Apple speech", isOn: $settings.meetingAppleSpeech)
+        Toggle("Transcribe with Apple speech (English only)", isOn: $settings.meetingAppleSpeech)
           .font(.system(size: 13))
         Text(settings.meetingAppleSpeech
-             ? "Most accurate for English calls. Turn off for Hindi or Hinglish meetings to use your dictation model."
-             : "Using your dictation model (\(settings.activeModel.label)).")
+             ? "English calls only. Hindi and Hinglish come out as wrong English words."
+             : "Using \(MeetingPipeline.meetingModel.label). Handles Hindi, English and a mix of both.")
           .font(.caption).foregroundColor(Mono.textFaint)
       }
       Picker("Other people on the call or in the room", selection: $settings.diarizeSpeakers) {

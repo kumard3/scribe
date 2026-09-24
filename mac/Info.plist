@@ -2,41 +2,41 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key>
-  <string>Bolkit</string>
-  <key>CFBundleDisplayName</key>
-  <string>Bolkit</string>
-  <key>CFBundleIdentifier</key>
-  <string>ai.scribe.mac</string>
-  <key>CFBundleVersion</key>
-  <string>3</string>
-  <key>CFBundleShortVersionString</key>
-  <string>1.3.1</string>
-  <key>CFBundleExecutable</key>
-  <string>Scribe</string>
-  <key>CFBundleIconFile</key>
-  <string>Scribe</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>LSMinimumSystemVersion</key>
-  <string>14.0</string>
-  <key>LSUIElement</key>
-  <true/>
-  <key>NSAudioCaptureUsageDescription</key>
-  <string>Bolkit records meeting audio playing on this Mac so it can transcribe the call on-device.</string>
-  <key>NSMicrophoneUsageDescription</key>
-  <string>Bolkit transcribes your voice into text on-device.</string>
-  <key>NSSpeechRecognitionUsageDescription</key>
-  <string>Bolkit uses on-device speech recognition to turn your voice into text.</string>
-  <key>NSHighResolutionCapable</key>
-  <true/>
-  <key>SUFeedURL</key>
-  <string>https://github.com/kumard3/scribe/releases/download/scribe-macos-updates/appcast.xml</string>
-  <key>SUEnableAutomaticChecks</key>
-  <true/>
-  <key>SUAllowsAutomaticUpdates</key>
-  <true/>
-  <key>SUPublicEDKey</key>
-  <string>392y2U3Mwui9AdO4Ze4yCcq3rat3zy71xgwIr2+dygw=</string>
+	<key>CFBundleDisplayName</key>
+	<string>Bolkit</string>
+	<key>CFBundleExecutable</key>
+	<string>Scribe</string>
+	<key>CFBundleIconFile</key>
+	<string>Scribe</string>
+	<key>CFBundleIdentifier</key>
+	<string>ai.scribe.mac</string>
+	<key>CFBundleName</key>
+	<string>Bolkit</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.3.2</string>
+	<key>CFBundleVersion</key>
+	<string>4</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Bolkit records meeting audio playing on this Mac so it can transcribe the call on-device.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Bolkit transcribes your voice into text on-device.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Bolkit uses on-device speech recognition to turn your voice into text.</string>
+	<key>SUAllowsAutomaticUpdates</key>
+	<true/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/kumard3/scribe/releases/download/scribe-macos-updates/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>392y2U3Mwui9AdO4Ze4yCcq3rat3zy71xgwIr2+dygw=</string>
 </dict>
 </plist>
