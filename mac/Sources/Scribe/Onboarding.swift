@@ -103,7 +103,7 @@ private struct PermissionsStep: View {
   let next: () -> Void
   @State private var mic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
   @State private var speech = SFSpeechRecognizer.authorizationStatus() == .authorized
-  @State private var ax = AXIsProcessTrusted()
+  @State private var ax = Paster.trusted
   private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
   var allGranted: Bool { mic && speech && ax }
@@ -140,12 +140,10 @@ private struct PermissionsStep: View {
           }
         }
         permissionRow(
-          granted: ax, title: "Accessibility", detail: "Watches the hold key and pastes for you"
+          granted: ax, title: Paster.permissionName, detail: "Watches the hold key and pastes for you"
         ) {
           Paster.ensureAccessibility()
-          NSWorkspace.shared.open(
-            URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-          )
+          NSWorkspace.shared.open(Paster.settingsURL)
         }
       }
       .padding(.horizontal, 36)
@@ -161,7 +159,7 @@ private struct PermissionsStep: View {
       }
       .buttonStyle(.plain)
       if !ax {
-        Text("Without Accessibility the hold key won’t work, only the toggle shortcut.")
+        Text("Without \(Paster.permissionName) the hold key won’t work, only the toggle shortcut.")
           .font(.caption)
           .foregroundColor(OMono.dim)
       }
@@ -169,7 +167,7 @@ private struct PermissionsStep: View {
     .onReceive(tick) { _ in
       mic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
       speech = SFSpeechRecognizer.authorizationStatus() == .authorized
-      ax = AXIsProcessTrusted()
+      ax = Paster.trusted
     }
   }
 

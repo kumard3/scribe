@@ -15,6 +15,10 @@ import FoundationModels
 /// without starting the UI.
 enum DebugCLI {
   static func runIfRequested() {
+    // App Store 2.4.5(iii): worker children must not outlive the app, so exit once reparented to launchd.
+    if !Set(["--transcribe", "--transcribe-batch", "--asr-serve", "--asr"]).isDisjoint(with: CommandLine.arguments) {
+      Thread.detachNewThread { while getppid() != 1 { sleep(1) }; exit(0) }
+    }
     if CommandLine.arguments.contains("--selftest-commands") {
       VoiceCommands.selfTest()
       Diarizer.selfTest()
@@ -22,7 +26,9 @@ enum DebugCLI {
       Paster.selfTest()
       Vocabulary.selfTest()
       PauseChunker.selfTest()
+      #if !MAS
       CorrectionWatcher.selfTest()
+      #endif
       OllamaRuntime.selfTest()
       MeetingPipeline.selfTest()
       exit(0)
@@ -32,8 +38,10 @@ enum DebugCLI {
       exit(0)
     }
     runMeetingCaptureTestIfRequested()
+    runScreenCaptureTestIfRequested()
     runRenderDashboardIfRequested()
     runMeetingProcessIfRequested()
+    runSummaryTestIfRequested()
     runNativeWorkerIfRequested()
     runArkasrIfRequested()
     runQwenAsrServeIfRequested()
@@ -331,6 +339,7 @@ enum DebugCLI {
     }
     let conditioned = AudioConditioner.process16k(loud)
     precondition(conditioned.map(abs).max() ?? 0 <= 0.98)
+    #if !MAS
     if Bundle.main.bundleURL.pathExtension == "app" {
       let info = Bundle.main.infoDictionary ?? [:]
       precondition((info["SUPublicEDKey"] as? String)?.count == 44)
@@ -340,6 +349,7 @@ enum DebugCLI {
           .appendingPathComponent("Sparkle.framework").path ?? ""
       ))
     }
+    #endif
     print("transcription safety self-test passed")
   }
 
@@ -664,8 +674,9 @@ enum DebugCLI {
   }
 }
 
-/// `open -W -n Scribe.app --args --meeting-capture-test <seconds> <dir>` runs the real
-/// MeetingRecorder for N seconds (a normal Meetings folder) and writes levels to <dir>/result.txt.
+/// `open -W -n Scribe.app --args --meeting-capture-test <seconds> <dir> [--then-share <choice>]` runs the
+/// real MeetingRecorder for N seconds (a normal Meetings folder) and writes levels to <dir>/result.txt.
+/// --then-share switches what's shared halfway, the way a Recorder tile does.
 /// Launch via `open` so TCC attributes the prompts to Scribe, not the terminal.
 private func runMeetingCaptureTestIfRequested() {
   let args = CommandLine.arguments
@@ -679,6 +690,8 @@ private func runMeetingCaptureTestIfRequested() {
   }
   try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
   let meeting = MeetingRecorder.shared
+  let switchTo = args.firstIndex(of: "--then-share").flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil }
+  var switched = false
   meeting.start()
   RunLoop.main.run(until: Date().addingTimeInterval(2))
   lines.append("recording=\(meeting.isRecording) status=\(DictationManager.shared.status)")
@@ -686,13 +699,47 @@ private func runMeetingCaptureTestIfRequested() {
   FileManager.default.createFile(atPath: dir.appendingPathComponent("started").path, contents: nil)
   var you: Float = 0, others: Float = 0
   let end = Date().addingTimeInterval(seconds)
+  let halfway = Date().addingTimeInterval(seconds / 2)
   while Date() < end {
+    if let switchTo, !switched, Date() > halfway {
+      switched = true
+      meeting.setScreen(switchTo)
+      lines.append("switched share to \(switchTo)")
+    }
     RunLoop.main.run(until: Date().addingTimeInterval(0.1))
     you = max(you, meeting.youLevel)
     others = max(others, meeting.othersLevel)
   }
+  lines.append("screenRecording=\(ScreenRecorder.shared.isRecording)")
+  if #available(macOS 14.4, *) { lines.append("micUsers=\(CallDetector.micUsers())") }
   meeting.stop()
-  lines.append("youLevelMax=\(you) othersLevelMax=\(others)")
+  RunLoop.main.run(until: Date().addingTimeInterval(3))
+  lines.append("youLevelMax=\(you) othersLevelMax=\(others) status=\(DictationManager.shared.status)")
+}
+
+/// `open -W -n Scribe.app --args --screen-capture-test <seconds> <dir>` makes a standalone screen
+/// recording for N seconds and writes where it landed and how big it is to <dir>/result.txt.
+private func runScreenCaptureTestIfRequested() {
+  let args = CommandLine.arguments
+  guard let i = args.firstIndex(of: "--screen-capture-test"), args.count > i + 2,
+        let seconds = Double(args[i + 1]) else { return }
+  let dir = URL(fileURLWithPath: args[i + 2], isDirectory: true)
+  try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+  let screen = ScreenRecorder.shared
+  screen.toggle()
+  RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+  let target = screen.target
+  screen.stop()
+  RunLoop.main.run(until: Date().addingTimeInterval(4))
+  screen.refreshRecordings()
+  let newest = screen.recordings.first
+  let lines = [
+    "folder=\(ScreenRecorder.folder.path) resolved=\(ScreenRecorder.folder.resolvingSymlinksInPath().path)",
+    "target=\(target) status=\(DictationManager.shared.status)",
+    "newest=\(newest?.id.lastPathComponent ?? "none") bytes=\(newest?.bytes ?? 0)",
+  ]
+  try? lines.joined(separator: "\n").write(to: dir.appendingPathComponent("result.txt"), atomically: true, encoding: .utf8)
+  exit(0)
 }
 
 /// `Scribe --render-dashboard <dir>` draws every dashboard tab to <dir>/<tab>.png.
@@ -736,7 +783,7 @@ private func runRenderDashboardIfRequested() {
   UserDefaults.standard.set(DashboardView.Tab.home.rawValue, forKey: "dashboardTab")
   if let screen = NSScreen.main {
     let layout = NotchLayout(screen: screen)
-    let host = NSHostingView(rootView: NotchHUDView(meeting: MeetingRecorder.shared, layout: layout))
+    let host = NSHostingView(rootView: NotchHUDView(meeting: MeetingRecorder.shared, screen: ScreenRecorder.shared, layout: layout))
     host.frame = NSRect(origin: .zero, size: layout.frame.size)
     let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
     window.contentView = host
@@ -745,7 +792,27 @@ private func runRenderDashboardIfRequested() {
       host.cacheDisplay(in: host.bounds, to: rep)
       try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("notch.png"))
     }
+    if #available(macOS 15, *) {
+      let recorder = NSHostingView(rootView: RecorderView())
+      recorder.frame = NSRect(x: 0, y: 0, width: 600, height: 640)
+      let recorderWindow = NSWindow(contentRect: recorder.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+      recorderWindow.contentView = recorder
+      RunLoop.main.run(until: Date().addingTimeInterval(4))
+      if let rep = recorder.bitmapImageRepForCachingDisplay(in: recorder.bounds) {
+        recorder.cacheDisplay(in: recorder.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("recorder.png"))
+      }
+    }
     print("notch: hasNotch=\(layout.hasNotch) notchWidth=\(layout.notchWidth) frame=\(layout.frame)")
+  }
+  let promptHost = NSHostingView(rootView: CallPromptView(app: "Zoom") { _ in })
+  promptHost.frame = NSRect(x: 0, y: 0, width: 340, height: 92)
+  let promptWindow = NSWindow(contentRect: promptHost.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+  promptWindow.contentView = promptHost
+  RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+  if let rep = promptHost.bitmapImageRepForCachingDisplay(in: promptHost.bounds) {
+    promptHost.cacheDisplay(in: promptHost.bounds, to: rep)
+    try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("call-prompt.png"))
   }
   let screenHost = NSHostingView(rootView: MeetingScreenView(meeting: MeetingRecorder.shared) {})
   screenHost.frame = NSRect(x: 0, y: 0, width: 1440, height: 900)
@@ -755,6 +822,45 @@ private func runRenderDashboardIfRequested() {
   if let rep = screenHost.bitmapImageRepForCachingDisplay(in: screenHost.bounds) {
     screenHost.cacheDisplay(in: screenHost.bounds, to: rep)
     try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("meeting-screen.png"))
+  }
+  exit(0)
+}
+
+/// `Scribe --summary-test <gemma|apple> <file>...` runs the meeting summary prompt on each file
+/// through the app's own backend and prints the seconds taken and the summary.
+private func runSummaryTestIfRequested() {
+  let args = CommandLine.arguments
+  guard let i = args.firstIndex(of: "--summary-test"), args.count > i + 2 else { return }
+  let apple = args[i + 1] == "apple"
+  for path in args[(i + 2)...] {
+    guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+    let start = Date()
+    var out: String?
+    var done = false
+    if apple {
+      #if canImport(FoundationModels)
+      if #available(macOS 26.0, *) {
+        Task.detached {
+          do {
+            out = try await LanguageModelSession(instructions: MeetingPipeline.summaryInstruction).respond(to: text).content
+          } catch {
+            out = "ERROR: \(error)"
+          }
+          done = true
+        }
+      } else { done = true }
+      #else
+      done = true
+      #endif
+    } else {
+      LLMRuntime.shared.process(instruction: MeetingPipeline.summaryInstruction, text: text, maxTokens: 500) {
+        out = $0
+        done = true
+      }
+    }
+    while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+    print("=== \(URL(fileURLWithPath: path).lastPathComponent) \(String(format: "%.1f", Date().timeIntervalSince(start)))s")
+    print(out ?? "(no output)")
   }
   exit(0)
 }

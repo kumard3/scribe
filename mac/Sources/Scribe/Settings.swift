@@ -250,6 +250,16 @@ final class Settings: ObservableObject {
   @AppStorage("meetingAppleSpeech") var meetingAppleSpeech: Bool = false {
     willSet { objectWillChange.send() }
   }
+  /// ScreenRecorder share choices for the Recorder's two modes.
+  @AppStorage("meetingShare") var meetingShare: String = "none" {
+    willSet { objectWillChange.send() }
+  }
+  @AppStorage("screenShare") var screenShare: String = "display" {
+    willSet { objectWillChange.send() }
+  }
+  @AppStorage("askToRecordCalls") var askToRecordCalls: Bool = true {
+    willSet { objectWillChange.send() }
+  }
   @AppStorage("ollamaModel") var ollamaModel: String = "" {
     willSet { objectWillChange.send() }
   }

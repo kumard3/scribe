@@ -1,3 +1,4 @@
+#if !MAS
 import AppKit
 import ApplicationServices
 
@@ -93,3 +94,4 @@ enum CorrectionWatcher {
     print("CorrectionWatcher selftest ok")
   }
 }
+#endif

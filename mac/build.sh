@@ -6,10 +6,12 @@ cd "$(dirname "$0")"
 CONFIG="${1:-release}"
 
 SCRIBE_REQUIRE_DEVELOPER_ID="${SCRIBE_REQUIRE_DEVELOPER_ID:-0}"
+# SCRIBE_MAS=1: sandboxed Mac App Store build (ai.localvoice.app, no Sparkle) packaged as mas/Bolkit.pkg.
+export SCRIBE_MAS="${SCRIBE_MAS:-0}"
 # Only shipping builds pay for universal2 + the whisper helper. Defaulting local
 # builds to that is two clang processes per source file and it pinned this 18 GB
 # box at 0% idle, into swap.
-if [ "$SCRIBE_REQUIRE_DEVELOPER_ID" = "1" ]; then
+if [ "$SCRIBE_REQUIRE_DEVELOPER_ID" = "1" ] || [ "$SCRIBE_MAS" = "1" ]; then
   SCRIBE_ARCHS="${SCRIBE_ARCHS:-arm64 x86_64}"
   SCRIBE_SKIP_WHISPER="${SCRIBE_SKIP_WHISPER:-0}"
 else
@@ -136,16 +138,28 @@ esac
 PRODUCTS="$(swift build -c "$CONFIG" "${SWIFT_ARCH_FLAGS[@]}" "${JOB_FLAG[@]}" --show-bin-path)"
 BIN="$PRODUCTS/Scribe"
 APP="Bolkit.app"
+[ "$SCRIBE_MAS" = "1" ] && APP="mas/Bolkit.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" \
   "$APP/Contents/Frameworks" "$APP/Contents/Helpers/Whisper"
 cp "$BIN" "$APP/Contents/MacOS/Scribe"
-ditto "$PRODUCTS/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
+[ "$SCRIBE_MAS" = "1" ] || ditto "$PRODUCTS/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 # SwiftPM resource bundles (MLX's compiled Metal shaders, tokenizer fallbacks); MLX aborts without its metallib.
 for bundle in "$PRODUCTS"/*.bundle; do
   ditto "$bundle" "$APP/Contents/Resources/$(basename "$bundle")"
 done
 cp Info.plist "$APP/Contents/Info.plist"
+if [ "$SCRIBE_MAS" = "1" ]; then
+  /usr/libexec/PlistBuddy \
+    -c "Set :CFBundleIdentifier ai.localvoice.app" \
+    -c "Delete :SUFeedURL" -c "Delete :SUPublicEDKey" \
+    -c "Delete :SUEnableAutomaticChecks" -c "Delete :SUAllowsAutomaticUpdates" \
+    -c "Add :LSApplicationCategoryType string public.app-category.productivity" \
+    -c "Add :ITSAppUsesNonExemptEncryption bool false" \
+    "$APP/Contents/Info.plist"
+  cp "${SCRIBE_MAS_PROFILE:-$HOME/.appstoreconnect/Bolkit_MAS.provisionprofile}" \
+    "$APP/Contents/embedded.provisionprofile"
+fi
 cp .deps/silero_vad.onnx "$APP/Contents/Resources/silero_vad.onnx"
 cp "$SHERPA_DIR/lib/libsherpa-onnx-c-api.dylib" "$APP/Contents/Frameworks/"
 cp "$SHERPA_DIR/lib/"libonnxruntime*.dylib "$APP/Contents/Frameworks/"
@@ -168,6 +182,24 @@ if [ -f ../marketing/logo/bolkit-mac-icon-1024.png ] && [ ! -f Scribe.icns ]; th
 fi
 [ -f Scribe.icns ] && cp Scribe.icns "$APP/Contents/Resources/Scribe.icns"
 
+if [ "$SCRIBE_MAS" = "1" ]; then
+  MAS_ID=$(security find-identity -v -p codesigning | awk -F'"' '/Apple Distribution/{print $2; exit}')
+  PKG_ID=$(security find-identity -v | awk -F'"' '/3rd Party Mac Developer Installer|Mac Installer Distribution/{print $2; exit}')
+  [ -n "$MAS_ID" ] && [ -n "$PKG_ID" ] || { echo "Apple Distribution + Mac Installer certificates are required."; exit 1; }
+  # Inside out, no --deep: the whisper helper needs its own sandbox-inherit entitlements.
+  codesign --force --sign "$MAS_ID" "$APP/Contents/Frameworks/"*.dylib
+  if [ -x "$APP/Contents/Helpers/Whisper/whisper-cli" ]; then
+    codesign --force --sign "$MAS_ID" "$APP/Contents/Helpers/Whisper/"*.dylib
+    codesign --force --sign "$MAS_ID" --entitlements BolkitHelper-MAS.entitlements \
+      "$APP/Contents/Helpers/Whisper/whisper-cli"
+  fi
+  codesign --force --sign "$MAS_ID" --entitlements Bolkit-MAS.entitlements "$APP"
+  codesign --verify --deep --strict "$APP"
+  productbuild --component "$APP" /Applications --sign "$PKG_ID" mas/Bolkit.pkg
+  echo "Built $(pwd)/mas/Bolkit.pkg"
+  exit 0
+fi
+
 # Prefer a Developer ID identity for public releases; use Apple Development for
 # local builds, then ad-hoc only on machines with no signing identity. Release
 # signing errors are fatal so CI can never upload an unsigned archive.
@@ -181,6 +213,16 @@ if [ "${SCRIBE_REQUIRE_DEVELOPER_ID:-0}" = "1" ] &&
   exit 1
 fi
 SIGN_IDENTITY="${IDENTITY:--}"
+# While Apple replaces a Developer ID Sub-CA two identities share this name and codesign
+# rejects the ambiguous name, so sign with the hash of the one that expires last.
+if [[ "$IDENTITY" == Developer\ ID\ Application:* ]]; then
+  SIGN_IDENTITY=$(security find-identity -v -p codesigning | awk '/Developer ID Application/{print $2}' | while read -r h; do
+    end=$(security find-certificate -a -Z -p -c "Developer ID Application" |
+      awk -v h="$h" '/^SHA-1 hash:/{keep=($3==h); next} /^SHA-256 hash:/{keep=0} keep' |
+      openssl x509 -noout -enddate | cut -d= -f2)
+    echo "$(date -j -f '%b %e %T %Y %Z' "$end" +%s) $h"
+  done | sort -n | tail -1 | cut -d' ' -f2)
+fi
 SIGN_ARGS=(--force --sign "$SIGN_IDENTITY")
 if [[ "$IDENTITY" == Developer\ ID\ Application:* ]]; then
   SIGN_ARGS+=(--options runtime --timestamp)

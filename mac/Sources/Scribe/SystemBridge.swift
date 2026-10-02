@@ -52,20 +52,53 @@ final class HoldKeyMonitor {
   private var monitor: Any?
   private var downAt: Date?
 
+  #if MAS
+  // App Sandbox forbids the Accessibility-gated global monitor; a listen-only
+  // tap needs Input Monitoring instead, and only exists once that is granted.
+  func start() {
+    guard monitor == nil else { return }
+    // tapCreate itself raises the Input Monitoring prompt; only onboarding should ask.
+    let tap = !CGPreflightListenEventAccess() ? nil : CGEvent.tapCreate(
+      tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
+      eventsOfInterest: CGEventMask(1 << CGEventType.flagsChanged.rawValue),
+      callback: { _, type, event, info in
+        guard let info else { return Unmanaged.passUnretained(event) }
+        let me = Unmanaged<HoldKeyMonitor>.fromOpaque(info).takeUnretainedValue()
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+          if let tap = me.monitor { CGEvent.tapEnable(tap: tap as! CFMachPort, enable: true) }
+        } else if let e = NSEvent(cgEvent: event) {
+          me.handle(e)
+        }
+        return Unmanaged.passUnretained(event)
+      },
+      userInfo: Unmanaged.passUnretained(self).toOpaque()
+    )
+    guard let tap else {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.start() }
+      return
+    }
+    monitor = tap
+    CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
+  }
+  #else
   func start() {
     guard monitor == nil else { return }
     monitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] e in
-      guard let self else { return }
-      let key = Settings.shared.holdKey
-      guard let keyCode = key.keyCode, e.keyCode == keyCode else { return }
-      let isDown = e.modifierFlags.contains(key.flag)
-      if isDown, downAt == nil {
-        downAt = Date()
-        onPress?()
-      } else if !isDown, let at = downAt {
-        downAt = nil
-        onRelease?(Date().timeIntervalSince(at))
-      }
+      self?.handle(e)
+    }
+  }
+  #endif
+
+  private func handle(_ e: NSEvent) {
+    let key = Settings.shared.holdKey
+    guard let keyCode = key.keyCode, e.keyCode == keyCode else { return }
+    let isDown = e.modifierFlags.contains(key.flag)
+    if isDown, downAt == nil {
+      downAt = Date()
+      onPress?()
+    } else if !isDown, let at = downAt {
+      downAt = nil
+      onRelease?(Date().timeIntervalSince(at))
     }
   }
 }
@@ -96,15 +129,43 @@ enum Paster {
     case copiedOnly(String)
   }
 
+  #if MAS
+  static let permissionName = "Accessibility and Input Monitoring"
+  static var trusted: Bool { CGPreflightPostEventAccess() && CGPreflightListenEventAccess() }
+  static var settingsURL: URL {
+    let pane = CGPreflightPostEventAccess() ? "Privacy_ListenEvent" : "Privacy_Accessibility"
+    return URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)")!
+  }
+
+  @discardableResult
+  static func ensureAccessibility() -> Bool {
+    let post = CGPreflightPostEventAccess() || CGRequestPostEventAccess()
+    let listen = CGPreflightListenEventAccess() || CGRequestListenEventAccess()
+    return post && listen
+  }
+  #else
+  static let permissionName = "Accessibility"
+  static var trusted: Bool { AXIsProcessTrusted() }
+  static let settingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
+
   @discardableResult
   static func ensureAccessibility() -> Bool {
     let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
     return AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
   }
+  #endif
 
   static func insert(_ text: String, done: ((Outcome) -> Void)? = nil) {
     guard !text.isEmpty else { return }
 
+    #if MAS
+    guard CGPreflightPostEventAccess() else {
+      copyToPasteboard(text)
+      dlog("insert: post-event not granted, copied only")
+      done?(.copiedOnly("Copied to clipboard, grant Accessibility for auto-paste"))
+      return
+    }
+    #else
     guard AXIsProcessTrusted() else {
       copyToPasteboard(text)
       dlog("insert: AX not trusted, copied only")
@@ -121,10 +182,18 @@ enum Paster {
       done?(.direct)
       return
     }
+    #endif
 
     paste(text, done: done)
   }
 
+  #if MAS
+  private struct Field {}
+  private static func focusedField() -> Field? { nil }
+  private static func confirmPaste(_ field: Field?, count: Int, then: @escaping (Bool) -> Void) {
+    then(true)
+  }
+  #else
   // MARK: - Accessibility path
 
   private struct Field {
@@ -173,6 +242,7 @@ enum Paster {
     guard let after = caret(of: field.element) else { return false }
     return insertLanded(before: field.caret, after: after, count: text.utf16.count)
   }
+  #endif
 
   /// A field that took the text moves its caret to the end of it. Anything else
   /// that moved the caret still counts as landed: falling back after a partial
@@ -225,7 +295,9 @@ enum Paster {
           return
         }
         done?(.pasted)
+        #if !MAS
         if let field { CorrectionWatcher.arm(field.element, inserted: text) }
+        #endif
         guard Settings.shared.restoreClipboard, !saved.isEmpty else { return }
         guard pb.changeCount == ourChange else { return }
         pb.clearContents()
@@ -238,6 +310,7 @@ enum Paster {
     }
   }
 
+  #if !MAS
   private static func confirmPaste(
     _ field: Field?, count: Int, deadline: Int = 8, then: @escaping (Bool) -> Void
   ) {
@@ -251,6 +324,7 @@ enum Paster {
       confirmPaste(field, count: count, deadline: deadline - 1, then: then)
     }
   }
+  #endif
 
   private static func copyToPasteboard(_ text: String) {
     let pb = NSPasteboard.general

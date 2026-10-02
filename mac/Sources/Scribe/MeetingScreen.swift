@@ -29,7 +29,10 @@ final class MeetingScreen: NSObject, NSWindowDelegate {
     }
     window?.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
-    if window?.styleMask.contains(.fullScreen) == false { window?.toggleFullScreen(nil) }
+    // A full-screen Space would leave screen.mp4 showing only the wallpaper behind Bolkit's excluded window.
+    if Settings.shared.meetingShare == "none", window?.styleMask.contains(.fullScreen) == false {
+      window?.toggleFullScreen(nil)
+    }
   }
 
   func close() {
@@ -42,6 +45,7 @@ final class MeetingScreen: NSObject, NSWindowDelegate {
 
 struct MeetingScreenView: View {
   @ObservedObject var meeting: MeetingRecorder
+  @ObservedObject var screen = ScreenRecorder.shared
   let onStop: () -> Void
 
   var body: some View {
@@ -49,7 +53,7 @@ struct MeetingScreenView: View {
       Spacer()
       HStack(spacing: 14) {
         Circle().fill(meeting.isRecording ? Color.red : Mono.textFaint).frame(width: 16, height: 16)
-        Text(meeting.isRecording ? "Recording" : "Stopped")
+        Text(meeting.isRecording ? (screen.isRecording ? "Recording audio and screen" : "Recording") : "Stopped")
           .font(.system(size: 20, weight: .medium)).foregroundColor(Mono.textDim)
       }
       Text(meeting.elapsedLabel)

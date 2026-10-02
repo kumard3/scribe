@@ -1,13 +1,35 @@
 import AppKit
 import SwiftUI
 
-/// Meeting-recording indicator that wraps the MacBook notch (or sits top-center on
-/// screens without one): red dot + timer left, live You/Others waveforms right.
-final class NotchHUD {
+/// Recording island that wraps the MacBook notch (or sits top-center on screens without one):
+/// red dot + timer left, live You/Others waveforms and Stop right. A click opens the Recorder.
+final class NotchHUD: ObservableObject {
   static let shared = NotchHUD()
+  @Published private(set) var hiddenByUser = false
   private var panel: NSPanel?
 
-  func show() {
+  private var recording: Bool { MeetingRecorder.shared.isRecording || ScreenRecorder.shared.isRecording }
+
+  func refresh() {
+    guard recording else {
+      hiddenByUser = false
+      panel?.orderOut(nil)
+      return
+    }
+    hiddenByUser ? panel?.orderOut(nil) : show()
+  }
+
+  func hide() {
+    hiddenByUser = true
+    panel?.orderOut(nil)
+  }
+
+  func unhide() {
+    hiddenByUser = false
+    refresh()
+  }
+
+  private func show() {
     guard let screen = NSScreen.main else { return }
     let layout = NotchLayout(screen: screen)
     if panel == nil {
@@ -18,16 +40,21 @@ final class NotchHUD {
       p.isOpaque = false
       p.backgroundColor = .clear
       p.hasShadow = false
-      p.ignoresMouseEvents = true
+      p.becomesKeyOnlyIfNeeded = true
       p.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
       panel = p
     }
-    panel?.contentView = NSHostingView(rootView: NotchHUDView(meeting: MeetingRecorder.shared, layout: layout))
+    panel?.contentView = FirstClickHost(
+      rootView: NotchHUDView(meeting: MeetingRecorder.shared, screen: ScreenRecorder.shared, layout: layout)
+    )
     panel?.setFrame(layout.frame, display: true)
     panel?.orderFrontRegardless()
   }
+}
 
-  func hide() { panel?.orderOut(nil) }
+/// The panel never becomes key, so without this the first click on Stop is swallowed.
+final class FirstClickHost<Content: View>: NSHostingView<Content> {
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 struct NotchLayout {
@@ -56,28 +83,48 @@ struct NotchLayout {
 
 struct NotchHUDView: View {
   @ObservedObject var meeting: MeetingRecorder
+  @ObservedObject var screen: ScreenRecorder
   let layout: NotchLayout
 
   var body: some View {
     HStack(spacing: 0) {
-      HStack(spacing: 7) {
+      HStack(spacing: 6) {
         Circle().fill(Color.red).frame(width: 8, height: 8)
-        Text(meeting.elapsedLabel)
+        Text(meeting.isRecording ? meeting.elapsedLabel : screen.elapsedLabel)
           .font(.system(size: 12, weight: .semibold))
           .monospacedDigit()
           .foregroundColor(.white)
+        if screen.isRecording {
+          Image(systemName: "rectangle.dashed.badge.record")
+            .font(.system(size: 9))
+            .foregroundColor(.white.opacity(0.7))
+        }
       }
       .frame(width: NotchLayout.side)
 
       if layout.hasNotch { Spacer().frame(width: layout.notchWidth) }
 
-      HStack(spacing: 10) {
-        TrackWave(icon: "person.fill", level: meeting.youLevel)
-        TrackWave(icon: "speaker.wave.2.fill", level: meeting.othersLevel)
+      HStack(spacing: 8) {
+        if meeting.isRecording {
+          TrackWave(icon: "person.fill", level: meeting.youLevel)
+          TrackWave(icon: "speaker.wave.2.fill", level: meeting.othersLevel)
+        }
+        Button { meeting.isRecording ? meeting.stop() : screen.stop() } label: {
+          Image(systemName: "stop.fill")
+            .font(.system(size: 7))
+            .foregroundColor(.black)
+            .frame(width: 17, height: 17)
+            .background(Circle().fill(Color.white))
+        }
+        .buttonStyle(.plain)
+        .help(meeting.isRecording ? "Stop and transcribe" : "Stop screen recording")
       }
       .frame(width: NotchLayout.side)
     }
     .frame(width: layout.frame.width, height: layout.frame.height)
+    .contentShape(Rectangle())
+    .onTapGesture { RecorderPanel.shared.show() }
+    .help("Open the Recorder")
     .background(
       Group {
         if layout.hasNotch {

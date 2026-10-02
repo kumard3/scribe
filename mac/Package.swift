@@ -8,6 +8,8 @@ let sherpaLib = ".deps/sherpa-onnx-v1.13.3-osx-universal2-shared/lib"
 // its headers copied into Sources/CLlama/vendor. The exact -l set can vary with
 // the llama.cpp tag, adjust here if the first build reports a missing symbol.
 let llamaLib = ".deps/llama/lib"
+// SCRIBE_MAS=1 builds the Mac App Store variant: no Sparkle (guideline 2.4.5(vii)).
+let mas = Context.environment["SCRIBE_MAS"] == "1"
 
 let package = Package(
   name: "Scribe",
@@ -45,7 +47,9 @@ let package = Package(
       name: "Scribe",
       dependencies: [
         "ObjCCatch", "CSherpa", "CLlama", "CORT",
+      ] + (mas ? [] : [
         .product(name: "Sparkle", package: "Sparkle"),
+      ]) + [
         .product(name: "FluidAudio", package: "FluidAudio"),
         .product(name: "MLXLLM", package: "mlx-swift-lm"),
         .product(name: "MLXVLM", package: "mlx-swift-lm"),
@@ -57,8 +61,10 @@ let package = Package(
       path: "Sources/Scribe",
       swiftSettings: [
         .swiftLanguageMode(.v5),
-      ],
+      ] + (mas ? [.define("MAS")] : []),
       linkerSettings: [
+        // SwiftUI's VideoPlayer subclasses AVPlayerView; without AVKit loaded it aborts on first use.
+        .linkedFramework("AVKit"),
         .unsafeFlags([
           "-L", sherpaLib,
           "-lsherpa-onnx-c-api",

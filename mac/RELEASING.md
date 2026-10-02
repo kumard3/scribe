@@ -59,11 +59,14 @@ install 1.3.0 once manually. Every later version can update in place.
 
 Replace the bundle in place. `rm -rf` on the installed app makes macOS treat
 the next copy as a different app and revoke its Microphone and Accessibility
-grants, which looks exactly like the app silently breaking:
+grants, which looks exactly like the app silently breaking. A plain `ditto`
+over it leaves files the new build dropped (old versioned dylibs), which breaks
+the code-signature seal, so sync with `--delete`:
 
 ```bash
 osascript -e 'quit app "Bolkit"'
-ditto Bolkit.app /Applications/Bolkit.app     # no rm -rf first
+rsync -a --delete Bolkit.app/ /Applications/Bolkit.app/   # no rm -rf first
+codesign --verify --deep --strict /Applications/Bolkit.app
 open /Applications/Bolkit.app
 ```
 
@@ -73,3 +76,18 @@ If permissions were already lost, reset and re-grant them:
 tccutil reset Microphone ai.scribe.mac
 tccutil reset Accessibility ai.scribe.mac
 ```
+
+## Mac App Store build
+
+`SCRIBE_MAS=1 ./build.sh release` builds a separate, sandboxed product as
+`mas/Bolkit.pkg`: bundle id `ai.localvoice.app` (the same App Store record as iOS),
+no Sparkle, and no Accessibility API. Holding the dictation key uses a listen-only
+event tap (Input Monitoring) and inserting text is a synthetic Cmd-V (Accessibility
+pane, PostEvent). Direct field writes and correction learning exist only in the
+Developer ID build.
+
+It needs the Apple Distribution and Mac Installer Distribution certificates in the
+login keychain and the Mac App Store profile at
+`~/.appstoreconnect/Bolkit_MAS.provisionprofile` (or `SCRIBE_MAS_PROFILE`).
+Upload with `xcrun altool --upload-package mas/Bolkit.pkg --api-key <id> --api-issuer <issuer>`
+(validate first with `--validate-app mas/Bolkit.pkg -t macos` and the same key flags).

@@ -46,13 +46,16 @@ final class MeetingRecorder: ObservableObject {
     let date: Date
     let duration: TimeInterval
     let hasTranscript: Bool
+    let video: URL?
+    let preview: String?
   }
 
   private var folder: URL?
+  private var clipCount = 0
   private var startedAt: Date?
   private var timer: Timer?
   private var levelTimer: Timer?
-  private var engine = AVAudioEngine()
+  private lazy var engine = AVAudioEngine()
   private var configObserver: NSObjectProtocol?
   private var micWriter: TrackWriter?
   private var systemWriter: TrackWriter?
@@ -81,10 +84,41 @@ final class MeetingRecorder: ObservableObject {
       return MeetingItem(
         id: dir, date: date,
         duration: Double(size) / Double(TranscriptionLimits.sampleRate * 2),
-        hasTranscript: fm.fileExists(atPath: dir.appendingPathComponent("transcript.txt").path)
+        hasTranscript: fm.fileExists(atPath: dir.appendingPathComponent("transcript.txt").path),
+        video: Self.clips(in: dir).first,
+        preview: (try? String(contentsOf: dir.appendingPathComponent("summary.txt"), encoding: .utf8)).flatMap(Self.preview)
       )
     }
     .sorted { $0.date > $1.date }
+  }
+
+  /// First summary bullet, skipping **Heading** lines.
+  static func preview(_ summary: String) -> String? {
+    summary.split(separator: "\n")
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+      .first { !$0.isEmpty && !$0.hasPrefix("**") }?
+      .replacingOccurrences(of: "**", with: "")
+      .trimmingCharacters(in: CharacterSet(charactersIn: "*-• "))
+  }
+
+  /// Sharing something else mid-meeting starts a new clip: screen.mp4, screen-2.mp4… "none" stops sharing.
+  func setScreen(_ choice: String) {
+    guard isRecording, let dir = folder else { return }
+    let screen = ScreenRecorder.shared
+    guard !screen.isRecording || !screen.standalone else { return }
+    screen.stop()
+    guard choice != "none" else { return }
+    clipCount += 1
+    screen.start(
+      to: dir.appendingPathComponent(clipCount == 1 ? "screen.mp4" : "screen-\(clipCount).mp4"),
+      choice: choice, standalone: false
+    )
+  }
+
+  static func clips(in dir: URL) -> [URL] {
+    ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
+      .filter { $0.lastPathComponent.hasPrefix("screen") && $0.pathExtension == "mp4" }
+      .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
   }
 
   func reveal(_ item: MeetingItem) { NSWorkspace.shared.activateFileViewerSelecting([item.id]) }
@@ -154,7 +188,9 @@ final class MeetingRecorder: ObservableObject {
         self.othersLevel = self.systemWriter?.level ?? 0
       }
       d.status = "Recording meeting. Use headphones for clean You/Others labels."
-      NotchHUD.shared.show()
+      clipCount = 0
+      if ScreenRecorder.supported { setScreen(Settings.shared.meetingShare) }
+      NotchHUD.shared.refresh()
     } catch {
       teardown()
       d.status = error.localizedDescription
@@ -197,9 +233,10 @@ final class MeetingRecorder: ObservableObject {
   func stop() {
     guard isRecording, let dir = folder else { return }
     let heardSystem = (systemWriter?.peak ?? 0) > 0.0005
+    if !ScreenRecorder.shared.standalone { ScreenRecorder.shared.stop() }
     teardown()
     isRecording = false
-    NotchHUD.shared.hide()
+    NotchHUD.shared.refresh()
     if !heardSystem {
       DictationManager.shared.status =
         "No system audio was captured: allow Bolkit under System Settings > Privacy & Security > System Audio Recording."
@@ -208,6 +245,8 @@ final class MeetingRecorder: ObservableObject {
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
       self.refreshRecordings()
       self.enqueue(dir)
+      self.openMeetingID = dir
+      DashboardWindow.show(.meetings)
     }
   }
 
@@ -262,6 +301,7 @@ final class MeetingRecorder: ObservableObject {
         self.processing = nil
         self.step = ""
         self.refreshRecordings()
+        if self.queued.isEmpty { LLMRuntime.shared.release() }
         self.runNext()
       }
     }

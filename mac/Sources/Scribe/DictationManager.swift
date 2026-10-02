@@ -39,7 +39,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
   @Published var history: [String] =
     (UserDefaults.standard.stringArray(forKey: "history") ?? [])
 
-  private var engine = AVAudioEngine()
+  private lazy var engine = AVAudioEngine()
   private var recognizer: SFSpeechRecognizer?
   private var modernAppleSession: AnyObject?
   private var recognizerLocale = ""

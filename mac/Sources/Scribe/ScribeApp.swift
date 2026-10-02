@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+#if !MAS
 import Sparkle
 
 /// Owns Sparkle for the process lifetime. The feed and EdDSA public key live
@@ -18,12 +19,14 @@ final class UpdateManager {
     controller.checkForUpdates(nil)
   }
 }
+#endif
 
 @main
 struct ScribeApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
   @StateObject private var dictation = DictationManager.shared
   @StateObject private var meeting = MeetingRecorder.shared
+  @StateObject private var screen = ScreenRecorder.shared
 
   init() {
     DebugCLI.runIfRequested()
@@ -33,7 +36,7 @@ struct ScribeApp: App {
     MenuBarExtra {
       MenuContent(dictation: dictation)
     } label: {
-      Image(systemName: meeting.isRecording ? "record.circle" : dictation.isRecording ? "waveform" : "mic")
+      MenuBarIcon(recording: meeting.isRecording || screen.isRecording, dictating: dictation.isRecording)
     }
     .menuBarExtraStyle(.menu)
 
@@ -46,7 +49,9 @@ struct ScribeApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
   private var stoppedOnHoldPress = false
+  #if !MAS
   private let updates = UpdateManager.shared
+  #endif
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
@@ -81,6 +86,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       }
     }
     hold.start()
+    if #available(macOS 14.4, *) { CallDetector.shared.start() }
+  }
+}
+
+struct MenuBarIcon: View {
+  let recording: Bool
+  let dictating: Bool
+  @Environment(\.openWindow) private var openWindow
+
+  var body: some View {
+    Image(systemName: recording ? "record.circle" : dictating ? "waveform" : "mic")
+      .onAppear { DashboardWindow.open = { openWindow(id: "dashboard") } }
   }
 }
 
@@ -88,6 +105,8 @@ struct MenuContent: View {
   @ObservedObject var dictation: DictationManager
   @ObservedObject var settings = Settings.shared
   @ObservedObject var meeting = MeetingRecorder.shared
+  @ObservedObject var screen = ScreenRecorder.shared
+  @ObservedObject var hud = NotchHUD.shared
   @Environment(\.openWindow) private var openWindow
 
   var body: some View {
@@ -137,11 +156,22 @@ struct MenuContent: View {
     if MeetingRecorder.supported {
       Button(meeting.isRecording
         ? "Stop meeting recording (\(meeting.elapsedLabel))"
-        : "Record meeting") {
-        meeting.toggle()
+        : "Record meeting…") {
+        meeting.isRecording ? meeting.stop() : RecorderPanel.shared.show(.meeting)
       }
       Button(meeting.isRecording ? "Show recording full screen" : "Record meeting full screen") {
         MeetingScreen.shared.show()
+      }
+    }
+
+    if meeting.isRecording || screen.isRecording {
+      Button("Open Recorder") { RecorderPanel.shared.show() }
+      if hud.hiddenByUser { Button("Show island") { hud.unhide() } }
+    }
+
+    if ScreenRecorder.supported {
+      Button(screen.isRecording ? "Stop screen recording (\(screen.elapsedLabel))" : "Record screen…") {
+        screen.isRecording ? screen.stop() : RecorderPanel.shared.show(.screen)
       }
     }
 
@@ -160,16 +190,16 @@ struct MenuContent: View {
       OnboardingController.shared.show()
     }
 
+    #if !MAS
     Button("Check for Updates…") {
       UpdateManager.shared.checkForUpdates()
     }
+    #endif
 
-    if !AXIsProcessTrusted() {
-      Button("Grant Accessibility (needed for hold-key + auto-paste)") {
+    if !Paster.trusted {
+      Button("Grant \(Paster.permissionName) (needed for hold-key + auto-paste)") {
         Paster.ensureAccessibility()
-        NSWorkspace.shared.open(
-          URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-        )
+        NSWorkspace.shared.open(Paster.settingsURL)
       }
     }
 

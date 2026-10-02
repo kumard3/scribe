@@ -2,6 +2,17 @@ import SwiftUI
 import AppKit
 
 // pureMono, same palette as the mobile app (src/ui/themes.ts)
+/// SwiftUI only opens Window scenes through openWindow; the menu bar label hands it over at launch.
+enum DashboardWindow {
+  static var open: (() -> Void)?
+
+  static func show(_ tab: DashboardView.Tab) {
+    UserDefaults.standard.set(tab.rawValue, forKey: "dashboardTab")
+    open?()
+    NSApp.activate(ignoringOtherApps: true)
+  }
+}
+
 enum Mono {
   static let bg = Color(hex: 0x000000)
   static let surface = Color(hex: 0x141416)
@@ -64,13 +75,14 @@ struct DashboardView: View {
   @ObservedObject var models = ModelStore.shared
   @ObservedObject var support = SupportModelStore.shared
   @ObservedObject var meeting = MeetingRecorder.shared
+  @ObservedObject var screen = ScreenRecorder.shared
   @State private var launchAtLogin = LoginItem.enabled
-  @State private var axTrusted = AXIsProcessTrusted()
+  @State private var axTrusted = Paster.trusted
   @State private var ollamaModels: [String] = []
   @State private var ollamaChecked = false
 
   enum Tab: String, CaseIterable, Identifiable {
-    case home, dictation, meetings, models, cleanup, files, history, settings
+    case home, dictation, meetings, screen, models, cleanup, files, history, settings
     var id: String { rawValue }
 
     var title: String {
@@ -78,6 +90,7 @@ struct DashboardView: View {
       case .home: return "Home"
       case .dictation: return "Dictation"
       case .meetings: return "Meetings"
+      case .screen: return "Screen"
       case .models: return "Models"
       case .cleanup: return "AI Cleanup"
       case .files: return "Files"
@@ -91,6 +104,7 @@ struct DashboardView: View {
       case .home: return "house"
       case .dictation: return "mic"
       case .meetings: return "record.circle"
+      case .screen: return "rectangle.dashed.badge.record"
       case .models: return "square.stack.3d.up"
       case .cleanup: return "sparkles"
       case .files: return "waveform"
@@ -121,7 +135,7 @@ struct DashboardView: View {
     .preferredColorScheme(.dark)
     .onAppear {
       launchAtLogin = LoginItem.enabled
-      axTrusted = AXIsProcessTrusted()
+      axTrusted = Paster.trusted
       models.refreshInstalled()
       support.refresh()
       if settings.cleanupModelId == ModelCatalog.ollamaId { refreshOllama() }
@@ -143,7 +157,7 @@ struct DashboardView: View {
             Image(systemName: t.icon).frame(width: 18)
             Text(t.title)
             Spacer()
-            if t == .meetings && meeting.isRecording {
+            if (t == .meetings && meeting.isRecording) || (t == .screen && screen.isRecording && screen.standalone) {
               Circle().fill(Color.red).frame(width: 7, height: 7)
             }
           }
@@ -166,7 +180,9 @@ struct DashboardView: View {
   }
 
   private var visibleTabs: [Tab] {
-    Tab.allCases.filter { $0 != .meetings || MeetingRecorder.supported }
+    Tab.allCases.filter {
+      ($0 != .meetings || MeetingRecorder.supported) && ($0 != .screen || ScreenRecorder.supported)
+    }
   }
 
   @ViewBuilder
@@ -186,8 +202,12 @@ struct DashboardView: View {
         MeetingDetailView(dir: open).id(open)
       } else {
         pageTitle("Meetings", "Record any call. Get a transcript with who said what, plus a summary.")
-        meetingCard
+        recordCard
+        recordingsCard
+        meetingSettingsCard
       }
+    case .screen:
+      screenPage
     case .models:
       pageTitle("Models", "The speech model that turns your voice into text. All of them run on this Mac.")
       modelsCard
@@ -207,7 +227,7 @@ struct DashboardView: View {
     }
   }
 
-  private func pageTitle(_ title: String, _ subtitle: String) -> some View {
+  func pageTitle(_ title: String, _ subtitle: String) -> some View {
     VStack(alignment: .leading, spacing: 4) {
       Text(title).font(.system(size: 24, weight: .bold)).foregroundColor(Mono.text)
       Text(subtitle).font(.system(size: 12.5)).foregroundColor(Mono.textDim)
@@ -217,9 +237,11 @@ struct DashboardView: View {
   private var statusPill: some View {
     HStack(spacing: 7) {
       Circle()
-        .fill(dictation.isRecording || meeting.isRecording ? Color(hex: 0xFF453A) : .white)
+        .fill(dictation.isRecording || meeting.isRecording || screen.isRecording ? Color(hex: 0xFF453A) : .white)
         .frame(width: 8, height: 8)
-      Text(meeting.isRecording ? "Meeting \(meeting.elapsedLabel)" : dictation.isRecording ? "Listening" : "Ready")
+      Text(meeting.isRecording ? "Meeting \(meeting.elapsedLabel)"
+        : screen.isRecording ? "Screen \(screen.elapsedLabel)"
+        : dictation.isRecording ? "Listening" : "Ready")
         .font(.system(size: 12, weight: .medium))
         .foregroundColor(Mono.textDim)
         .monospacedDigit()
@@ -235,7 +257,14 @@ struct DashboardView: View {
       HStack(spacing: 10) {
         quickAction(dictation.isRecording ? "Stop dictation" : "Start dictation", "mic") { dictation.toggle() }
         if MeetingRecorder.supported {
-          quickAction(meeting.isRecording ? "Stop meeting" : "Record meeting", "record.circle") { meeting.toggle() }
+          quickAction(meeting.isRecording ? "Stop meeting" : "Record meeting", "record.circle") {
+            meeting.isRecording ? meeting.stop() : RecorderPanel.shared.show(.meeting)
+          }
+        }
+        if ScreenRecorder.supported {
+          quickAction(screen.isRecording ? "Stop screen \(screen.elapsedLabel)" : "Record screen", "rectangle.dashed.badge.record") {
+            screen.isRecording ? screen.stop() : RecorderPanel.shared.show(.screen)
+          }
         }
         quickAction("Transcribe file", "waveform") { AudioImport.present() }
       }
@@ -386,33 +415,137 @@ struct DashboardView: View {
     }
   }
 
-  private var meetingCard: some View {
-    section("Meetings") {
-      HStack(spacing: 12) {
-        if meeting.isRecording {
-          Circle().fill(Color.red).frame(width: 9, height: 9)
-          Text("Recording  \(meeting.elapsedLabel)")
-            .font(.system(size: 13, weight: .semibold)).monospacedDigit()
+  func recordButton(_ recording: Bool, help: String, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      ZStack {
+        Circle().strokeBorder(Color.white.opacity(0.9), lineWidth: 3).frame(width: 58, height: 58)
+        if recording {
+          RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0xFF453A)).frame(width: 22, height: 22)
         } else {
-          Image(systemName: "record.circle").foregroundColor(Mono.textDim)
-          Text("Record a call or meeting").font(.system(size: 13, weight: .semibold))
-        }
-        Spacer()
-        Button("Full screen") { MeetingScreen.shared.show() }
-          .font(.system(size: 12))
-        Button(meeting.isRecording ? "Stop" : "Record") { meeting.toggle() }
-          .font(.system(size: 12, weight: .semibold))
-      }
-      if meeting.isRecording {
-        HStack(spacing: 18) {
-          levelMeter("You", meeting.youLevel)
-          levelMeter("Others", meeting.othersLevel)
+          Circle().fill(Color(hex: 0xFF453A)).frame(width: 44, height: 44)
         }
       }
-      Text("Your mic is saved as You and everything playing on this Mac (Zoom, Meet, Teams) as Others. Talking in person with nothing playing? Bolkit separates everyone on your mic into speakers instead. After you stop, it transcribes on this Mac, names anyone who says their name, and writes a summary. Your mic picking up the call is removed automatically.")
-        .font(.caption).foregroundColor(Mono.textDim)
+      .contentShape(Circle())
+    }
+    .buttonStyle(.plain)
+    .help(help)
+  }
 
-      Divider().overlay(Mono.border)
+  func heroCard<Content: View>(active: Bool, @ViewBuilder _ content: () -> Content) -> some View {
+    HStack(spacing: 18) { content() }
+      .padding(20)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(RoundedRectangle(cornerRadius: 16).fill(Mono.surface))
+      .overlay(
+        RoundedRectangle(cornerRadius: 16)
+          .strokeBorder(active ? Color(hex: 0xFF453A).opacity(0.6) : Mono.border)
+      )
+  }
+
+  private var recordCard: some View {
+    heroCard(active: meeting.isRecording) {
+      recordButton(meeting.isRecording, help: meeting.isRecording ? "Stop and transcribe" : "Start recording") {
+        meeting.isRecording ? meeting.stop() : RecorderPanel.shared.show(.meeting)
+      }
+
+      VStack(alignment: .leading, spacing: 8) {
+        if meeting.isRecording {
+          HStack(spacing: 10) {
+            Text(meeting.elapsedLabel)
+              .font(.system(size: 26, weight: .light)).monospacedDigit().foregroundColor(Mono.text)
+            if screen.isRecording {
+              Label(screen.target.isEmpty ? "Screen" : screen.target, systemImage: "rectangle.dashed.badge.record")
+                .font(.system(size: 11, weight: .medium)).foregroundColor(Mono.textDim).lineLimit(1)
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(Capsule().fill(Mono.surfaceAlt))
+            }
+          }
+          HStack(spacing: 18) {
+            levelMeter("You", meeting.youLevel)
+            levelMeter("This Mac", meeting.othersLevel)
+          }
+          if ScreenRecorder.supported {
+            Button("Change what's shared…") { RecorderPanel.shared.show() }
+              .font(.system(size: 12))
+          }
+        } else {
+          Text("Record a meeting").font(.system(size: 17, weight: .semibold)).foregroundColor(Mono.text)
+          Text("Your mic is saved as You and everything this Mac plays (Zoom, Meet, Teams) as Others.")
+            .font(.system(size: 12)).foregroundColor(Mono.textDim)
+          if ScreenRecorder.supported {
+            Text("Screen: \(ScreenRecorder.describe(settings.meetingShare)). Press record to choose.")
+              .font(.system(size: 12)).foregroundColor(Mono.textFaint)
+          }
+        }
+      }
+      Spacer(minLength: 0)
+      Button { MeetingScreen.shared.show() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
+        .help("Record in full screen")
+    }
+  }
+
+  private var recordingsCard: some View {
+    section("Recordings") {
+      if meeting.recordings.isEmpty {
+        Text("Your meetings show up here after you record one.")
+          .font(.system(size: 13)).foregroundColor(Mono.textDim)
+      }
+      ForEach(Array(meeting.recordings.enumerated()), id: \.element.id) { i, item in
+        if i > 0 { Divider().overlay(Mono.border) }
+        meetingRow(item)
+      }
+    }
+    .onAppear { meeting.refreshRecordings() }
+  }
+
+  private func meetingRow(_ item: MeetingRecorder.MeetingItem) -> some View {
+    Button {
+      if !item.hasTranscript, meeting.state(item.id) == .idle { meeting.enqueue(item.id) }
+      meeting.openMeetingID = item.id
+    } label: {
+      HStack(alignment: .top, spacing: 12) {
+        if let video = item.video {
+          VideoThumb(url: video, showsDuration: false)
+            .frame(width: 56, height: 32)
+        } else {
+          Image(systemName: "waveform")
+            .font(.system(size: 13)).foregroundColor(Mono.textDim)
+            .frame(width: 56, height: 32)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Mono.surfaceAlt))
+        }
+        VStack(alignment: .leading, spacing: 3) {
+          HStack {
+            Text(item.date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().hour().minute()))
+              .font(.system(size: 13, weight: .semibold)).foregroundColor(Mono.text)
+            Spacer()
+            Text(durationLabel(item.duration))
+              .font(.system(size: 11)).monospacedDigit().foregroundColor(Mono.textFaint)
+          }
+          if let preview = item.preview {
+            Text(preview).font(.system(size: 12)).foregroundColor(Mono.textDim).lineLimit(1)
+          }
+          meetingStateLine(item)
+        }
+        Image(systemName: "chevron.right")
+          .font(.system(size: 11, weight: .semibold)).foregroundColor(Mono.textFaint)
+          .padding(.top, 3)
+      }
+      .padding(.vertical, 2)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .contextMenu {
+      Button("Show in Finder") { meeting.reveal(item) }
+      Button(item.hasTranscript ? "Re-transcribe" : "Transcribe") { meeting.enqueue(item.id) }
+    }
+  }
+
+  private var meetingSettingsCard: some View {
+    section("Transcription") {
+      Toggle("Ask to record when a call starts", isOn: $settings.askToRecordCalls)
+        .font(.system(size: 13))
+      Text("When Zoom, Meet, Teams, Slack or another call app turns on your mic, Bolkit offers to record it.")
+        .font(.caption).foregroundColor(Mono.textFaint)
       if MeetingPipeline.appleSpeechAvailable {
         Toggle("Transcribe with Apple speech (English only)", isOn: $settings.meetingAppleSpeech)
           .font(.system(size: 13))
@@ -426,7 +559,7 @@ struct DashboardView: View {
         ForEach(1...6, id: \.self) { n in Text("\(n)").tag(n) }
       }
       .font(.system(size: 13))
-      Text("Auto finds up to 4 people by itself. Pick 5 or 6 for bigger calls.")
+      Text("Auto finds up to 4 people by itself. Pick 5 or 6 for bigger calls. Talking in person? Everyone on your mic is split into speakers after you stop.")
         .font(.caption).foregroundColor(Mono.textFaint)
       supportModelRow(
         "Speaker model for 5+ people", "pyannote + campplus. Up to 4 people uses Sortformer, downloaded on first use",
@@ -441,48 +574,24 @@ struct DashboardView: View {
       .font(.system(size: 13))
       Divider().overlay(Mono.border)
       HStack(spacing: 10) {
-        Button("System audio permission…") {
-          NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security")!)
+        Button("Recording permissions…") {
+          NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
         }
         Button("Open meetings folder") { meeting.revealRecordings() }
       }
       .font(.system(size: 12))
-
-      if !meeting.recordings.isEmpty {
-        Divider().overlay(Mono.border)
-        ForEach(Array(meeting.recordings.prefix(8).enumerated()), id: \.element.id) { i, item in
-          HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-              Text(item.date.formatted(date: .abbreviated, time: .shortened))
-                .font(.system(size: 13))
-              meetingStateLine(item)
-            }
-            Spacer()
-            Button(item.hasTranscript ? "Open" : meeting.state(item.id) == .idle ? "Transcribe" : "View") {
-              if !item.hasTranscript, meeting.state(item.id) == .idle { meeting.enqueue(item.id) }
-              meeting.openMeetingID = item.id
-            }
-            Button { meeting.reveal(item) } label: { Image(systemName: "folder") }
-              .help("Show in Finder")
-          }
-          .font(.system(size: 12))
-          if i < min(meeting.recordings.count, 8) - 1 {
-            Divider().overlay(Mono.border)
-          }
-        }
-      }
     }
-    .onAppear { meeting.refreshRecordings() }
   }
 
   @ViewBuilder
   private func meetingStateLine(_ item: MeetingRecorder.MeetingItem) -> some View {
-    let base = durationLabel(item.duration) + (item.hasTranscript ? "  ·  transcribed" : "")
     switch meeting.state(item.id) {
     case .idle:
-      Text(base).font(.caption).foregroundColor(Mono.textFaint).monospacedDigit()
+      if !item.hasTranscript {
+        Text("Not transcribed yet").font(.caption).foregroundColor(Mono.textFaint)
+      }
     case .queued:
-      Text(base + "  ·  queued").font(.caption).foregroundColor(Mono.textDim).monospacedDigit()
+      Text("Queued").font(.caption).foregroundColor(Mono.textDim)
     case let .running(step):
       HStack(spacing: 6) {
         ProgressView().controlSize(.mini)
@@ -850,8 +959,10 @@ struct DashboardView: View {
         .onChange(of: launchAtLogin) { LoginItem.set($0) }
       Button("Run setup guide again") { OnboardingController.shared.show() }
         .font(.system(size: 12))
+      #if !MAS
       Button("Check for Updates…") { UpdateManager.shared.checkForUpdates() }
         .font(.system(size: 12))
+      #endif
       Toggle("Restore previous clipboard after inserting", isOn: $settings.restoreClipboard)
       Text("Off leaves the transcript on the clipboard so you can paste it again.")
         .font(.caption).foregroundColor(Mono.textDim)
@@ -867,14 +978,12 @@ struct DashboardView: View {
 
   private var permissionCard: some View {
     section("Permission needed") {
-      Text("Bolkit needs Accessibility to notice the hold key and type into other apps.")
+      Text("Bolkit needs \(Paster.permissionName) to notice the hold key and type into other apps.")
         .font(.system(size: 13))
         .foregroundColor(Mono.text)
-      Button("Grant Accessibility…") {
+      Button("Grant \(Paster.permissionName)…") {
         Paster.ensureAccessibility()
-        NSWorkspace.shared.open(
-          URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-        )
+        NSWorkspace.shared.open(Paster.settingsURL)
       }
     }
   }
@@ -887,8 +996,10 @@ struct DashboardView: View {
         .font(.system(size: 12, design: .monospaced))
         .frame(height: 110)
         .border(Mono.textDim.opacity(0.3))
+      #if !MAS
       Toggle("Learn words when I fix a transcript right after dictating",
              isOn: $settings.learnCorrections)
+      #endif
       Toggle("Keep my last recording so I can retry it",
              isOn: $settings.keepLatestRecording)
       Text("Only the latest one is kept, on this Mac. Useful if a transcription fails.")
@@ -938,7 +1049,7 @@ struct DashboardView: View {
     }
   }
 
-  private func section<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
+  func section<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
     VStack(alignment: .leading, spacing: 10) {
       Text(title.uppercased())
         .font(.system(size: 11, weight: .semibold))

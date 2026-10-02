@@ -1,4 +1,5 @@
 import AVFoundation
+import AVKit
 import SwiftUI
 
 /// What a processed meeting folder holds, saved as meeting.json next to the audio.
@@ -125,6 +126,9 @@ struct MeetingDetailView: View {
   @ObservedObject var meeting = MeetingRecorder.shared
   @StateObject private var player = MeetingPlayer()
   @State private var detail: MeetingDetail?
+  @State private var video: AVPlayer?
+  @State private var clips: [URL] = []
+  @State private var clip = 0
   @State private var mode = Mode.summary
   @State private var search = ""
   @State private var editing: [Int: String] = [:]
@@ -151,7 +155,25 @@ struct MeetingDetailView: View {
 
       header
       jobBanner
-      playerBar
+      if let video {
+        if clips.count > 1 {
+          Picker("", selection: $clip) {
+            ForEach(clips.indices, id: \.self) { Text("Screen clip \($0 + 1)").tag($0) }
+          }
+          .pickerStyle(.segmented)
+          .labelsHidden()
+          .frame(maxWidth: 360)
+          .onChange(of: clip) { _, i in
+            video.pause()
+            video.replaceCurrentItem(with: AVPlayerItem(url: clips[i]))
+          }
+        }
+        VideoPlayer(player: video)
+          .frame(height: 380)
+          .clipShape(RoundedRectangle(cornerRadius: 12))
+      } else {
+        playerBar
+      }
 
       Picker("", selection: $mode) {
         ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
@@ -176,9 +198,14 @@ struct MeetingDetailView: View {
     .onAppear {
       detail = MeetingDetail.load(dir)
       player.load(dir.appendingPathComponent("meeting.m4a"))
+      clips = MeetingRecorder.clips(in: dir)
+      if let first = clips.first { video = AVPlayer(url: first) }
     }
     .onChange(of: meeting.processing) { _ in detail = MeetingDetail.load(dir) }
-    .onDisappear { player.stop() }
+    .onDisappear {
+      player.stop()
+      video?.pause()
+    }
   }
 
   private var header: some View {
@@ -258,13 +285,41 @@ struct MeetingDetailView: View {
   private func summaryView(_ d: MeetingDetail) -> some View {
     card {
       if let summary = d.summary, !summary.isEmpty {
-        Text(summary).font(.system(size: 13)).foregroundColor(Mono.text).textSelection(.enabled)
-          .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 7) {
+          ForEach(Array(summary.split(separator: "\n").enumerated()), id: \.offset) { _, raw in
+            summaryLine(raw.trimmingCharacters(in: .whitespaces))
+          }
+        }
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
       } else {
         Text("No summary for this meeting. Turn on a model under AI Cleanup (or Apple Intelligence), then press Re-transcribe.")
           .font(.system(size: 13)).foregroundColor(Mono.textDim)
       }
     }
+  }
+
+  @ViewBuilder
+  private func summaryLine(_ line: String) -> some View {
+    if line.hasPrefix("**"), line.hasSuffix("**") {
+      Text(line.replacingOccurrences(of: "**", with: ""))
+        .font(.system(size: 13, weight: .semibold)).foregroundColor(Mono.text)
+        .padding(.top, 6)
+    } else if let first = line.first, first == "*" || first == "-", line.dropFirst().first == " " {
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text("•").foregroundColor(Mono.textDim)
+        markdown(line.dropFirst().trimmingCharacters(in: .whitespaces))
+      }
+    } else if !line.isEmpty {
+      markdown(line)
+    }
+  }
+
+  private func markdown(_ s: String) -> some View {
+    Text((try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+      ?? AttributedString(s))
+      .font(.system(size: 13)).foregroundColor(Mono.text)
+      .fixedSize(horizontal: false, vertical: true)
   }
 
   private func transcriptView(_ d: MeetingDetail) -> some View {
