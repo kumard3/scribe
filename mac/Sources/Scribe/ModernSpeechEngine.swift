@@ -11,10 +11,14 @@ final class ModernSpeechSession: @unchecked Sendable {
   private static var cachedLocale = ""
   private static var cached: ModernSpeechSession?
 
-  static func cached(for locale: String) -> ModernSpeechSession? {
+  /// Hands out the warm session once: finalizeAndFinish ends an analyzer for good, and a
+  /// finished one reused for the next turn returned empty text every second dictation.
+  static func take(for locale: String) -> ModernSpeechSession? {
     cacheLock.lock()
     defer { cacheLock.unlock() }
-    return cachedLocale == locale ? cached : nil
+    guard cachedLocale == locale, let session = cached else { return nil }
+    cached = nil
+    return session
   }
 
   static func store(_ session: ModernSpeechSession, locale: String) {
@@ -111,6 +115,16 @@ final class ModernSpeechSession: @unchecked Sendable {
       }
     } catch {
       dlog("SpeechAnalyzer convert error: \(error.localizedDescription)")
+    }
+  }
+
+  /// Ends the turn, then warms a fresh session for the next one, since a finished analyzer is spent.
+  func finishTurn(locale: String, completion: @escaping (String) -> Void) {
+    finish { text in
+      completion(text)
+      Task {
+        if let next = try? await ModernSpeechSession(locale: locale) { Self.store(next, locale: locale) }
+      }
     }
   }
 

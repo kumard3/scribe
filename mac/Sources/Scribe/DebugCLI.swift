@@ -43,6 +43,7 @@ enum DebugCLI {
     runRenderDashboardIfRequested()
     runMeetingProcessIfRequested()
     runSummaryTestIfRequested()
+    runAppleTurnsIfRequested()
     runNativeWorkerIfRequested()
     runArkasrIfRequested()
     runQwenAsrServeIfRequested()
@@ -851,6 +852,43 @@ private func runRenderDashboardIfRequested() {
   if let rep = screenHost.bitmapImageRepForCachingDisplay(in: screenHost.bounds) {
     screenHost.cacheDisplay(in: screenHost.bounds, to: rep)
     try? rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent("meeting-screen.png"))
+  }
+  exit(0)
+}
+
+/// `open -W -n Scribe.app --stdout out.txt --args --apple-turns <wav> <locale> <n>` runs N back-to-back
+/// dictation turns through the same warm-session cycle the app uses and prints each turn's text.
+private func runAppleTurnsIfRequested() {
+  let args = CommandLine.arguments
+  guard let i = args.firstIndex(of: "--apple-turns"), args.count > i + 3, let turns = Int(args[i + 3]) else { return }
+  guard #available(macOS 26.0, *), let file = try? AVAudioFile(forReading: URL(fileURLWithPath: args[i + 1])) else { exit(2) }
+  let locale = args[i + 2]
+  for turn in 1...turns {
+    var hit = false
+    var session: ModernSpeechSession?
+    var ready = false
+    Task {
+      if let warm = ModernSpeechSession.take(for: locale) {
+        hit = true
+        session = warm
+      } else {
+        session = try? await ModernSpeechSession(locale: locale)
+      }
+      ready = true
+    }
+    while !ready { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    guard let session else { print("turn \(turn): no session"); continue }
+    session.startTurn { _ in }
+    file.framePosition = 0
+    while let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 4096),
+          (try? file.read(into: buffer)) != nil, buffer.frameLength > 0 {
+      session.accept(buffer)
+    }
+    var text: String?
+    session.finishTurn(locale: locale) { text = $0 }
+    while text == nil { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+    print("turn \(turn) warm=\(hit): \(text ?? "")")
+    RunLoop.main.run(until: Date().addingTimeInterval(3))
   }
   exit(0)
 }

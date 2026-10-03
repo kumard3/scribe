@@ -329,7 +329,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
       }
     }
     appleSessionLocale = spec.locale
-    if let cached = ModernSpeechSession.cached(for: spec.locale) {
+    if let cached = ModernSpeechSession.take(for: spec.locale) {
       dlog("apple analyzer cache hit locale=\(spec.locale)")
       cached.startTurn(onUpdate: onText)
       modernAppleSession = cached
@@ -412,9 +412,8 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     phase = .transcribing
     set("Finishing…")
     let locale = appleSessionLocale
-    session.finish { [weak self] text in
+    session.finishTurn(locale: locale) { [weak self] text in
       guard let self else { return }
-      ModernSpeechSession.store(session, locale: locale)
       self.set("Ready")
       self.finish(with: text)
     }

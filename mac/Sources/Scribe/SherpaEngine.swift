@@ -90,9 +90,7 @@ final class SherpaEngine {
       cfg.model_config.provider = c(provider)
       // Only transducers accept hotwords; every other offline kind ignores the
       // buffer and modified_beam_search would just cost decoding time.
-      // Boosting hotwords on Parakeet v3 multilingual turned a clean decode into "Yeah. Job. Perfect.
-      // And uh..." filler, reproduced with sherpa's own CLI; it decodes greedy instead.
-      if spec.kind == .nemoTransducer, !spec.id.hasSuffix("v3-multi"), let hot = Vocabulary.hotwordsFile() {
+      if spec.kind == .nemoTransducer, let hot = Vocabulary.hotwordsFile() {
         cfg.decoding_method = c("modified_beam_search")
         cfg.hotwords_file = c(hot)
         cfg.hotwords_score = 2.0

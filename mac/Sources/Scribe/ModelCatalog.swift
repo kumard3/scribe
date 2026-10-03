@@ -209,13 +209,6 @@ enum ModelCatalog {
       sizeBytes: 482_468_385, live: false, quality: .best
     ),
     ModelSpec(
-      id: "nemo-parakeet-tdt-0.6b-v3-multi", kind: .nemoTransducer,
-      label: "Parakeet 0.6B v3 · Multilingual",
-      note: "NVIDIA · 25 languages",
-      archive: "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
-      sizeBytes: 487_170_055, live: false, quality: .best
-    ),
-    ModelSpec(
       id: "nemo-canary-180m-multi", kind: .canary,
       label: "Canary 180M · Multilingual",
       note: "NVIDIA · EN/ES/DE/FR",
@@ -290,7 +283,7 @@ enum ModelCatalog {
     ),
     ModelSpec(
       id: "fluid-parakeet-v3-multi", kind: .fluidParakeet,
-      label: "Parakeet ANE · Multilingual",
+      label: "Parakeet ANE · English + European",
       note: "FluidAudio · Neural Engine · 25 languages · downloads itself on first use",
       archive: "", sizeBytes: 0, live: false, quality: .best
     ),
