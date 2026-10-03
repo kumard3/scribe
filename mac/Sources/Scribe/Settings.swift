@@ -236,7 +236,9 @@ final class Settings: ObservableObject {
   /// than through ORT's on-the-fly CoreML conversion. Purpose-built Core ML
   /// models use their own backend and are not affected by this routing.
   func sherpaProvider(for spec: ModelSpec) -> String {
-    if spec.kind == .nemoCtc { return "cpu" }
+    // Parakeet TDT 0.6B v3 measured 4.9 GB and 14 s through CoreML against 1.2 GB and 4 s on CPU,
+    // which the worker's memory ceiling killed on every clip.
+    if spec.kind == .nemoCtc || spec.kind == .nemoTransducer { return "cpu" }
     return sherpaProvider
   }
   @AppStorage("autoCleanLLM") var autoCleanLLM: Bool = false {
