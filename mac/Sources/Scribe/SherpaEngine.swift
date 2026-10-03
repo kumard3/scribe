@@ -90,7 +90,9 @@ final class SherpaEngine {
       cfg.model_config.provider = c(provider)
       // Only transducers accept hotwords; every other offline kind ignores the
       // buffer and modified_beam_search would just cost decoding time.
-      if spec.kind == .nemoTransducer, let hot = Vocabulary.hotwordsFile() {
+      // Boosting hotwords on Parakeet v3 multilingual turned a clean decode into "Yeah. Job. Perfect.
+      // And uh..." filler, reproduced with sherpa's own CLI; it decodes greedy instead.
+      if spec.kind == .nemoTransducer, !spec.id.hasSuffix("v3-multi"), let hot = Vocabulary.hotwordsFile() {
         cfg.decoding_method = c("modified_beam_search")
         cfg.hotwords_file = c(hot)
         cfg.hotwords_score = 2.0
@@ -198,9 +200,14 @@ final class SherpaEngine {
     // empty past ~10 s. Split at silence with VAD and decode each short segment,
     // exactly as sherpa's Moonshine examples do. If VAD is unavailable, fixed
     // overlapping windows below preserve the same hard memory bound.
+    // A clip that fits one window is decoded whole, the way sherpa's own decoder does: split at
+    // pauses, Parakeet TDT v3 read the cut points as "..." and filler words.
+    if spec.kind != .moonshine, audio.count <= SileroVAD.maxSegmentSamples(for: spec.kind) {
+      return decodeOffline(audio, sampleRate: 16000)
+    }
     if let vad = SileroVAD.shared {
       let maxN = SileroVAD.maxSegmentSamples(for: spec.kind)
-      let segments = vad.segments16k(audio)
+      let segments = SileroVAD.pack(vad.segments16k(audio), max: maxN)
       if !segments.isEmpty {
         var parts: [String] = []
         var emptySegments = 0
@@ -547,6 +554,25 @@ final class SileroVAD {
       }
     }
     return packed
+  }
+
+  /// Joins neighbouring speech islands into windows of up to `max` samples. Fed one short island
+  /// at a time, Parakeet TDT 0.6B v3 lost the sentence context and returned "Yeah. Perfect."
+  /// filler and dropped words that its decoder gets right on the whole clip.
+  static func pack(_ segments: [[Float]], max: Int) -> [[Float]] {
+    let gap = [Float](repeating: 0, count: 2400)
+    var windows: [[Float]] = []
+    var current: [Float] = []
+    for seg in segments {
+      if !current.isEmpty, current.count + gap.count + seg.count > max {
+        windows.append(current)
+        current = []
+      }
+      if !current.isEmpty { current += gap }
+      current += seg
+    }
+    if !current.isEmpty { windows.append(current) }
+    return windows
   }
 
   static func split(_ seg: [Float], max: Int, overlap: Int = 0) -> [[Float]] {
