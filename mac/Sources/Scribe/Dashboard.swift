@@ -537,6 +537,8 @@ struct DashboardView: View {
     .contextMenu {
       Button("Show in Finder") { meeting.reveal(item) }
       Button(item.hasTranscript ? "Re-transcribe" : "Transcribe") { meeting.enqueue(item.id) }
+      Divider()
+      Button("Move to Trash") { meeting.delete(item.id) }
     }
   }
 

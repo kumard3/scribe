@@ -33,7 +33,7 @@ final class NotchHUD: ObservableObject {
     guard let screen = NSScreen.main else { return }
     let layout = NotchLayout(screen: screen)
     if panel == nil {
-      let p = NSPanel(
+      let p = IslandPanel(
         contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false
       )
       p.level = .statusBar
@@ -50,6 +50,12 @@ final class NotchHUD: ObservableObject {
     panel?.setFrame(layout.frame, display: true)
     panel?.orderFrontRegardless()
   }
+}
+
+/// AppKit pushes windows out of the menu bar strip when a full-screen Space opens, which dropped
+/// the island to the middle of the screen; the island belongs in that strip.
+private final class IslandPanel: NSPanel {
+  override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
 
 /// The panel never becomes key, so without this the first click on Stop is swallowed.

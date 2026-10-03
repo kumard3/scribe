@@ -121,6 +121,16 @@ final class MeetingRecorder: ObservableObject {
       .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
   }
 
+  /// Moves a finished meeting folder to the Trash, so it can still be restored from there.
+  func delete(_ dir: URL) {
+    guard processing != dir, !(isRecording && folder == dir) else { return }
+    queued.removeAll { $0 == dir }
+    failures[dir] = nil
+    try? FileManager.default.trashItem(at: dir, resultingItemURL: nil)
+    if openMeetingID == dir { openMeetingID = nil }
+    refreshRecordings()
+  }
+
   func reveal(_ item: MeetingItem) { NSWorkspace.shared.activateFileViewerSelecting([item.id]) }
 
   func enqueue(_ dir: URL) {

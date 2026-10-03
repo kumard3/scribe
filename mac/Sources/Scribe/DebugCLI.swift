@@ -6,6 +6,7 @@ import CSherpa
 import CLlama
 import Speech
 import Darwin
+import ScreenCaptureKit
 #if canImport(FoundationModels)
 import FoundationModels
 #endif
@@ -697,6 +698,7 @@ private func runMeetingCaptureTestIfRequested() {
   lines.append("recording=\(meeting.isRecording) status=\(DictationManager.shared.status)")
   guard meeting.isRecording else { return }
   FileManager.default.createFile(atPath: dir.appendingPathComponent("started").path, contents: nil)
+  if args.contains("--fullscreen") { MeetingScreen.shared.show() }
   var you: Float = 0, others: Float = 0
   let end = Date().addingTimeInterval(seconds)
   let halfway = Date().addingTimeInterval(seconds / 2)
@@ -710,7 +712,34 @@ private func runMeetingCaptureTestIfRequested() {
     you = max(you, meeting.youLevel)
     others = max(others, meeting.othersLevel)
   }
+  if args.contains("--shot"), #available(macOS 15, *) {
+    var done = false
+    Task {
+      do {
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        for display in content.displays {
+          let config = SCStreamConfiguration()
+          config.width = display.width
+          config.height = display.height
+          if let image = try? await SCScreenshotManager.captureImage(
+            contentFilter: SCContentFilter(display: display, excludingWindows: []), configuration: config
+          ) {
+            try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?
+              .write(to: dir.appendingPathComponent("display-\(display.displayID).png"))
+          }
+        }
+        lines.append("windows=" + content.windows.filter { $0.owningApplication?.processID == getpid() }
+          .map { "\($0.title ?? "-") \(Int($0.frame.minX)),\(Int($0.frame.minY)) \(Int($0.frame.width))x\(Int($0.frame.height)) layer=\($0.windowLayer)" }
+          .joined(separator: " | "))
+      } catch {
+        lines.append("shotError=\(error)")
+      }
+      done = true
+    }
+    while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+  }
   lines.append("screenRecording=\(ScreenRecorder.shared.isRecording)")
+  lines.append("nswindows=" + NSApp.windows.filter(\.isVisible).map { "\(type(of: $0)) \($0.frame) lvl=\($0.level.rawValue)" }.joined(separator: " | "))
   if #available(macOS 14.4, *) { lines.append("micUsers=\(CallDetector.micUsers())") }
   meeting.stop()
   RunLoop.main.run(until: Date().addingTimeInterval(3))

@@ -229,6 +229,13 @@ struct MeetingDetailView: View {
           .help("Show in Finder")
         Button(detail == nil ? "Transcribe" : "Re-transcribe") { meeting.enqueue(dir) }
           .disabled(meeting.state(dir) == .queued || meeting.processing == dir)
+        Button {
+          player.stop()
+          video?.pause()
+          meeting.delete(dir)
+        } label: { Image(systemName: "trash") }
+          .help("Move this meeting to the Trash")
+          .disabled(meeting.processing == dir)
       }
       .font(.system(size: 12))
     }
