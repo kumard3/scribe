@@ -67,6 +67,12 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
   private var sherpaSamples: [Float] = []
   private var hitCaptureLimit = false
   private var hwRate = 16000
+  // Apple's engines stream buffers straight to the recognizer; keep a copy so their
+  // recordings are saved and retryable like every other engine's.
+  private var keepAppleAudio = false
+  private var appleAudio: [Float] = []
+  private var appleAudioRate = 16000
+  private let appleAudioLock = NSLock()
   // Incremental qwenAsr state, owned by sherpaQueue. Chunks of consumed audio
   // are transcribed in short-lived workers while recording continues; only
   // their text survives here, so memory stays flat no matter how long the
@@ -113,6 +119,10 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
       set("Stop the meeting recording to dictate."); return
     }
     let spec = Settings.shared.activeModel
+    appleAudioLock.withLock {
+      appleAudio = []
+      keepAppleAudio = spec.kind == .appleSystem && Settings.shared.keepLatestRecording
+    }
     dlog("start() isRecording=\(isRecording) model=\(spec.id)")
     wantsStop = false
     if spec.kind == .appleSystem {
@@ -228,6 +238,13 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
           DispatchQueue.main.async { NSSound(named: "Pop")?.play() }
         }
         onBuffer(buffer)
+        if let ch = buffer.floatChannelData?[0] {
+          self.appleAudioLock.withLock {
+            guard self.keepAppleAudio else { return }
+            self.appleAudioRate = Int(buffer.format.sampleRate)
+            self.appleAudio.append(contentsOf: UnsafeBufferPointer(start: ch, count: Int(buffer.frameLength)))
+          }
+        }
         if let ch = buffer.floatChannelData?[0] {
           let n = Int(buffer.frameLength)
           var sum: Float = 0
@@ -1294,6 +1311,15 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
   }
 
   private func finish(with text: String, alreadyCleaned: Bool = false) {
+    let (apple, appleRate) = appleAudioLock.withLock { () -> ([Float], Int) in
+      defer { appleAudio = []; keepAppleAudio = false }
+      return keepAppleAudio ? (appleAudio, appleAudioRate) : ([], 0)
+    }
+    if !apple.isEmpty {
+      DispatchQueue.global(qos: .utility).async {
+        DiagnosticAudioStore.saveLatest(samples: apple, sampleRate: appleRate)
+      }
+    }
     // Un-punctuated engines (streaming Zipformer, CTC) get on-device punctuation
     // restored before the spoken-command pass. Runs off the main thread.
     let kind = Settings.shared.activeModel.kind
