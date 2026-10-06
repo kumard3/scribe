@@ -52,6 +52,7 @@ final class MeetingRecorder: ObservableObject {
 
   private var folder: URL?
   private var clipCount = 0
+  private var peopleOverride: [URL: Int] = [:]
   private var startedAt: Date?
   private var timer: Timer?
   private var levelTimer: Timer?
@@ -132,6 +133,12 @@ final class MeetingRecorder: ObservableObject {
   }
 
   func reveal(_ item: MeetingItem) { NSWorkspace.shared.activateFileViewerSelecting([item.id]) }
+
+  /// Re-runs a meeting with a known number of other people, when Auto found too many or too few.
+  func retranscribe(_ dir: URL, otherPeople: Int) {
+    peopleOverride[dir] = otherPeople
+    enqueue(dir)
+  }
 
   func enqueue(_ dir: URL) {
     guard processing != dir, !queued.contains(dir) else { return }
@@ -299,7 +306,7 @@ final class MeetingRecorder: ObservableObject {
     step = "Starting…"
     let language = Settings.shared.language
     let provider = Settings.shared.sherpaProvider(for: spec)
-    let speakers = Settings.shared.diarizeSpeakers
+    let speakers = peopleOverride.removeValue(forKey: dir) ?? Settings.shared.diarizeSpeakers
 
     DispatchQueue.global(qos: .utility).async {
       let out = MeetingPipeline.run(

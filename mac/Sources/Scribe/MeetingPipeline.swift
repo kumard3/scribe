@@ -110,7 +110,10 @@ enum MeetingPipeline {
     var othersPieces: [Piece] = []
     if others.contains(where: { abs($0) > 0.001 }) {
       report("Separating speakers…")
-      let sortformer = people <= SortformerMeeting.maxSpeakers
+      // Sortformer can't be told a head count and filled all 4 slots for a 2-person call, so it only
+      // runs on Auto; a known count goes to pyannote clustering, which honours it exactly.
+      let useSortformer = people == 0 || !SupportModelStore.diarInstalled
+      let sortformer = useSortformer && people <= SortformerMeeting.maxSpeakers
         ? SortformerMeeting.diarize(samples: others).flatMap { $0.isEmpty ? nil : $0 } : nil
       let segments = sortformer ?? (SupportModelStore.diarInstalled
         ? Diarizer.diarize(samples: others, sampleRate: rate, numSpeakers: people) : [])

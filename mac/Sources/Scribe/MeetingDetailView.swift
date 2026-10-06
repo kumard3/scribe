@@ -367,8 +367,21 @@ struct MeetingDetailView: View {
 
   private func speakersView(_ d: MeetingDetail) -> some View {
     card {
-      Text("Rename a speaker and the transcript and saved files update.")
-        .font(.caption).foregroundColor(Mono.textDim)
+      HStack(spacing: 8) {
+        Text("Rename a speaker and the transcript and saved files update.")
+          .font(.caption).foregroundColor(Mono.textDim)
+        Spacer()
+        Menu("Wrong number of people?") {
+          ForEach(1...6, id: \.self) { n in
+            Button("Redo with \(n) other \(n == 1 ? "person" : "people") besides you") {
+              meeting.retranscribe(dir, otherPeople: n)
+            }
+          }
+        }
+        .font(.system(size: 12))
+        .fixedSize()
+        .disabled(meeting.processing == dir)
+      }
       ForEach(d.speakers, id: \.self) { s in
         let words = d.turns.filter { $0.speaker == s }.reduce(0) { $0 + $1.text.split(separator: " ").count }
         HStack(spacing: 10) {
