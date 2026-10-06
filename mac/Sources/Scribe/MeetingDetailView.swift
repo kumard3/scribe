@@ -7,6 +7,8 @@ struct MeetingDetail: Codable {
   struct Turn: Codable {
     let speaker: Int
     var text: String
+    /// Seconds into the meeting; nil in meetings saved before timings were kept.
+    var start: Double?
   }
 
   var names: [String: String]
@@ -60,7 +62,7 @@ struct MeetingDetail: Codable {
 
   init(_ out: MeetingPipeline.Output) {
     names = Dictionary(uniqueKeysWithValues: out.names.map { (String($0.key), $0.value) })
-    turns = out.turns.map { Turn(speaker: $0.speaker, text: $0.text) }
+    turns = out.turns.map { Turn(speaker: $0.speaker, text: $0.text, start: $0.start) }
     summary = out.summary
   }
 
@@ -128,6 +130,7 @@ struct MeetingDetailView: View {
   @State private var detail: MeetingDetail?
   @State private var video: AVPlayer?
   @State private var clips: [URL] = []
+  @State private var copiedForAgent = false
   @State private var clip = 0
   @State private var mode = Mode.summary
   @State private var search = ""
@@ -225,6 +228,16 @@ struct MeetingDetailView: View {
           NSPasteboard.general.setString(detail?.fileText ?? "", forType: .string)
         }
         .disabled(detail == nil)
+        Button(copiedForAgent ? "Copied for agent" : "Copy for agent") {
+          Task {
+            await AgentExport.write(dir: dir)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(AgentExport.prompt(dir: dir), forType: .string)
+            copiedForAgent = true
+          }
+        }
+        .disabled(detail == nil)
+        .help("Writes agent.md (summary, timestamped transcript, screenshots) and copies its path for an AI agent")
         Button { NSWorkspace.shared.activateFileViewerSelecting([dir]) } label: { Image(systemName: "folder") }
           .help("Show in Finder")
         Button(detail == nil ? "Transcribe" : "Re-transcribe") { meeting.enqueue(dir) }

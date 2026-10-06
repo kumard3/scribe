@@ -10,6 +10,8 @@ struct SpeakerSegment {
 struct SpeakerTurn {
   let speaker: Int
   var text: String
+  /// Seconds from the start of the recording, when the pipeline knows it.
+  var start: Double = 0
 }
 
 /// On-device speaker diarization (who-said-what) for imported recordings. Wraps

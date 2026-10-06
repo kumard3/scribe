@@ -305,7 +305,10 @@ final class MeetingRecorder: ObservableObject {
       let out = MeetingPipeline.run(
         dir: dir, spec: spec, language: language, provider: provider, speakerCount: speakers
       ) { self.step = $0 }
-      if !out.turns.isEmpty { MeetingDetail(out).save(to: dir) }
+      if !out.turns.isEmpty {
+        MeetingDetail(out).save(to: dir)
+        Task { await AgentExport.write(dir: dir) }
+      }
       DispatchQueue.main.async {
         if out.turns.isEmpty { self.failures[dir] = "No speech was detected in this recording." }
         self.processing = nil

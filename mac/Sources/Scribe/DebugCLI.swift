@@ -44,6 +44,7 @@ enum DebugCLI {
     runMeetingProcessIfRequested()
     runSummaryTestIfRequested()
     runAppleTurnsIfRequested()
+    runAgentExportIfRequested()
     runNativeWorkerIfRequested()
     runArkasrIfRequested()
     runQwenAsrServeIfRequested()
@@ -890,6 +891,21 @@ private func runAppleTurnsIfRequested() {
     print("turn \(turn) warm=\(hit): \(text ?? "")")
     RunLoop.main.run(until: Date().addingTimeInterval(3))
   }
+  exit(0)
+}
+
+/// `Scribe --agent-export <meeting dir>` writes that meeting's agent.md and frames, then prints the path.
+private func runAgentExportIfRequested() {
+  let args = CommandLine.arguments
+  guard let i = args.firstIndex(of: "--agent-export"), args.count > i + 1 else { return }
+  let dir = URL(fileURLWithPath: args[i + 1], isDirectory: true)
+  var done = false
+  Task {
+    await AgentExport.write(dir: dir)
+    done = true
+  }
+  while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+  print(AgentExport.file(in: dir).path)
   exit(0)
 }
 

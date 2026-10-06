@@ -158,10 +158,12 @@ enum MeetingPipeline {
       if let last = turns.last, last.speaker == p.speaker {
         turns[turns.count - 1].text += " " + p.text
       } else {
-        turns.append(SpeakerTurn(speaker: p.speaker, text: p.text))
+        turns.append(SpeakerTurn(speaker: p.speaker, text: p.text, start: Double(p.range.lowerBound) / Double(rate)))
       }
     }
-    turns = turns.map { SpeakerTurn(speaker: $0.speaker, text: Romanizer.normalizeScript(AudioImport.clean($0.text, spec: spec))) }
+    turns = turns.map {
+      SpeakerTurn(speaker: $0.speaker, text: Romanizer.normalizeScript(AudioImport.clean($0.text, spec: spec)), start: $0.start)
+    }
 
     var summary: String?
     if !turns.isEmpty, MeetingLLM.available {

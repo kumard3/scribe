@@ -19,7 +19,7 @@ final class SpeakerTranscript: ObservableObject {
   func merge(_ from: Int, into target: Int) {
     guard from != target else { return }
     turns = coalesce(turns.map {
-      $0.speaker == from ? SpeakerTurn(speaker: target, text: $0.text) : $0
+      $0.speaker == from ? SpeakerTurn(speaker: target, text: $0.text, start: $0.start) : $0
     })
     names[from] = nil
   }
