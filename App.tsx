@@ -75,6 +75,13 @@ import { Paths, File as CacheFile } from 'expo-file-system';
 import { convertAudioToWav16k } from 'react-native-sherpa-onnx/audio';
 import { canRecordWith, recordTranscribe } from './src/asr/recordTranscribe';
 import {
+  appleSpeechAvailable,
+  appleSpeechReady,
+  onAppleSpeech,
+  startAppleSpeech,
+  stopAppleSpeech,
+} from './src/asr/appleSpeech';
+import {
   buildSpeakerTurns,
   diarizationInstalled,
   diarizationSupported,
@@ -177,6 +184,12 @@ export default function App() {
   const liveIntent = useRef(false);
   const liveLocale = useRef('en-US');
   const liveOnDevice = useRef(true);
+  // True while dictating through Apple's SpeechAnalyzer (iOS 26+), which never ends on a pause.
+  const liveApple = useRef(false);
+  const [appleReady, setAppleReady] = useState(appleSpeechAvailable());
+  useEffect(() => {
+    appleSpeechReady.then(setAppleReady);
+  }, []);
   const lastHistoryId = useRef<string | null>(null);
   const keyboardHandoff = useRef(false);
   const liveScrollRef = useRef<ScrollView>(null);
@@ -195,7 +208,7 @@ export default function App() {
     const fallback =
       language === 'en' ? 'whisper:whisper-small-en-q5' : 'whisper:whisper-small';
     return catalogModelById(fallback) ?? null;
-  }, [selected, selectedModelId, language]);
+  }, [selected, selectedModelId, language, appleReady]);
   const langLabel = SUPPORTED_LANGUAGES.find((l) => l.code === language)?.label ?? language;
   const active = recognizing || recording || nativeRec || modelLive;
   const liveDisplay = translateTarget && liveXlate ? liveXlate : transcript;
@@ -236,10 +249,11 @@ export default function App() {
     };
   }, [active]);
 
-  useSpeechRecognitionEvent('start', () => {
+  const onLiveStart = () => {
     setRecognizing(true);
     setError(null);
-  });
+  };
+  useSpeechRecognitionEvent('start', onLiveStart);
 
   // Finish a live (system) session: polish, translate to the target if one is
   // set, then show + save the result. Async so the ML Kit translate can run.
@@ -271,9 +285,9 @@ export default function App() {
     setHistory(items);
   }, []);
 
-  useSpeechRecognitionEvent('end', () => {
+  const onLiveEnd = () => {
     setRecognizing(false);
-    if (liveIntent.current) {
+    if (liveIntent.current && !liveApple.current) {
       // iOS ended recognition on a pause, but the user is still holding the session open.
       // Keep listening so a long dictation doesn't silently die.
       setTimeout(() => {
@@ -291,35 +305,50 @@ export default function App() {
     const raw = (committed.current + ' ' + partial.current).trim();
     if (!raw) return;
     void finalizeLive(raw);
-  });
+  };
+  useSpeechRecognitionEvent('end', onLiveEnd);
 
-  useSpeechRecognitionEvent('result', (e) => {
-    const text = e.results[0]?.transcript ?? '';
-    if (e.isFinal) {
+  const onLiveResult = (text: string, isFinal: boolean) => {
+    if (isFinal) {
       committed.current = (committed.current + ' ' + text).trim();
       partial.current = '';
     } else {
       partial.current = text;
     }
     setTranscript((committed.current + ' ' + partial.current).trim());
-  });
+  };
+  useSpeechRecognitionEvent('result', (e) => onLiveResult(e.results[0]?.transcript ?? '', e.isFinal));
 
-  useSpeechRecognitionEvent('volumechange', (e) => {
-    const norm = Math.max(0.06, Math.min(1, (e.value + 2) / 12));
-    setLevels((prev) => [...prev.slice(1), norm]);
-  });
+  const onLiveLevel = (norm: number) => setLevels((prev) => [...prev.slice(1), norm]);
+  useSpeechRecognitionEvent('volumechange', (e) => onLiveLevel(Math.max(0.06, Math.min(1, (e.value + 2) / 12))));
 
-  useSpeechRecognitionEvent('error', (e) => {
+  const onLiveError = (code: string, message: string) => {
     // no-speech / aborted are normal pauses, let the 'end' handler decide whether to restart.
-    if (e.error === 'no-speech' || e.error === 'aborted') return;
+    if (code === 'no-speech' || code === 'aborted') return;
     liveIntent.current = false;
-    if (e.error === 'language-not-supported' || e.error === 'service-not-allowed') {
+    if (code === 'language-not-supported' || code === 'service-not-allowed') {
       setError(`On-device ${langLabel} isn't installed. Pick a downloaded model in Models.`);
     } else {
-      setError(e.message || e.error);
+      setError(message || code);
     }
     setRecognizing(false);
-  });
+  };
+  useSpeechRecognitionEvent('error', (e) => onLiveError(e.error, e.message));
+
+  const appleHandlers = useRef({ onLiveStart, onLiveResult, onLiveLevel, onLiveEnd, onLiveError });
+  appleHandlers.current = { onLiveStart, onLiveResult, onLiveLevel, onLiveEnd, onLiveError };
+  useEffect(
+    () =>
+      onAppleSpeech((e) => {
+        const h = appleHandlers.current;
+        if (e.type === 'start') h.onLiveStart();
+        else if (e.type === 'result') h.onLiveResult(e.text, e.isFinal);
+        else if (e.type === 'level') h.onLiveLevel(e.value);
+        else if (e.type === 'end') h.onLiveEnd();
+        else h.onLiveError('apple', e.message);
+      }),
+    []
+  );
 
   useEffect(() => {
     if (!pcmRec && !modelLive) setLevels(IDLE_LEVELS);
@@ -355,7 +384,8 @@ export default function App() {
   const onLivePress = useCallback(async () => {
     if (recognizing) {
       liveIntent.current = false; // user-initiated stop, don't auto-restart
-      stopLive();
+      if (liveApple.current) void stopAppleSpeech();
+      else stopLive();
       return;
     }
     try {
@@ -377,12 +407,18 @@ export default function App() {
       setTranscript('');
       setLiveXlate('');
       setResultTarget('');
+      liveIntent.current = true;
+      liveApple.current = appleSpeechAvailable();
+      if (liveApple.current) {
+        setOnDeviceLive(true);
+        await startAppleSpeech(language, biasTerms());
+        return;
+      }
       const locale = localeFor(language);
       const onDevice = await resolveOnDevice(locale);
       setOnDeviceLive(onDevice);
       liveLocale.current = locale;
       liveOnDevice.current = onDevice;
-      liveIntent.current = true;
       startLive({ locale, onDevice, contextualStrings: biasTerms() });
     } catch (e: any) {
       liveIntent.current = false;

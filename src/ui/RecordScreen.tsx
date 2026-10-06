@@ -238,18 +238,21 @@ export function RecordScreen({ language, recordModel, onPickModel, onSaved, onBu
 
       let result: SpeakerTurn[];
       let nSpeakers = 1;
+      result = [{ speaker: 0, text: baseText }];
       if (diarize && diarizationSupported) {
-        if (!diarizationInstalled()) {
-          setStatus('Downloading speaker model');
-          await downloadDiarizationModels(setProgress);
-          setProgress(0);
+        try {
+          if (!diarizationInstalled()) {
+            setStatus('Downloading speaker model');
+            await downloadDiarizationModels(setProgress);
+            setProgress(0);
+          }
+          setStatus('Identifying speakers');
+          const segs = await diarizeFile(uri, { numSpeakers: diarizeSpeakers });
+          nSpeakers = Math.max(1, speakerCount(segs));
+          result = buildSpeakerTurns(baseText, detailed.units, segs);
+        } catch {
+          setProgress(0); // keep the transcript; just skip speaker labels
         }
-        setStatus('Identifying speakers');
-        const segs = await diarizeFile(uri, { numSpeakers: diarizeSpeakers });
-        nSpeakers = Math.max(1, speakerCount(segs));
-        result = buildSpeakerTurns(baseText, detailed.units, segs);
-      } else {
-        result = [{ speaker: 0, text: baseText }];
       }
 
       if (getAutoPolish()) result = result.map((t) => ({ ...t, text: polish(t.text) }));

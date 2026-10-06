@@ -1,6 +1,5 @@
 import { Directory, File, Paths, DownloadTask } from 'expo-file-system';
 import { NativeModules } from 'react-native';
-import { listBundledArchives, extractArchive } from 'react-native-sherpa-onnx/extraction';
 import type { TimedUnit } from './types';
 import { speakerName } from '../meetingFormat';
 
@@ -25,12 +24,15 @@ export const diarizationSupported = !!native;
 
 export type SpeakerSegment = { start: number; end: number; speaker: number };
 
-const SEG_REL = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models';
+// The same model.int8.onnx as sherpa's tar.bz2 (checked byte for byte), as a bare file: unpacking
+// the archive on iOS 27 failed with "Failed to open archive file" and lost the recording's transcript.
+const SEG_URL =
+  'https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/main/model.int8.onnx';
 const EMB_REL = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models';
 
 const SEG = {
-  archive: 'sherpa-onnx-pyannote-segmentation-3-0.tar.bz2',
-  sizeBytes: 6125744,
+  file: 'model.int8.onnx',
+  sizeBytes: 1540506,
 };
 const EMB = {
   file: '3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx',
@@ -89,42 +91,22 @@ export async function downloadDiarizationModels(
   onProgress?: (ratio: number) => void,
   signal?: AbortSignal
 ): Promise<void> {
-  // 1. Segmentation archive (pyannote) -> extract.
+  // 1. Segmentation model (pyannote), a single .onnx.
   if (!segModelPath()) {
     const dir = segDir();
     if (!dir.exists) dir.create({ intermediates: true });
-    const archiveFile = new File(dir, SEG.archive);
-    if (archiveFile.exists) archiveFile.delete();
-
+    const dest = new File(dir, SEG.file);
+    if (dest.exists) dest.delete();
     let total = 0;
-    const task = new DownloadTask(`${SEG_REL}/${SEG.archive}`, archiveFile, {
+    const task = new DownloadTask(SEG_URL, dest, {
       signal,
       onProgress: ({ bytesWritten, totalBytes }) => {
         if (totalBytes > 0) total = totalBytes;
-        const t = total > 0 ? total : SEG.sizeBytes;
-        if (t > 0) onProgress?.((bytesWritten / t) * 0.18);
+        onProgress?.((bytesWritten / (total > 0 ? total : SEG.sizeBytes)) * 0.23);
       },
     });
     const file = await task.downloadAsync();
     if (!file) throw new Error('Segmentation model download did not complete');
-
-    const archives = await listBundledArchives(abs(dir.uri));
-    const arch = archives.find((a) => a.archivePath.endsWith(SEG.archive)) ?? archives[0];
-    if (!arch) {
-      archiveFile.delete();
-      throw new Error('Segmentation archive not found after download');
-    }
-    const res = await extractArchive(arch, abs(dir.uri), {
-      force: true,
-      showNotificationsEnabled: false,
-      signal,
-      onProgress: (e) => onProgress?.(0.18 + (Math.max(0, Math.min(100, e.percent)) / 100) * 0.05),
-    });
-    if (!res.success) {
-      if (dir.exists) dir.delete();
-      throw new Error(res.reason ?? 'Segmentation model extraction failed. Try again.');
-    }
-    if (archiveFile.exists) archiveFile.delete();
   }
 
   // 2. Speaker-embedding model (single .onnx).

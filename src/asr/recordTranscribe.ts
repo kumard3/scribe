@@ -1,4 +1,5 @@
 import { CatalogModel } from './catalog';
+import { appleSpeechAvailable, transcribeFileWithApple } from './appleSpeech';
 import { isInstalled, transcribeWithModel } from './index';
 import { sherpaModelById, transcribeDetailedWithSherpa } from './sherpa';
 import { transcribeDetailedWithNemo } from './nemo';
@@ -8,10 +9,11 @@ import type { TimedUnit } from './types';
 
 export type DetailedTranscript = { text: string; units: TimedUnit[] };
 
-/** Whether a catalog model can transcribe a recorded file (everything but the
- *  live-only system engine). */
+/** Whether a catalog model can transcribe a recorded file. The system engine can
+ *  only through Apple's SpeechAnalyzer (iOS 26+). */
 export function canRecordWith(model: CatalogModel): boolean {
-  return model.kind !== 'system' && model.kind !== 'llm';
+  if (model.kind === 'system') return appleSpeechAvailable();
+  return model.kind !== 'llm';
 }
 
 /**
@@ -24,6 +26,7 @@ export async function recordTranscribe(
   wavUri: string,
   language: string
 ): Promise<DetailedTranscript> {
+  if (model.kind === 'system') return transcribeFileWithApple(wavUri, language);
   if (model.kind === 'whisper' && model.whisper) {
     if (!isInstalled(model.whisper)) throw new Error(`Download ${model.label} in Models first.`);
     const res = await transcribeWithModel(wavUri, model.whisper, language, false);
