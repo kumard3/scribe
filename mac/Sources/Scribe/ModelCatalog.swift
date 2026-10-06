@@ -427,11 +427,13 @@ enum ModelCatalog {
 
   /// Apex if on disk, else Swift, else Whisper turbo, else Apple.
   static func resolveAuto(installed: (ModelSpec) -> Bool) -> ModelSpec {
-    for id in [apexId, swiftId, turboId] {
-      if let spec = spec(id), installed(spec) { return spec }
-    }
+    // Apple's Hinglish recognizer is the default: fast, nothing to download, and it beat the
+    // downloaded models on Kumar's mixed Hindi/English dictation.
     if Settings.shared.romanizeHindi, let hinglish = spec("system-hinglish") {
       return hinglish
+    }
+    for id in [apexId, swiftId, turboId] {
+      if let spec = spec(id), installed(spec) { return spec }
     }
     return spec(systemId)!
   }
