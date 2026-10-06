@@ -814,7 +814,7 @@ private func runRenderDashboardIfRequested() {
   UserDefaults.standard.set(DashboardView.Tab.home.rawValue, forKey: "dashboardTab")
   if let screen = NSScreen.main {
     let layout = NotchLayout(screen: screen)
-    let host = NSHostingView(rootView: NotchHUDView(meeting: MeetingRecorder.shared, screen: ScreenRecorder.shared, layout: layout))
+    let host = NSHostingView(rootView: NotchHUDView(meeting: MeetingRecorder.shared, screen: ScreenRecorder.shared, hud: NotchHUD.shared, layout: layout))
     host.frame = NSRect(origin: .zero, size: layout.frame.size)
     let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
     window.contentView = host
