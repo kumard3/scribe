@@ -169,6 +169,13 @@ if [ -x "$WHISPER_CLI" ]; then
   cp "$WHISPER_CLI" "$APP/Contents/Helpers/Whisper/whisper-cli"
   cp "$WHISPER_SRC/LICENSE" "$APP/Contents/Resources/whisper.cpp-LICENSE"
 fi
+# Build-dir rpaths resolve through .deps onto the T7 here, and a sandboxed launch then asks for removable-volume access.
+for lib in "$APP/Contents/Frameworks/"*.dylib "$APP/Contents/Helpers/Whisper/"*; do
+  [ -f "$lib" ] || continue
+  for rp in $(otool -l "$lib" | awk '/LC_RPATH/{getline; getline; print $2}' | grep "^$PWD/" || true); do
+    install_name_tool -delete_rpath "$rp" "$lib" 2>/dev/null || true
+  done
+done
 
 # App icon from the macOS Bolkit mark
 if [ -f ../marketing/logo/bolkit-mac-icon-1024.png ] && [ ! -f Scribe.icns ]; then
