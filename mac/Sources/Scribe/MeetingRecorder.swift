@@ -79,8 +79,10 @@ final class MeetingRecorder: ObservableObject {
       at: Self.root, includingPropertiesForKeys: [.creationDateKey], options: [.skipsHiddenFiles]
     )) ?? []
     recordings = dirs.compactMap { dir -> MeetingItem? in
-      let you = dir.appendingPathComponent("you.caf")
-      guard let size = (try? fm.attributesOfItem(atPath: you.path))?[.size] as? Int else { return nil }
+      let sizes = ["you.caf", "others.caf"].compactMap {
+        (try? fm.attributesOfItem(atPath: dir.appendingPathComponent($0).path))?[.size] as? Int
+      }
+      guard let size = sizes.max() else { return nil }
       let date = (try? dir.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
       return MeetingItem(
         id: dir, date: date,
@@ -118,7 +120,7 @@ final class MeetingRecorder: ObservableObject {
 
   static func clips(in dir: URL) -> [URL] {
     ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
-      .filter { $0.lastPathComponent.hasPrefix("screen") && $0.pathExtension == "mp4" }
+      .filter { $0.lastPathComponent.hasPrefix("screen") && ["mp4", "mov", "m4v"].contains($0.pathExtension.lowercased()) }
       .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
   }
 
@@ -259,12 +261,15 @@ final class MeetingRecorder: ObservableObject {
         "No system audio was captured: allow Bolkit under System Settings > Privacy & Security > System Audio Recording."
     }
     // AVAudioFile finalizes the CAF on deinit; let in-flight audio callbacks release the writers first.
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-      self.refreshRecordings()
-      self.enqueue(dir)
-      self.openMeetingID = dir
-      DashboardWindow.show(.meetings)
-    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.add(dir) }
+  }
+
+  /// Transcribes a finished recording folder and opens it.
+  func add(_ dir: URL) {
+    refreshRecordings()
+    enqueue(dir)
+    openMeetingID = dir
+    DashboardWindow.show(.meetings)
   }
 
   private func teardown() {

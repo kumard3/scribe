@@ -153,6 +153,10 @@ struct MenuContent: View {
       AudioImport.present()
     }
 
+    Button("Make a video agent-ready…") {
+      VideoImport.present()
+    }
+
     if MeetingRecorder.supported {
       Button(meeting.isRecording
         ? "Stop meeting recording (\(meeting.elapsedLabel))"

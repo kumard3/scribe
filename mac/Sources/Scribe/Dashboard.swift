@@ -481,6 +481,8 @@ struct DashboardView: View {
             Text("Screen: \(ScreenRecorder.describe(settings.meetingShare)). Press record to choose.")
               .font(.system(size: 12)).foregroundColor(Mono.textFaint)
           }
+          Button("Import a video (Loom, screen recording)…") { VideoImport.present() }
+            .font(.system(size: 12))
         }
       }
       Spacer(minLength: 0)
