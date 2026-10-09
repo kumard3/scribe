@@ -163,11 +163,20 @@ enum AzureSpeech {
       parts: [("audio", try flac(pcm16k)), ("definition", Data(json.utf8))], audioSeconds: Double(pcm16k.count) / 16_000)
     let response = try JSONDecoder().decode(MaiResponse.self, from: body)
     return (response.phrases ?? []).map { phrase in
-      Phrase(speaker: phrase.speaker, text: phrase.text, words: (phrase.words ?? []).map {
+      Phrase(speaker: phrase.speaker, text: oneLine(phrase.text), words: (phrase.words ?? []).map {
         let start = Double($0.offsetMilliseconds) / 1000
         return Word(text: $0.text, start: start, end: start + Double(max($0.durationMilliseconds ?? 0, 1)) / 1000)
       })
     }
+  }
+
+  static func oneLine(_ text: String) -> String {
+    text.replacingOccurrences(of: "\\s*\\n\\s*", with: " ", options: .regularExpression)
+  }
+
+  static func selfTest() {
+    precondition(oneLine("और 100 CXOs होंगे।\nI am talking\n\n about\r\nit") == "और 100 CXOs होंगे। I am talking about it")
+    print("AzureSpeech selftest ok")
   }
 
   static func openAI(_ pcm16k: [Float], deployment: String, credentials: AzureCredentials) async throws -> String {

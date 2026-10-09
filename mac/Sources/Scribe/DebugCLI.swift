@@ -32,6 +32,7 @@ enum DebugCLI {
       #endif
       OllamaRuntime.selfTest()
       MeetingPipeline.selfTest()
+      AzureSpeech.selfTest()
       exit(0)
     }
     if CommandLine.arguments.contains("--selftest-transcription-safety") {
