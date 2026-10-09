@@ -194,12 +194,14 @@ enum MeetingPipeline {
     return false
   }
 
-  /// Apple speech (English) when it's on, else Gemma for Hindi/English mixes, else the dictation model.
+  /// Apple speech (English) when it's on, else dictation's Apple recognizer, else Gemma, else the dictation model.
   static var meetingModel: ModelSpec {
     if Settings.shared.meetingAppleSpeech, appleSpeechAvailable, let apple = ModelCatalog.spec(ModelCatalog.systemId) {
       return apple
     }
     if Settings.shared.activeModel.kind == .azure { return Settings.shared.activeModel }
+    let dictation = Settings.shared.activeModel
+    if dictation.kind == .appleSystem, appleSpeechAvailable { return dictation }
     if let gemma = ModelCatalog.spec(ModelCatalog.gemmaAsrId), canTranscribe(gemma) { return gemma }
     return Settings.shared.activeModel
   }
