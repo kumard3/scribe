@@ -1,7 +1,7 @@
 BOLKIT FOR MAC, REVIEW NOTES
 
 NO ACCOUNT, NO PURCHASES
-No account, login, backend, purchase or subscription; no demo credentials needed. The iPhone version is already on the App Store under this app record.
+No account, login, backend, purchase or subscription; no demo credentials needed.
 
 WHAT IT DOES
 Dictation and meeting transcription for the Mac. Hold a key, speak, let go, and the text is pasted into the app you are typing in. It can also record a call and transcribe it with speakers separated. Models run on the Mac, it works offline, and we operate no server.
@@ -25,13 +25,13 @@ WHY EACH PERMISSION
 - Mic-in-use check: reads which apps have the mic open (Core Audio process list) only to offer the card above. Nothing is stored or sent.
 
 EXTERNAL SERVICES
-Apple Speech (SFSpeechRecognizer, SpeechAnalyzer); Apple Foundation Models on device for summaries; Hugging Face and GitHub Releases for static downloads of optional models (nothing sent up); optionally Ollama, a local server the user runs, for text cleanup. No auth provider, payments, analytics, ads, crash reporting or backend of ours.
+Apple Speech (SFSpeechRecognizer, SpeechAnalyzer); Apple Foundation Models on device for summaries; Hugging Face and GitHub Releases for static downloads of optional models (nothing sent up); optionally Ollama, a local server the user runs, for text cleanup. New and optional: Microsoft Azure Speech with the user's own Azure key, under Dashboard > Models > Azure (cloud). Off by default; the card states that audio is sent to Microsoft; no key ships in the app, we never receive the audio, and no key is needed to review. No auth provider, payments, analytics, ads, crash reporting or backend of ours.
 
 REGIONAL DIFFERENCES
 None.
 
 REGULATED INDUSTRY AND THIRD-PARTY MATERIAL
-Not regulated; a productivity utility. Models are public open-weight releases (Whisper, MIT; NVIDIA NeMo via k2-fsa/sherpa-onnx, Apache 2.0/CC-BY; Google Gemma, Gemma Terms of Use). Downloads are weights, not code. Source is MIT at https://github.com/kumard3/scribe.
+Not regulated; a productivity utility. Models are public open-weight releases (Whisper, NVIDIA NeMo, Google Gemma, public open-weight licenses). Downloads are weights, not code. Source is MIT at https://github.com/kumard3/scribe.
 
 TESTED ON
-MacBook Pro 14-inch (M3 Pro), macOS 27.0 (26A428). Build 1.3.3 (7) ran in the App Sandbox: a meeting recording with system audio and a screen clip, switching the shared window mid-call, and a screen-only recording to Movies > Bolkit all worked. This build (8) adds only a fix that keeps the recording indicator at the notch in full screen, and deleting meetings. Needs macOS 14.0+ (meeting recording 14.4+).
+MacBook Pro 14-inch (M3 Pro), macOS 27.0. Build 1.3.4 (9) ran in the App Sandbox. New since 1.3.3: menu bar > Make a video agent-ready… imports a video picked in the open panel as a meeting (transcript, speakers, summary); every meeting gets agent.md, a timestamped transcript with screenshots taken from its own screen clips; the recording indicator can be dragged to the notch, a corner or the bottom of the screen; a meeting can be redone with a known number of speakers; the optional Azure cloud speech above; a fix for a stop button left in the menu bar after a screen recording. Needs macOS 14.0+ (meeting recording 14.4+, screen recording 15+).
