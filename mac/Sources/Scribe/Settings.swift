@@ -196,6 +196,12 @@ final class Settings: ObservableObject {
   @AppStorage("activeModel") var activeModelId: String = ModelCatalog.autoId {
     willSet { objectWillChange.send() }
   }
+  @AppStorage("azureEnabled") var azureEnabled: Bool = false {
+    willSet { objectWillChange.send() }
+  }
+  @AppStorage("azureModel") var azureModelId: String = AzureSpeech.maiId {
+    willSet { objectWillChange.send() }
+  }
   @AppStorage("language") var language: String = defaultSpeechLanguage() {
     willSet { objectWillChange.send() }
   }
@@ -301,6 +307,7 @@ final class Settings: ObservableObject {
   }
 
   var activeModel: ModelSpec {
+    if azureEnabled, let azure = ModelCatalog.spec(azureModelId) { return azure }
     let stored = storedModel
     if stored.kind == .autoResolve {
       return ModelCatalog.resolveAuto { spec in

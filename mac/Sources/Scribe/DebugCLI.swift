@@ -38,6 +38,7 @@ enum DebugCLI {
       transcriptionSafetySelfTest()
       exit(0)
     }
+    runAzureTestIfRequested()
     runMeetingCaptureTestIfRequested()
     runScreenCaptureTestIfRequested()
     runRenderDashboardIfRequested()
@@ -783,7 +784,7 @@ private func runRenderDashboardIfRequested() {
   for tab in DashboardView.Tab.allCases {
     UserDefaults.standard.set(tab.rawValue, forKey: "dashboardTab")
     let host = NSHostingView(rootView: DashboardView())
-    host.frame = NSRect(x: 0, y: 0, width: 920, height: 700)
+    host.frame = NSRect(x: 0, y: 0, width: 920, height: tab == .models ? 2600 : 700)
     let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
     window.contentView = host
     host.layoutSubtreeIfNeeded()
@@ -980,3 +981,70 @@ private func runMeetingProcessIfRequested() {
   exit(0)
 }
 
+
+/// `Scribe --azure-test <audio> <model-id> [--load-env] [--speakers]` runs the same Azure calls as dictation
+/// and import (live models stream the file paced in real time) and prints latency from end of audio to text.
+private func runAzureTestIfRequested() {
+  let args = CommandLine.arguments
+  guard let i = args.firstIndex(of: "--azure-test"), args.count > i + 2,
+        let spec = ModelCatalog.spec(args[i + 2]), spec.kind == .azure else { return }
+  if args.contains("--load-env") {
+    print("load-env saved=\(AzureCredentials.fromEnvFiles()?.save() ?? false)")
+  }
+  guard let credentials = AzureCredentials.saved else { print("no credentials in keychain"); exit(2) }
+  let url = URL(fileURLWithPath: args[i + 1])
+  guard let (samples, rate) = AudioImport.decode(url) else { print("cannot read \(url.path)"); exit(2) }
+  let audioSeconds = Double(samples.count) / Double(rate)
+  var raw = ""
+  var done = false
+  var seconds = 0.0
+  var partials = 0
+  var firstPartial = 0.0
+  if spec.live {
+    guard let file = try? AVAudioFile(forReading: url) else { exit(2) }
+    guard let live = AzureRealtime(credentials: credentials, locale: AzureSpeech.liveLocale) else { exit(2) }
+    let began = Date()
+    live.start(onText: { _ in
+      partials += 1
+      if partials == 1 { firstPartial = Date().timeIntervalSince(began) }
+    }, onFailure: { print("live failure: \($0)") })
+    let chunk = AVAudioFrameCount(file.processingFormat.sampleRate / 10)
+    while file.framePosition < file.length {
+      guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: chunk),
+            (try? file.read(into: buffer, frameCount: chunk)) != nil, buffer.frameLength > 0 else { break }
+      live.feed(buffer)
+      RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+    }
+    let end = Date()
+    live.finish { text in raw = text; seconds = Date().timeIntervalSince(end); done = true }
+  } else if args.contains("--speakers") {
+    let start = Date()
+    Task {
+      let phrases = (try? await AzureSpeech.mai(
+        SileroVAD.resampleTo16k(samples, from: rate), speakers: true, credentials: credentials)) ?? []
+      raw = phrases.map { "[\($0.speaker ?? -1)] \($0.text)" }.joined(separator: "\n")
+      seconds = Date().timeIntervalSince(start)
+      done = true
+    }
+  } else {
+    let start = Date()
+    NativeTranscriptionWorker.shared.transcribe(
+      spec: spec, samples: samples, sampleRate: rate, language: Settings.shared.language,
+      provider: "cpu", saveDiagnostic: false
+    ) { result in
+      switch result {
+      case let .success(text): raw = text
+      case let .failure(error): raw = "ERROR \(error.localizedDescription)"
+      }
+      seconds = Date().timeIntervalSince(start)
+      done = true
+    }
+  }
+  while !done { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+  let final = Romanizer.normalizeScript(VoiceCommands.apply(raw, allowDestructive: true))
+  print(String(format: "model=%@ audio=%.1fs latency=%.2fs partials=%d first-partial=%.2fs",
+               spec.id, audioSeconds, seconds, partials, firstPartial))
+  print("raw: \(raw)")
+  print("final: \(final)")
+  exit(raw.isEmpty || raw.hasPrefix("ERROR") ? 1 : 0)
+}

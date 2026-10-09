@@ -32,7 +32,8 @@ enum AudioImport {
       return
     }
     guard installed(spec) else {
-      d.status = "Download \(spec.label) in the Dashboard first."
+      d.status = spec.kind == .azure
+        ? AzureError.noCredentials.localizedDescription : "Download \(spec.label) in the Dashboard first."
       return
     }
 
@@ -52,6 +53,31 @@ enum AudioImport {
         return
       }
       DispatchQueue.main.async { d.status = "Transcribing with \(spec.label)…" }
+      if spec.kind == .azure, Settings.shared.diarizeImports, let credentials = AzureCredentials.saved {
+        Task {
+          do {
+            let phrases = try await AzureSpeech.mai(
+              SileroVAD.resampleTo16k(samples, from: rate), speakers: true, credentials: credentials)
+            var turns: [SpeakerTurn] = []
+            for phrase in phrases {
+              if let last = turns.last, last.speaker == phrase.speaker ?? 0 {
+                turns[turns.count - 1].text += " " + phrase.text
+              } else {
+                turns.append(SpeakerTurn(speaker: phrase.speaker ?? 0, text: phrase.text))
+              }
+            }
+            postProcess(text: phrases.map(\.text).joined(separator: " "), samples: samples, sampleRate: rate,
+                        spec: spec, speakers: turns)
+          } catch {
+            await MainActor.run {
+              d.status = error.localizedDescription
+              d.phase = .idle
+              HUD.shared.hide()
+            }
+          }
+        }
+        return
+      }
       NativeTranscriptionWorker.shared.transcribe(
         spec: spec, samples: samples, sampleRate: rate,
         language: language, provider: provider
@@ -70,12 +96,14 @@ enum AudioImport {
 
   /// Diarization (optional) + punctuation + spoken-command formatting. Runs off
   /// the main thread because both native passes can be slow on long files.
-  private static func postProcess(text: String, samples: [Float], sampleRate: Int, spec: ModelSpec) {
+  private static func postProcess(
+    text: String, samples: [Float], sampleRate: Int, spec: ModelSpec, speakers given: [SpeakerTurn]? = nil
+  ) {
     let d = DictationManager.shared
-    let wantDiar = Settings.shared.diarizeImports && SupportModelStore.diarInstalled
+    let wantDiar = given == nil && Settings.shared.diarizeImports && SupportModelStore.diarInstalled
     let speakers = Settings.shared.diarizeSpeakers
     DispatchQueue.global(qos: .userInitiated).async {
-      var turns: [SpeakerTurn] = []
+      var turns = (given ?? []).map { SpeakerTurn(speaker: $0.speaker, text: clean($0.text, spec: spec)) }
       if wantDiar {
         DispatchQueue.main.async { d.status = "Identifying speakers…" }
         let segments = Diarizer.diarize(samples: samples, sampleRate: sampleRate, numSpeakers: speakers)
@@ -122,6 +150,8 @@ enum AudioImport {
         && fm.fileExists(atPath: dir.appendingPathComponent(spec.mmprojFileName).path)
     case .whisperCpp:
       return fm.fileExists(atPath: dir.appendingPathComponent(spec.fileName).path)
+    case .azure:
+      return AzureCredentials.saved?.supports(spec) ?? false
     default:
       return ModelStore.tokensFile(in: dir) != nil
     }

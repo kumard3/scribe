@@ -134,7 +134,12 @@ enum MeetingPipeline {
     pieces += othersPieces
     pieces.sort { $0.range.lowerBound < $1.range.lowerBound }
 
-    if spec.kind == .appleSystem, #available(macOS 26.0, *) {
+    if spec.kind == .azure, #available(macOS 26.0, *) {
+      report("Transcribing your side with Azure…")
+      place(azureWords(you), into: &pieces) { $0 == Self.you }
+      report("Transcribing the call with Azure…")
+      place(azureWords(others), into: &pieces) { $0 != Self.you }
+    } else if spec.kind == .appleSystem, #available(macOS 26.0, *) {
       report("Transcribing your side…")
       place(appleWords(you, locale: spec.locale), into: &pieces) { $0 == Self.you }
       report("Transcribing the call…")
@@ -194,6 +199,7 @@ enum MeetingPipeline {
     if Settings.shared.meetingAppleSpeech, appleSpeechAvailable, let apple = ModelCatalog.spec(ModelCatalog.systemId) {
       return apple
     }
+    if Settings.shared.activeModel.kind == .azure { return Settings.shared.activeModel }
     if let gemma = ModelCatalog.spec(ModelCatalog.gemmaAsrId), canTranscribe(gemma) { return gemma }
     return Settings.shared.activeModel
   }
@@ -204,6 +210,27 @@ enum MeetingPipeline {
       return false
     }
     return spec.kind != .llm && AudioImport.installed(spec)
+  }
+
+  /// MAI-Transcribe-2 word timings for a whole track, whatever Azure model dictation uses.
+  @available(macOS 26.0, *)
+  private static func azureWords(_ samples: [Float]) -> [AppleLongForm.Word] {
+    guard samples.contains(where: { abs($0) > 0.001 }), let credentials = AzureCredentials.saved else { return [] }
+    let done = DispatchSemaphore(value: 0)
+    var words: [AppleLongForm.Word] = []
+    Task.detached {
+      do {
+        let phrases = try await AzureSpeech.mai(samples, words: true, credentials: credentials)
+        for (i, phrase) in phrases.enumerated() {
+          words += phrase.words.map { AppleLongForm.Word(text: $0.text, start: $0.start, end: $0.end, phrase: i) }
+        }
+      } catch {
+        dlog("meeting azure transcribe: \(error.localizedDescription)")
+      }
+      done.signal()
+    }
+    done.wait()
+    return words
   }
 
   @available(macOS 26.0, *)

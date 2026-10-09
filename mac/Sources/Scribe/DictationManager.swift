@@ -60,6 +60,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
   private var appleErrorRestarts = 0
 
   private var sherpa: SherpaEngine?
+  private var azureLive: AzureRealtime?
   private var qwenSpec: ModelSpec?
   private var offlineSpec: ModelSpec?
   private var fluidSpec: ModelSpec?
@@ -121,7 +122,8 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     let spec = Settings.shared.activeModel
     appleAudioLock.withLock {
       appleAudio = []
-      keepAppleAudio = spec.kind == .appleSystem && Settings.shared.keepLatestRecording
+      keepAppleAudio = (spec.kind == .appleSystem || spec.id == AzureSpeech.realtimeId)
+        && Settings.shared.keepLatestRecording
     }
     dlog("start() isRecording=\(isRecording) model=\(spec.id)")
     wantsStop = false
@@ -148,6 +150,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
         case .whisperCpp: self.beginWhisperCpp(spec)
         case .fluidParakeet: self.beginFluid(spec)
         case .arkasrOnnx, .arkOnnx: self.beginArkasr(spec)
+        case .azure: self.beginAzure(spec)
         default: self.beginSherpa(spec)
         }
       }
@@ -737,6 +740,43 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     markListening()
   }
 
+  private func beginAzure(_ spec: ModelSpec) {
+    guard !isRecording else { return }
+    guard let credentials = AzureCredentials.saved, credentials.supports(spec) else {
+      set(AzureError.noCredentials.localizedDescription)
+      return
+    }
+    recognizer = nil
+    request = nil
+    task = nil
+    sherpaSamples = []
+    guard spec.live else {
+      guard let rate = startEngine(onBuffer: { [weak self] buffer in
+        self?.consumeSherpa(buffer)
+      }) else { return }
+      offlineSpec = spec
+      hwRate = rate
+      markListening()
+      return
+    }
+    guard let live = AzureRealtime(credentials: credentials, locale: AzureSpeech.liveLocale) else {
+      set("Check the Azure region in Dashboard, Models")
+      return
+    }
+    live.start(onText: { [weak self] text in
+      DispatchQueue.main.async { self?.lastText = Romanizer.normalizeScript(text) }
+    }, onFailure: { [weak self] reason in
+      self?.set(reason)
+    })
+    guard let rate = startEngine(onBuffer: { live.feed($0) }) else {
+      live.cancel()
+      return
+    }
+    azureLive = live
+    hwRate = rate
+    markListening()
+  }
+
   private func beginWhisperCpp(_ spec: ModelSpec) {
     guard !isRecording else { return }
     let model = ModelStore.dir(for: spec).appendingPathComponent(spec.fileName)
@@ -1121,17 +1161,15 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     isRecording = false
     level = 0
 
-    if #available(macOS 26.0, *) {
-      if let session = modernAppleSession as? ModernSpeechSession {
-        finishModernApple(session)
-        return
+    if let live = azureLive {
+      azureLive = nil
+      phase = .transcribing
+      set("Finishing…")
+      live.finish { [weak self] text in
+        self?.set("Ready")
+        self?.finish(with: text)
       }
-      if applePrepareGen != 0, modernAppleSession == nil, request == nil {
-        appleWaitingToFinish = true
-        phase = .transcribing
-        set("Finishing…")
-        return
-      }
+      return
     }
 
     if let spec = fluidSpec {
@@ -1294,6 +1332,19 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
       }
       self.sherpa = nil
       return
+    }
+
+    if #available(macOS 26.0, *) {
+      if let session = modernAppleSession as? ModernSpeechSession {
+        finishModernApple(session)
+        return
+      }
+      if applePrepareGen != 0, modernAppleSession == nil, request == nil {
+        appleWaitingToFinish = true
+        phase = .transcribing
+        set("Finishing…")
+        return
+      }
     }
 
     request?.endAudio()

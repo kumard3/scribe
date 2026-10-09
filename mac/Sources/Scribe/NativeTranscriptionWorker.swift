@@ -46,6 +46,21 @@ final class NativeTranscriptionWorker: @unchecked Sendable {
     completion finish: @escaping (Result<String, Error>) -> Void
   ) {
     let completion: (Result<String, Error>) -> Void = { finish($0.map(Vocabulary.stripPromptEcho)) }
+    if spec.kind == .azure {
+      if saveDiagnostic, Settings.shared.keepLatestRecording {
+        DiagnosticAudioStore.saveLatest(samples: samples, sampleRate: sampleRate)
+      }
+      Task {
+        let result: Result<String, Error>
+        do {
+          result = .success(try await AzureSpeech.transcribe(spec: spec, samples: samples, sampleRate: sampleRate))
+        } catch {
+          result = .failure(error)
+        }
+        DispatchQueue.main.async { completion(result) }
+      }
+      return
+    }
     if MLXRuntime.gemmaAsrUsesMlx(spec) {
       if saveDiagnostic, Settings.shared.keepLatestRecording {
         DiagnosticAudioStore.saveLatest(samples: samples, sampleRate: sampleRate)
@@ -124,7 +139,7 @@ final class NativeTranscriptionWorker: @unchecked Sendable {
     spec: ModelSpec, clips: [[Float]], sampleRate: Int, language: String, provider: String,
     progress: (Int) -> Void
   ) throws -> [String] {
-    guard spec.kind != .whisperCpp, spec.kind != .qwenAsr, !MLXRuntime.gemmaAsrUsesMlx(spec) else {
+    guard spec.kind != .whisperCpp, spec.kind != .qwenAsr, spec.kind != .azure, !MLXRuntime.gemmaAsrUsesMlx(spec) else {
       throw WorkerError.failed(-1, "batch not supported for \(spec.id)")
     }
     guard let executable = Bundle.main.executableURL else { throw WorkerError.executableMissing }

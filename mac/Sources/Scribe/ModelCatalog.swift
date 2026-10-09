@@ -18,6 +18,7 @@ enum ModelKind: String {
   case llm
   case mlx
   case autoResolve
+  case azure
 }
 
 /// Offline ONNX engines that take whole utterances and return the transcript.
@@ -358,7 +359,7 @@ enum ModelCatalog {
           ("model.safetensors", 278_064_920),
         ])
     ),
-  ]
+  ] + AzureSpeech.specs
 
   /// Audio8 bundles live under model_bundle/ in their HF repo.
   private static func audio8Bundle(
@@ -421,7 +422,7 @@ enum ModelCatalog {
 
   static func asrModels(showGemma: Bool) -> [ModelSpec] {
     all.filter {
-      $0.kind != .llm && $0.kind != .mlx && (showGemma || !$0.hiddenAsr)
+      $0.kind != .llm && $0.kind != .mlx && $0.kind != .azure && (showGemma || !$0.hiddenAsr)
     }
   }
 

@@ -209,8 +209,9 @@ struct DashboardView: View {
     case .screen:
       screenPage
     case .models:
-      pageTitle("Models", "The speech model that turns your voice into text. All of them run on this Mac.")
+      pageTitle("Models", "The speech model that turns your voice into text. On this Mac unless you turn on Azure.")
       modelsCard
+      section("Azure (cloud)") { AzureSettingsView() }
     case .cleanup:
       pageTitle("AI Cleanup", "Optional AI that tidies your text and writes meeting summaries. Runs on this Mac.")
       llmCard
@@ -406,6 +407,10 @@ struct DashboardView: View {
         .font(.caption).foregroundColor(Mono.textFaint)
       Divider().overlay(Mono.border)
 
+      if settings.azureEnabled {
+        Text("Azure cloud speech is on, so \(settings.activeModel.label) is used instead of these. Turn it off below to use them.")
+          .font(.caption).foregroundColor(Mono.textDim)
+      }
       ForEach(Array(asr.enumerated()), id: \.element.id) { i, spec in
         modelRow(spec)
         if i < asr.count - 1 {
@@ -869,6 +874,7 @@ struct DashboardView: View {
         ? "\(spec.label) · MLX"
         : "\(spec.label) · llama.cpp audio"
     case .autoResolve: return "Auto"
+    case .azure: return "\(spec.label) · Microsoft Azure, sends audio to the cloud"
     default: return "\(spec.label) · sherpa-onnx"
     }
   }

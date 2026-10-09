@@ -158,8 +158,7 @@ final class ModernSpeechSession: @unchecked Sendable {
   }
 }
 
-@available(macOS 26.0, *)
-private final class ModernAnalyzerInputConverter: @unchecked Sendable {
+final class ModernAnalyzerInputConverter: @unchecked Sendable {
   private let analyzerFormat: AVAudioFormat
   private var converter: AVAudioConverter?
   private var sourceFormat: AVAudioFormat?
