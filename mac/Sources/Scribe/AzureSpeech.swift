@@ -9,8 +9,15 @@ struct AzureCredentials: Codable, Equatable {
   var endpoint = ""
   var openAIKey = ""
   var openAIEndpoint = ""
+  var backupSpeechKey: String?
+  var backupEndpoint: String?
 
   var hasSpeech: Bool { !speechKey.isEmpty && !region.isEmpty && !endpoint.isEmpty }
+
+  var backup: AzureCredentials? {
+    guard let key = backupSpeechKey, let url = backupEndpoint, !key.isEmpty, !url.isEmpty else { return nil }
+    return AzureCredentials(speechKey: key, region: region, endpoint: url)
+  }
   var hasOpenAI: Bool { !openAIKey.isEmpty && !openAIEndpoint.isEmpty }
 
   func supports(_ spec: ModelSpec) -> Bool {
@@ -50,7 +57,8 @@ struct AzureCredentials: Codable, Equatable {
     let found = AzureCredentials(
       speechKey: speech["AZURE_SPEECH_KEY"] ?? "", region: speech["AZURE_SPEECH_REGION"] ?? "",
       endpoint: speech["AZURE_SPEECH_ENDPOINT"] ?? "",
-      openAIKey: openAI["AZURE_OPENAI_API_KEY"] ?? "", openAIEndpoint: openAI["AZURE_OPENAI_ENDPOINT"] ?? "")
+      openAIKey: openAI["AZURE_OPENAI_API_KEY"] ?? "", openAIEndpoint: openAI["AZURE_OPENAI_ENDPOINT"] ?? "",
+      backupSpeechKey: speech["AZURE_SPEECH_BACKUP_KEY"], backupEndpoint: speech["AZURE_SPEECH_BACKUP_ENDPOINT"])
     return found.hasSpeech || found.hasOpenAI ? found : nil
   }
 
@@ -155,12 +163,19 @@ enum AzureSpeech {
     var definition: [String: Any] = ["enhancedMode": enhanced]
     if speakers { definition["diarization"] = ["enabled": true] }
     if !Vocabulary.terms.isEmpty { definition["phraseList"] = ["phrases": Vocabulary.terms] }
-    let json = String(decoding: try JSONSerialization.data(withJSONObject: definition), as: UTF8.self)
-    guard let url = URL(string: trimmed(credentials.endpoint) + "/speechtotext/transcriptions:transcribe?api-version=2025-10-15")
-    else { throw AzureError.noCredentials }
-    let body = try await post(
-      url, header: ("Ocp-Apim-Subscription-Key", credentials.speechKey),
-      parts: [("audio", try flac(pcm16k)), ("definition", Data(json.utf8))], audioSeconds: Double(pcm16k.count) / 16_000)
+    let parts = [("audio", try flac(pcm16k)), ("definition", try JSONSerialization.data(withJSONObject: definition))]
+    let seconds = Double(pcm16k.count) / 16_000
+    let request: (AzureCredentials) async throws -> Data = { resource in
+      guard let url = URL(string: trimmed(resource.endpoint) + "/speechtotext/transcriptions:transcribe?api-version=2025-10-15")
+      else { throw AzureError.noCredentials }
+      return try await post(url, header: ("Ocp-Apim-Subscription-Key", resource.speechKey), parts: parts, audioSeconds: seconds)
+    }
+    let body: Data
+    if let backup = credentials.backup {
+      body = try await hedged(after: 4 + seconds / 10, { try await request(credentials) }, { try await request(backup) })
+    } else {
+      body = try await request(credentials)
+    }
     let response = try JSONDecoder().decode(MaiResponse.self, from: body)
     return (response.phrases ?? []).map { phrase in
       Phrase(speaker: phrase.speaker, text: oneLine(phrase.text), words: (phrase.words ?? []).map {
@@ -292,6 +307,36 @@ enum AzureSpeech {
       delay *= 2
     }
     throw AzureError.http(0, "no response")
+  }
+
+  /// Starts the backup once the primary fails or is still silent after `delay`; the first answer wins.
+  private static func hedged(
+    after delay: TimeInterval, _ primary: @escaping () async throws -> Data, _ backup: @escaping () async throws -> Data
+  ) async throws -> Data {
+    try await withThrowingTaskGroup(of: Data?.self) { group in
+      defer { group.cancelAll() }
+      group.addTask { try await primary() }
+      group.addTask {
+        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        return nil
+      }
+      var backupStarted = false
+      var lastError: Error?
+      while true {
+        do {
+          guard let next = try await group.next() else { break }
+          if let data = next { return data }
+        } catch {
+          lastError = error
+        }
+        if !backupStarted {
+          backupStarted = true
+          dlog("azure: backup speech resource started (\(lastError.map { "\($0)" } ?? "primary slow"))")
+          group.addTask { try await backup() }
+        }
+      }
+      throw lastError ?? AzureError.http(0, "no response")
+    }
   }
 
   private static func withDeadline<T>(_ seconds: TimeInterval, _ work: @escaping () async throws -> T) async throws -> T {
@@ -535,11 +580,13 @@ struct AzureSettingsView: View {
       Button("Save to Keychain") {
         message = credentials.save() ? "Saved in your Keychain." : "Could not save to the Keychain."
       }
+      #if !MAS
       Button("Load from ~/.config/azure-speech/bolkit.env") {
         guard let found = AzureCredentials.fromEnvFiles() else { message = "No Azure keys found in ~/.config."; return }
         credentials = found
         message = found.save() ? "Loaded and saved in your Keychain." : "Loaded, but the Keychain save failed."
       }
+      #endif
     }
     .font(.system(size: 12))
     if !message.isEmpty {

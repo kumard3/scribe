@@ -983,7 +983,7 @@ private func runMeetingProcessIfRequested() {
 }
 
 
-/// `Scribe --azure-test <audio> <model-id> [--load-env] [--speakers]` runs the same Azure calls as dictation
+/// `Scribe --azure-test <audio> <model-id> [--load-env] [--speakers] [--primary-down key|hang]` runs the same Azure calls as dictation
 /// and import (live models stream the file paced in real time) and prints latency from end of audio to text.
 private func runAzureTestIfRequested() {
   let args = CommandLine.arguments
@@ -992,7 +992,10 @@ private func runAzureTestIfRequested() {
   if args.contains("--load-env") {
     print("load-env saved=\(AzureCredentials.fromEnvFiles()?.save() ?? false)")
   }
-  guard let credentials = AzureCredentials.saved else { print("no credentials in keychain"); exit(2) }
+  guard var credentials = AzureCredentials.saved else { print("no credentials in keychain"); exit(2) }
+  let primaryDown = args.firstIndex(of: "--primary-down").flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil }
+  if primaryDown == "hang" { credentials.endpoint = "https://10.255.255.1" } else if primaryDown != nil { credentials.speechKey = "invalid" }
+  print("backup=\(credentials.backup?.endpoint ?? "none")")
   let url = URL(fileURLWithPath: args[i + 1])
   guard let (samples, rate) = AudioImport.decode(url) else { print("cannot read \(url.path)"); exit(2) }
   let audioSeconds = Double(samples.count) / Double(rate)
@@ -1018,12 +1021,12 @@ private func runAzureTestIfRequested() {
     }
     let end = Date()
     live.finish { text in raw = text; seconds = Date().timeIntervalSince(end); done = true }
-  } else if args.contains("--speakers") {
+  } else if args.contains("--speakers") || primaryDown != nil {
     let start = Date()
     Task {
       let phrases = (try? await AzureSpeech.mai(
-        SileroVAD.resampleTo16k(samples, from: rate), speakers: true, credentials: credentials)) ?? []
-      raw = phrases.map { "[\($0.speaker ?? -1)] \($0.text)" }.joined(separator: "\n")
+        SileroVAD.resampleTo16k(samples, from: rate), speakers: args.contains("--speakers"), credentials: credentials)) ?? []
+      raw = phrases.map { ($0.speaker.map { "[\($0)] " } ?? "") + $0.text }.joined(separator: "\n")
       seconds = Date().timeIntervalSince(start)
       done = true
     }
