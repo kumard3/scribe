@@ -39,6 +39,7 @@ final class ScreenRecorder: NSObject, ObservableObject {
 
   private var stream: SCStream?
   private var output: AnyObject?
+  private var finishing: [(output: AnyObject, stream: SCStream)] = []
   private var url: URL?
   private var startedAt = Date()
   private var timer: Timer?
@@ -133,7 +134,17 @@ final class ScreenRecorder: NSObject, ObservableObject {
   private func endStream() {
     guard let s = stream else { return }
     stream = nil
+    retire(s, output)
+  }
+
+  // ScreenCaptureKit only removes its menu-bar stop button if the stream is still alive when the file finishes.
+  private func retire(_ s: SCStream, _ out: AnyObject?) {
+    if let out { finishing.append((out, s)) }
     Task { try? await s.stopCapture() }
+  }
+
+  private func finished(_ out: AnyObject) {
+    finishing.removeAll { $0.output === out }
   }
 
   @available(macOS 15, *)
@@ -159,7 +170,7 @@ final class ScreenRecorder: NSObject, ObservableObject {
     try await s.startCapture()
     // A stop or a newer start happened while this one was still starting up.
     guard current == generation, isRecording else {
-      try? await s.stopCapture()
+      retire(s, out)
       return
     }
     stream = s
@@ -227,7 +238,8 @@ extension ScreenRecorder: SCStreamDelegate {
 extension ScreenRecorder: SCRecordingOutputDelegate {
   func recordingOutputDidFinishRecording(_ recordingOutput: SCRecordingOutput) {
     DispatchQueue.main.async {
-      self.output = nil
+      self.finished(recordingOutput)
+      if self.output === recordingOutput { self.output = nil }
       self.refreshRecordings()
       guard self.standalone, !self.isRecording, let url = self.url else { return }
       self.openRecording = url
@@ -236,7 +248,10 @@ extension ScreenRecorder: SCRecordingOutputDelegate {
   }
 
   func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: Error) {
-    DispatchQueue.main.async { self.failed(error) }
+    DispatchQueue.main.async {
+      self.finished(recordingOutput)
+      self.failed(error)
+    }
   }
 }
 
