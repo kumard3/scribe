@@ -1,0 +1,10 @@
+New in 1.3.4:
+- Make a video agent-ready: import a Loom or screen recording and get a transcript, speakers and a summary.
+- Every meeting saves agent.md, a timestamped transcript with screenshots, ready to hand to an AI agent.
+- Drag the recording indicator to the notch, a corner or the bottom of the screen.
+- Redo a meeting with a known number of speakers.
+- Faster meeting transcripts with Apple's recognizer.
+- Optional Azure cloud speech with your own key (off by default).
+- Fixed: a stop button left in the menu bar after a screen recording.
+- Fixed: meetings longer than 2.5 hours never finished saving.
+- Fixed: every second Apple dictation coming back empty.

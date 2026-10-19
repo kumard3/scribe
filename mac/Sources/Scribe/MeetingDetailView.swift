@@ -238,8 +238,15 @@ struct MeetingDetailView: View {
         }
         .disabled(detail == nil)
         .help("Writes agent.md (summary, timestamped transcript, screenshots) and copies its path for an AI agent")
-        Button { NSWorkspace.shared.activateFileViewerSelecting([dir]) } label: { Image(systemName: "folder") }
-          .help("Show in Finder")
+        Menu {
+          ShareLink("Share…", items: shareFiles)
+            .disabled(shareFiles.isEmpty)
+          Button("Save to iCloud Drive, Google Drive or another folder…") { saveCopy() }
+          Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([dir]) }
+        } label: { Image(systemName: "square.and.arrow.up") }
+          .menuIndicator(.hidden)
+          .fixedSize()
+          .help("Share the audio, transcript and summary, or save a copy to the cloud. Screen videos stay on this Mac.")
         Button(detail == nil ? "Transcribe" : "Re-transcribe") { meeting.enqueue(dir) }
           .disabled(meeting.state(dir) == .queued || meeting.processing == dir)
         Button {
@@ -251,6 +258,38 @@ struct MeetingDetailView: View {
           .disabled(meeting.processing == dir)
       }
       .font(.system(size: 12))
+    }
+  }
+
+  private var shareFiles: [URL] {
+    let names: Set = ["summary.txt", "transcript.txt", "meeting.m4a", "agent.md"]
+    let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+    return files.filter { names.contains($0.lastPathComponent) }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+  }
+
+  private func saveCopy() {
+    let panel = NSOpenPanel()
+    panel.canChooseDirectories = true
+    panel.canChooseFiles = false
+    panel.canCreateDirectories = true
+    panel.prompt = "Save Here"
+    panel.message = "Pick a folder, such as iCloud Drive, Google Drive or Dropbox. Bolkit copies this meeting into it."
+    NSApp.activate(ignoringOtherApps: true)
+    guard panel.runModal() == .OK, let folder = panel.url else { return }
+    let fm = FileManager.default
+    let target = folder.appendingPathComponent("Bolkit \(dir.lastPathComponent)", isDirectory: true)
+    do {
+      try fm.createDirectory(at: target, withIntermediateDirectories: true)
+      // Screen videos (GBs per call) and the raw .caf tracks stay on this Mac.
+      for file in try fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+      where file.pathExtension != "caf" && !file.lastPathComponent.hasPrefix("screen") {
+        let dest = target.appendingPathComponent(file.lastPathComponent)
+        try? fm.removeItem(at: dest)
+        try fm.copyItem(at: file, to: dest)
+      }
+      NSWorkspace.shared.activateFileViewerSelecting([target])
+    } catch {
+      DictationManager.shared.status = "Couldn't save the meeting: \(error.localizedDescription)"
     }
   }
 

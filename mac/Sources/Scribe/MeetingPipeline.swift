@@ -430,15 +430,11 @@ enum MeetingPipeline {
 
   /// Both tracks mixed to one AAC file the user can play back.
   private static func saveMix(you: [Float], others: [Float], to url: URL) {
-    let count = max(you.count, others.count)
+    // One write of a ~2.7 h buffer never returns from the AAC encoder (4800 s took 3 s, 9821 s spun 16 h); 1 s chunks don't.
+    let count = max(you.count, others.count), chunk = TranscriptionLimits.sampleRate
     guard count > 0,
-          let buffer = AVAudioPCMBuffer(pcmFormat: TrackWriter.format, frameCapacity: AVAudioFrameCount(count)),
+          let buffer = AVAudioPCMBuffer(pcmFormat: TrackWriter.format, frameCapacity: AVAudioFrameCount(chunk)),
           let ch = buffer.floatChannelData else { return }
-    for i in 0..<count {
-      let a = i < you.count ? you[i] : 0, b = i < others.count ? others[i] : 0
-      ch[0][i] = max(-1, min(1, a + b))
-    }
-    buffer.frameLength = AVAudioFrameCount(count)
     do {
       let file = try AVAudioFile(
         forWriting: url,
@@ -450,7 +446,16 @@ enum MeetingPipeline {
         ],
         commonFormat: .pcmFormatFloat32, interleaved: false
       )
-      try file.write(from: buffer)
+      for start in stride(from: 0, to: count, by: chunk) {
+        let n = min(chunk, count - start)
+        for j in 0..<n {
+          let i = start + j
+          let a = i < you.count ? you[i] : 0, b = i < others.count ? others[i] : 0
+          ch[0][j] = max(-1, min(1, a + b))
+        }
+        buffer.frameLength = AVAudioFrameCount(n)
+        try file.write(from: buffer)
+      }
     } catch {
       dlog("meeting mix: \(error.localizedDescription)")
     }

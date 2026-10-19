@@ -33,6 +33,8 @@ final class ScreenRecorder: NSObject, ObservableObject {
   @Published private(set) var elapsed: TimeInterval = 0
   @Published private(set) var target = ""
   @Published private(set) var choice = ""
+  /// What the running capture resolved to, "display:<id>" or "window:<id>", even for "call" and "display".
+  @Published private(set) var live: String?
   @Published private(set) var recordings: [Item] = []
   @Published var openRecording: URL?
   private(set) var standalone = false
@@ -121,7 +123,13 @@ final class ScreenRecorder: NSObject, ObservableObject {
     timer?.invalidate()
     timer = nil
     endStream()
+    clearLive()
     NotchHUD.shared.refresh()
+  }
+
+  private func clearLive() {
+    live = nil
+    ShareFrame.live.hide()
   }
 
   /// Picking another share while recording ends the running capture and starts a new clip with it.
@@ -149,7 +157,7 @@ final class ScreenRecorder: NSObject, ObservableObject {
 
   @available(macOS 15, *)
   @MainActor private func capture(to url: URL, generation current: Int) async throws {
-    let filter = try await contentFilter(choice)
+    let (filter, resolved) = try await contentFilter(choice)
     let config = SCStreamConfiguration()
     // Native 5K h264 ran about 3 GB an hour; 2560 wide keeps text readable.
     let scale = min(CGFloat(filter.pointPixelScale), 2560 / max(filter.contentRect.width, 1))
@@ -175,12 +183,14 @@ final class ScreenRecorder: NSObject, ObservableObject {
     }
     stream = s
     output = out
+    live = resolved
+    ShareFrame.live.show(resolved)
     dlog("screen recording: \(target) \(config.width)x\(config.height)")
   }
 
   /// A window that has closed, or a call that isn't found, falls back to the screen under the pointer.
   @available(macOS 15, *)
-  @MainActor private func contentFilter(_ choice: String) async throws -> SCContentFilter {
+  @MainActor private func contentFilter(_ choice: String) async throws -> (SCContentFilter, String) {
     let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
     let window: SCWindow?
     if choice.hasPrefix("window:") {
@@ -193,7 +203,7 @@ final class ScreenRecorder: NSObject, ObservableObject {
     }
     if let window {
       target = MeetingWindow.label(window)
-      return SCContentFilter(desktopIndependentWindow: window)
+      return (SCContentFilter(desktopIndependentWindow: window), "window:\(window.windowID)")
     }
     let wanted = CGDirectDisplayID(choice.dropFirst("display:".count))
     let pointer = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }?.displayID
@@ -203,13 +213,14 @@ final class ScreenRecorder: NSObject, ObservableObject {
     }
     target = NSScreen.screens.first { $0.displayID == display.displayID }?.localizedName ?? "Whole screen"
     let me = content.applications.filter { $0.processID == getpid() }
-    return SCContentFilter(display: display, excludingApplications: me, exceptingWindows: [])
+    return (SCContentFilter(display: display, excludingApplications: me, exceptingWindows: []), "display:\(display.displayID)")
   }
 
   private func failed(_ error: Error) {
     dlog("screen recording: \(error)")
-    stream = nil
+    endStream()
     output = nil
+    clearLive()
     if isRecording {
       isRecording = false
       timer?.invalidate()
@@ -249,8 +260,8 @@ extension ScreenRecorder: SCRecordingOutputDelegate {
 
   func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: Error) {
     DispatchQueue.main.async {
-      self.finished(recordingOutput)
       self.failed(error)
+      self.finished(recordingOutput)
     }
   }
 }
@@ -268,6 +279,7 @@ enum MeetingWindow {
     "com.brave.Browser", "org.mozilla.firefox", "com.operasoftware", "com.vivaldi",
   ]
   private static let keywords = ["meet", "zoom", "teams", "huddle", "webex", "facetime", "call"]
+  static var useModel = true
 
   static func label(_ w: SCWindow) -> String {
     "\(w.owningApplication?.applicationName ?? "App"): \(w.title ?? "")"
@@ -296,7 +308,7 @@ enum MeetingWindow {
   /// nil when the model can't answer; -1 when it says none of the windows is a call.
   private static func askModel(_ windows: [SCWindow]) async -> Int? {
     #if canImport(FoundationModels)
-    guard #available(macOS 26, *), MeetingLLM.appleAvailable, !windows.isEmpty else { return nil }
+    guard #available(macOS 26, *), useModel, MeetingLLM.appleAvailable, !windows.isEmpty else { return nil }
     let list = windows.enumerated().map { "\($0.offset + 1). \(label($0.element))" }.joined(separator: "\n")
     let session = LanguageModelSession(instructions: """
       You are given numbered Mac windows as "App: window title". Pick the one showing a live video call \

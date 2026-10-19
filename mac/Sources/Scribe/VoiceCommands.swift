@@ -11,6 +11,8 @@ import Foundation
 ///   "bullet" / "bullet point"           → "- " list item on its own line
 ///   "cancel the last line" / "delete last line" / "scratch that"
 ///                                       → drop the current line, continue fresh
+///   "delete everything (I said so far)" / "start over"
+///                                       → drop everything before it
 ///
 /// ponytail: commands edit only the current dictation buffer, editing text
 /// already inserted into the target app would need Accessibility keystrokes.
@@ -27,6 +29,22 @@ enum VoiceCommands {
   }()
 
   private static let strip = CharacterSet(charactersIn: ".,!?;:…")
+  private static let sentenceEnd = CharacterSet(charactersIn: ".,!?;")
+
+  private static let clearVerbs: Set<String> = [
+    "delete", "erase", "scratch", "clear", "remove", "cancel", "forget", "undo",
+  ]
+  private static let clearObjects: [[String]] = [
+    ["everything"], ["it", "all"], ["all", "of", "that"], ["all", "that"],
+    ["all", "of", "this"], ["all", "this"], ["all", "of", "it"],
+  ]
+  private static let saidVerbs: [[String]] = [
+    ["said"], ["told", "you"], ["dictated"], ["spoke"], ["spoken"], ["wrote"], ["typed"],
+  ]
+  private static let soFar: [[String]] = [
+    ["so", "far"], ["till", "now"], ["until", "now"], ["up", "to", "now"], ["up", "till", "now"],
+  ]
+  private static let timeWords = soFar + [["before"], ["above"], ["earlier"]]
 
   /// Spoken punctuation → symbols. Formatting, so applied everywhere (live and
   /// imported). Longest phrase first, mirroring the mobile polish.ts.
@@ -71,7 +89,40 @@ enum VoiceCommands {
 
     func key(_ j: Int) -> String {
       guard j < tokens.count else { return "" }
-      return tokens[j].lowercased().trimmingCharacters(in: strip)
+      return tokens[j].lowercased().replacingOccurrences(of: "’", with: "'").trimmingCharacters(in: strip)
+    }
+    func match(_ options: [[String]], at j: Int) -> Int? {
+      options.first { words in words.indices.allSatisfy { key(j + $0) == words[$0] } }.map { j + $0.count }
+    }
+    func qualifier(at j: Int) -> Int? {
+      var q = j
+      if ["that", "what", "which"].contains(key(q)), ["i", "i've"].contains(key(q + 1)) { q += 1 }
+      if key(q) == "i've" {
+        q += 1
+      } else if key(q) == "i" {
+        q += key(q + 1) == "have" ? 2 : 1
+      } else {
+        return match(soFar, at: j)
+      }
+      guard let end = match(saidVerbs, at: q) else { return match(soFar, at: j) }
+      return match(timeWords, at: end) ?? end
+    }
+    // Fires only at the end, with a qualifier, after ASR punctuation or before "and start over", so "delete everything in Downloads" survives.
+    func clearAll(at j: Int) -> Int? {
+      let object: Int?
+      if key(j) == "start", ["over", "again"].contains(key(j + 1)) {
+        object = j + 2
+      } else if clearVerbs.contains(key(j)) {
+        object = match(clearObjects, at: j + 1)
+      } else {
+        object = nil
+      }
+      guard let object else { return nil }
+      if let end = qualifier(at: object) { return end }
+      if object >= tokens.count { return object }
+      if tokens[object - 1].unicodeScalars.last.map(sentenceEnd.contains) == true || key(object).isEmpty { return object }
+      if key(object) == "and", key(object + 1) == "start", ["over", "again"].contains(key(object + 2)) { return object + 3 }
+      return nil
     }
     func rtrimSpaces() {
       while out.hasSuffix(" ") { out.removeLast() }
@@ -106,6 +157,11 @@ enum VoiceCommands {
       }
 
       if allowDestructive {
+        if let end = clearAll(at: i) {
+          out = ""
+          i = end
+          continue
+        }
         if ["scratch", "strike", "cross", "delete"].contains(k), key(i + 1) == "that" {
           cancelLastLine()
           i += 2
@@ -154,11 +210,11 @@ enum VoiceCommands {
   static func selfTest() {
     func eq(_ input: String, _ want: String, _ line: Int = #line) {
       let got = apply(input)
-      assert(got == want, "line \(line): apply(\(input)) = \(got.debugDescription), want \(want.debugDescription)")
+      precondition(got == want, "line \(line): apply(\(input)) = \(got.debugDescription), want \(want.debugDescription)")
     }
     func eqImport(_ input: String, _ want: String, _ line: Int = #line) {
       let got = apply(input, allowDestructive: false)
-      assert(got == want, "line \(line): apply(\(input), destructive:false) = \(got.debugDescription), want \(want.debugDescription)")
+      precondition(got == want, "line \(line): apply(\(input), destructive:false) = \(got.debugDescription), want \(want.debugDescription)")
     }
     eq("hello world", "hello world")
     eq("hello next line, world", "hello\nworld")
@@ -180,6 +236,30 @@ enum VoiceCommands {
     // Formatting applies to imports; destructive edits do not.
     eqImport("hello comma world", "hello, world")
     eqImport("keep this scratch that text", "keep this scratch that text")
+    eq("no no no delete everything that I said till now the meeting is on Friday", "the meeting is on Friday")
+    eq("hello world. Delete everything. New text here", "New text here")
+    eq("first draft scratch all of that second draft", "first draft scratch all of that second draft")
+    eq("first draft, scratch all of that. second draft", "second draft")
+    eq("please delete everything in the downloads folder", "please delete everything in the downloads folder")
+    eq("wrong stuff start over. right stuff", "right stuff")
+    eq("erase everything I said so far okay take two", "okay take two")
+    eq("delete everything", "")
+    eq("old idea delete everything I've typed new idea", "new idea")
+    eq("old idea clear it all and start over new idea", "new idea")
+    eq("let's start over the project tomorrow", "let's start over the project tomorrow")
+    eq("delete everything before Friday", "delete everything before Friday")
+    eq("delete everything I said before. new start", "new start")
+    eq("wrong delete everything so far right", "right")
+    for input in [
+      "no no no delete everything that I said till now the meeting is on Friday",
+      "hello world. Delete everything. New text here",
+      "first draft, scratch all of that. second draft",
+      "wrong stuff start over. right stuff",
+      "erase everything I said so far okay take two",
+      "delete everything",
+    ] {
+      eqImport(input, input)
+    }
     print("VoiceCommands selftest ok")
   }
 }

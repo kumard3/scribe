@@ -1,0 +1,6 @@
+New in 1.3.5:
+- Take it back by voice: say "no no no, delete everything I said" and only what you say next is typed. "Start over" works too.
+- Smart corrections: with an on-device AI model, slips like "meet at 2, actually 3" come out as "meet at 3". Words are only ever removed, never added or reworded.
+- A new screen picker with live previews of every screen and window. Point at one and it lights up on screen.
+- While recording, a red border and a "Bolkit is recording" label show what is being captured. They never appear in the recording.
+- Your stats on Home: words today, this week and all time, speaking speed, day streak, and how many Azure requests you made.

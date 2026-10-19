@@ -120,7 +120,7 @@ enum TranscriptCleanupValidator {
     return token.allSatisfy { $0.isNumber }
   }
 
-  private static func tokens(_ text: String) -> [String] {
+  static func tokens(_ text: String) -> [String] {
     text.split { !$0.isLetter && !$0.isNumber && $0 != "'" && $0 != "’" }
       .map {
         $0.lowercased()
@@ -158,6 +158,74 @@ enum TranscriptCleanupValidator {
 
   private static func format(_ value: Double) -> String {
     String(format: "%.2f", value)
+  }
+}
+
+/// The smart-corrections model may only delete words the speaker took back. Anything it adds,
+/// rewords or reorders, or a deletion that removes no correction cue, keeps the tier-1 text.
+enum BacktrackValidator {
+  private static let fillers: Set<String> = ["um", "uh", "er", "erm", "ah", "hmm"]
+  private static let softCues: Set<String> = ["actually", "sorry", "rather", "oops"]
+  private static let cues: [[String]] = [
+    "scratch that", "delete that", "ignore that", "forget that", "delete everything",
+    "scratch everything", "erase everything", "start over", "no wait", "wait no", "actually no",
+    "no actually", "i mean", "i meant", "sorry", "correction", "make that", "rather",
+    "let me rephrase", "oops", "actually", "no no",
+  ].map { $0.split(separator: " ").map(String.init) }
+
+  private static func words(_ text: String) -> [String] {
+    TranscriptCleanupValidator.tokens(text).filter { !fillers.contains($0) }
+  }
+
+  static func cueCount(_ text: String) -> Int {
+    let w = words(text)
+    return cues.reduce(0) { total, cue in
+      guard w.count >= cue.count else { return total }
+      return total + (0...(w.count - cue.count)).filter { Array(w[$0..<$0 + cue.count]) == cue }.count
+    }
+  }
+
+  static func hasCue(_ text: String) -> Bool { cueCount(text) > 0 }
+
+  static func choose(raw: String, candidate: String?) -> TranscriptCleanupValidator.Decision {
+    func reject(_ reason: String) -> TranscriptCleanupValidator.Decision {
+      .init(text: raw, accepted: false, reason: reason)
+    }
+    let text = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let r = words(raw), c = words(text)
+    guard !c.isEmpty else { return reject("empty") }
+    guard c.count < r.count else { return reject("nothing removed") }
+    var removed: [String] = []
+    var k = 0
+    for token in r {
+      if k < c.count, c[k] == token { k += 1 } else { removed.append(token) }
+    }
+    guard k == c.count else { return reject("not a subsequence") }
+    guard !removed.allSatisfy(softCues.contains) else { return reject("only dropped a soft cue") }
+    guard cueCount(text) < cueCount(raw) else { return reject("no correction applied") }
+    return .init(text: text, accepted: true, reason: "removed \(removed.count) words")
+  }
+
+  static func selfTest() {
+    func check(_ raw: String, _ candidate: String?, _ accepted: Bool, _ line: Int = #line) {
+      let d = choose(raw: raw, candidate: candidate)
+      precondition(d.accepted == accepted, "line \(line): \(raw.debugDescription) -> \(candidate.debugDescription): \(d.reason)")
+      precondition(d.text == (accepted ? candidate ?? "" : raw), "line \(line): text \(d.text.debugDescription)")
+    }
+    check("let's meet at 2 actually 3 pm", "let's meet at 3 pm", true)
+    check("send it to Rahul no wait send it to Priya", "send it to Priya", true)
+    check("no no no delete everything I said till now the meeting is moved to Friday",
+          "the meeting is moved to Friday", true)
+    check("let's meet at 2 actually 3 pm", "let's meet at three pm", false)
+    check("let's meet at 2 actually 3 pm", "let's meet at 3 pm today", false)
+    check("let's meet at 2 actually 3 pm", "", false)
+    check("let's meet at 2 actually 3 pm", nil, false)
+    check("send it to Rahul no wait send it to Priya", "send it no wait send it to Priya", false)
+    check("I actually liked the demo", "I liked the demo", false)
+    check("I actually liked the demo", "I actually liked the demo", false)
+    precondition(hasCue("Let's meet at 2, ACTUALLY 3"))
+    precondition(!hasCue("the factually correct answer"))
+    print("BacktrackValidator selftest ok")
   }
 }
 

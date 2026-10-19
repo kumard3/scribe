@@ -9,7 +9,10 @@ final class RecorderPanel: NSObject, ObservableObject, NSWindowDelegate {
   enum Mode { case meeting, screen }
 
   @Published var mode = Mode.meeting
+  @Published private(set) var opens = 0
   private var window: NSWindow?
+
+  var isOpen: Bool { window?.isVisible == true }
 
   func show(_ mode: Mode? = nil) {
     guard ScreenRecorder.supported else {
@@ -32,67 +35,227 @@ final class RecorderPanel: NSObject, ObservableObject, NSWindowDelegate {
       w.center()
       window = w
     }
+    if !isOpen { opens += 1 }
     window?.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
   }
 
-  func close() { window?.orderOut(nil) }
+  func close() {
+    window?.orderOut(nil)
+    ShareFrame.hover.hide()
+  }
 
-  func windowWillClose(_ notification: Notification) { window = nil }
+  func windowWillClose(_ notification: Notification) {
+    window = nil
+    ShareFrame.hover.hide()
+  }
 }
 
-/// Shareable screens and windows with small live thumbnails.
+/// A border around a real display or window: white while a Recorder tile is hovered, red with a
+/// pill while it is being recorded. Targets use the share-choice form, "display:<id>" or "window:<id>".
+final class ShareFrame {
+  static let hover = ShareFrame(recording: false)
+  static let live = ShareFrame(recording: true)
+
+  private let recording: Bool
+  private var panel: NSPanel?
+  private var timer: Timer?
+  private(set) var target = ""
+
+  private init(recording: Bool) { self.recording = recording }
+
+  func show(_ target: String) {
+    guard target != self.target else { return }
+    hide()
+    self.target = target
+    place()
+    guard target.hasPrefix("window:") else { return }
+    let t = Timer(timeInterval: 0.33, repeats: true) { [weak self] _ in self?.place() }
+    RunLoop.main.add(t, forMode: .common)
+    timer = t
+  }
+
+  /// With `only`, hides just that target, so leaving one tile can't clear the next tile's border.
+  func hide(_ only: String? = nil) {
+    guard only == nil || only == target else { return }
+    timer?.invalidate()
+    timer = nil
+    panel?.orderOut(nil)
+    panel = nil
+    target = ""
+  }
+
+  private static let pillHeight: CGFloat = 30
+
+  private func place() {
+    let isWindow = target.hasPrefix("window:")
+    let frame: NSRect, top: CGFloat, above: Bool
+    if isWindow, let id = CGWindowID(target.dropFirst("window:".count)), let f = Self.windowFrame(id) {
+      let room = NSScreen.screens.first { $0.frame.intersects(f) }?.visibleFrame.maxY ?? .infinity
+      above = recording && f.maxY + 4 + Self.pillHeight <= room
+      let box = f.insetBy(dx: -4, dy: -4)
+      frame = above ? NSRect(x: box.minX, y: box.minY, width: box.width, height: box.height + Self.pillHeight) : box
+      top = above ? 0 : 10
+    } else if !isWindow, let id = CGDirectDisplayID(target.dropFirst("display:".count)),
+              let screen = NSScreen.screens.first(where: { $0.displayID == id }) {
+      frame = screen.frame
+      top = screen.frame.maxY - screen.visibleFrame.maxY + 8
+      above = false
+    } else {
+      panel?.orderOut(nil)
+      return
+    }
+    let view = ShareFrameView(recording: recording, window: isWindow, top: top, pill: above ? Self.pillHeight : 0)
+    let p = panel ?? makePanel(level: isWindow && recording ? .normal : .screenSaver)
+    panel = p
+    if let host = p.contentView as? NSHostingView<ShareFrameView> {
+      if host.rootView != view { host.rootView = view }
+    } else {
+      p.contentView = NSHostingView(rootView: view)
+    }
+    if p.frame != frame { p.setFrame(frame, display: true) }
+    if isWindow, recording, let id = Int(target.dropFirst("window:".count)) {
+      p.order(.above, relativeTo: id)
+    } else if !p.isVisible {
+      p.orderFrontRegardless()
+    }
+  }
+
+  private func makePanel(level: NSWindow.Level) -> NSPanel {
+    let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    p.isOpaque = false
+    p.backgroundColor = .clear
+    p.hasShadow = false
+    p.ignoresMouseEvents = true
+    p.isReleasedWhenClosed = false
+    p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+    // A recorded window's border lives in its z-order, so windows stacked above it stay uncovered.
+    p.level = level
+    return p
+  }
+
+  /// CGWindowList bounds are top-left based from the primary display; Cocoa is bottom-left based.
+  static func windowFrame(_ id: CGWindowID) -> NSRect? {
+    guard let info = (CGWindowListCopyWindowInfo(.optionIncludingWindow, id) as? [[String: Any]])?.first,
+          info[kCGWindowIsOnscreen as String] as? Bool == true,
+          let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+          let rect = CGRect(dictionaryRepresentation: bounds),
+          let primary = NSScreen.screens.first?.frame else { return nil }
+    return NSRect(x: rect.minX, y: primary.maxY - rect.maxY, width: rect.width, height: rect.height)
+  }
+}
+
+private struct ShareFrameView: View, Equatable {
+  let recording: Bool
+  let window: Bool
+  let top: CGFloat
+  let pill: CGFloat
+
+  var body: some View {
+    let color = recording ? Color(hex: 0xFF453A) : Color.white
+    ZStack(alignment: .top) {
+      RoundedRectangle(cornerRadius: window ? 12 : 0)
+        .strokeBorder(color, lineWidth: 4)
+        .padding(.top, recording ? pill : 0)
+      if recording {
+        HStack(spacing: 6) {
+          Circle().fill(Color.white).frame(width: 7, height: 7)
+          Text(window ? "Bolkit is recording this window" : "Bolkit is recording this screen")
+        }
+        .font(.system(size: 12, weight: .semibold)).foregroundColor(.white)
+        .padding(.horizontal, 12).padding(.vertical, 5)
+        .background(Capsule().fill(color))
+        .padding(.top, top)
+      }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+}
+
+/// Shareable screens and windows. While the Recorder is open, thumbnails refresh every second
+/// and the list every three, so windows that open or close show up without a refresh.
 @available(macOS 15, *)
 @MainActor
 final class ShareSources: ObservableObject {
   struct Tile: Identifiable {
     let id: String
+    let target: String
     let title: String
     let subtitle: String
+    var icon: NSImage?
     var image: CGImage?
     var suggested = false
   }
 
-  @Published private(set) var tiles: [Tile] = []
-  @Published private(set) var loading = false
+  @Published private(set) var screens: [Tile] = []
+  @Published private(set) var windows: [Tile] = []
   @Published private(set) var denied = false
+  private var filters: [String: SCContentFilter] = [:]
+  private var call: CGWindowID?
 
-  func load() async {
+  func run(while open: @escaping () -> Bool) async {
     guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
       denied = true
       return
     }
     denied = false
-    loading = true
-    defer { loading = false }
-    guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true) else { return }
-    async let call = MeetingWindow.find(in: content)
-    var found: [(Tile, SCContentFilter)] = []
-    for display in content.displays {
+    call = nil
+    var asked = false
+    var tick = 0
+    repeat {
+      if tick % 3 == 0, let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true) {
+        list(content)
+        if !asked {
+          asked = true
+          // Apple's model answers in a few seconds; ask once per open, not on every relist.
+          Task {
+            guard let window = await MeetingWindow.find(in: content) else { return }
+            self.call = window.windowID
+            self.list(content)
+          }
+        }
+      }
+      await refreshThumbnails()
+      tick += 1
+      try? await Task.sleep(for: .seconds(1))
+    } while !Task.isCancelled && open()
+  }
+
+  private func list(_ content: SCShareableContent) {
+    let me = content.applications.filter { $0.processID == getpid() }
+    var filters: [String: SCContentFilter] = [:]
+    let screens = content.displays.map { display in
+      let target = "display:\(display.displayID)"
+      filters[target] = SCContentFilter(display: display, excludingApplications: me, exceptingWindows: [])
       let name = NSScreen.screens.first { $0.displayID == display.displayID }?.localizedName ?? "Display"
-      found.append((Tile(id: "display:\(display.displayID)", title: name, subtitle: "Whole screen"),
-                    SCContentFilter(display: display, excludingWindows: [])))
+      return Tile(id: target, target: target, title: name, subtitle: "\(display.width) x \(display.height)")
     }
-    let windows = MeetingWindow.candidates(content)
-    for window in windows.prefix(9) {
-      found.append((Tile(id: "window:\(window.windowID)", title: window.owningApplication?.applicationName ?? "App",
-                         subtitle: window.title ?? ""),
-                    SCContentFilter(desktopIndependentWindow: window)))
+    var windows = MeetingWindow.candidates(content).prefix(12).map { window in
+      let target = "window:\(window.windowID)"
+      filters[target] = SCContentFilter(desktopIndependentWindow: window)
+      let pid = window.owningApplication?.processID
+      return Tile(id: target, target: target, title: window.owningApplication?.applicationName ?? "App",
+                  subtitle: window.title ?? "", icon: pid.flatMap { NSRunningApplication(processIdentifier: $0)?.icon })
     }
-    tiles = found.map(\.0)
-    for (i, (_, filter)) in found.enumerated() {
-      let image = await Self.thumbnail(filter)
-      if tiles.indices.contains(i) { tiles[i].image = image }
+    if let call, let i = windows.firstIndex(where: { $0.target == "window:\(call)" }) {
+      let tile = windows.remove(at: i)
+      windows.insert(Tile(id: "call", target: tile.target, title: tile.title, subtitle: tile.subtitle,
+                          icon: tile.icon, suggested: true), at: 0)
     }
-    // Apple's model answers in a few seconds; its pick moves to the front as the suggested call.
-    guard let call = await call else { return }
-    let existing = tiles.firstIndex { $0.id == "window:\(call.windowID)" }
-    let image = existing.flatMap { tiles[$0].image }
-    if let existing { tiles.remove(at: existing) }
-    var tile = Tile(id: "call", title: "Call window", subtitle: MeetingWindow.label(call), suggested: true)
-    tile.image = image
-    tiles.insert(tile, at: 0)
-    if image == nil { tiles[0].image = await Self.thumbnail(SCContentFilter(desktopIndependentWindow: call)) }
+    let old = Dictionary((self.screens + self.windows).map { ($0.target, $0.image) }, uniquingKeysWith: { a, _ in a })
+    self.screens = screens.map { var t = $0; t.image = old[t.target] ?? nil; return t }
+    self.windows = windows.map { var t = $0; t.image = old[t.target] ?? nil; return t }
+    self.filters = filters
+  }
+
+  private func refreshThumbnails() async {
+    var images: [String: CGImage] = [:]
+    for (target, filter) in filters {
+      if let image = await Self.thumbnail(filter) { images[target] = image }
+    }
+    guard !Task.isCancelled else { return }
+    for i in screens.indices { screens[i].image = images[screens[i].target] ?? screens[i].image }
+    for i in windows.indices { windows[i].image = images[windows[i].target] ?? windows[i].image }
   }
 
   private static func thumbnail(_ filter: SCContentFilter) async -> CGImage? {
@@ -126,27 +289,20 @@ struct RecorderView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       header
-      HStack {
-        Text("SHARE").font(.system(size: 11, weight: .semibold)).kerning(1).foregroundColor(Mono.textFaint)
-        if sources.loading { ProgressView().controlSize(.small) }
-        Spacer()
-        Button { Task { await sources.load() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
-          .buttonStyle(.plain).font(.system(size: 11)).foregroundColor(Mono.textDim)
-      }
       if sources.denied {
         Text("Allow Bolkit under System Settings > Privacy & Security > Screen & System Audio Recording to share a screen.")
           .font(.system(size: 12)).foregroundColor(Mono.textDim)
       }
       ScrollView {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
           if mode == .meeting {
-            ShareTile(title: "No screen", subtitle: "Audio only", image: nil, icon: "waveform",
-                      suggested: false, selected: selected == "none") { pick("none") }
+            grid {
+              ShareTile(title: "No screen", subtitle: "Audio only", image: nil, appIcon: nil, icon: "waveform",
+                        suggested: false, selected: selected == "none", live: false) { pick("none") }
+            }
           }
-          ForEach(sources.tiles) { tile in
-            ShareTile(title: tile.title, subtitle: tile.subtitle, image: tile.image, icon: "macwindow",
-                      suggested: tile.suggested, selected: isSelected(tile.id)) { pick(tile.id) }
-          }
+          section("ENTIRE SCREEN", sources.screens, icon: "display")
+          if !sources.windows.isEmpty { section("WINDOW", sources.windows, icon: "macwindow") }
         }
         .padding(2)
       }
@@ -166,7 +322,29 @@ struct RecorderView: View {
     .frame(width: 600, height: 640)
     .background(Mono.bg)
     .tint(.white)
-    .task { await sources.load() }
+    .task(id: panel.opens) { await sources.run { RecorderPanel.shared.isOpen } }
+  }
+
+  private func grid(@ViewBuilder _ content: () -> some View) -> some View {
+    LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], alignment: .leading, spacing: 14) {
+      content()
+    }
+  }
+
+  private func section(_ title: String, _ tiles: [ShareSources.Tile], icon: String) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text(title).font(.system(size: 11, weight: .semibold)).kerning(1).foregroundColor(Mono.textFaint)
+        .padding(.top, 6)
+      grid {
+        ForEach(tiles) { tile in
+          ShareTile(title: tile.title, subtitle: tile.subtitle, image: tile.image, appIcon: tile.icon, icon: icon,
+                    suggested: tile.suggested, selected: isSelected(tile), live: screen.live == tile.target) {
+            pick(tile.id)
+          }
+          .onHover { inside in inside ? ShareFrame.hover.show(tile.target) : ShareFrame.hover.hide(tile.target) }
+        }
+      }
+    }
   }
 
   private var header: some View {
@@ -228,13 +406,14 @@ struct RecorderView: View {
     }
   }
 
-  private func isSelected(_ id: String) -> Bool {
-    if id == selected { return true }
+  private func isSelected(_ tile: ShareSources.Tile) -> Bool {
+    if screen.isRecording, let live = screen.live { return tile.target == live }
+    if tile.id == selected { return true }
     // "display" means the screen under the pointer; show it on that screen's tile.
     guard selected == "display", let pointer = NSScreen.screens.first(where: {
       NSMouseInRect(NSEvent.mouseLocation, $0.frame, false)
     })?.displayID else { return false }
-    return id == "display:\(pointer)"
+    return tile.target == "display:\(pointer)"
   }
 
   private func pick(_ id: String) {
@@ -268,10 +447,13 @@ private struct ShareTile: View {
   let title: String
   let subtitle: String
   let image: CGImage?
+  let appIcon: NSImage?
   let icon: String
   let suggested: Bool
   let selected: Bool
+  let live: Bool
   let action: () -> Void
+  @State private var hovering = false
 
   var body: some View {
     Button(action: action) {
@@ -288,22 +470,37 @@ private struct ShareTile: View {
           .frame(height: 100)
           .overlay(
             RoundedRectangle(cornerRadius: 10)
-              .strokeBorder(selected ? Color(hex: 0xFF453A) : Mono.border, lineWidth: selected ? 2.5 : 1)
+              .strokeBorder(selected ? Color(hex: 0xFF453A) : hovering ? Mono.textDim : Mono.border,
+                            lineWidth: selected ? 2.5 : hovering ? 1.5 : 1)
           )
           .overlay(alignment: .topLeading) {
-            if suggested {
-              Text("Suggested")
-                .font(.system(size: 10, weight: .semibold)).foregroundColor(.white)
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Capsule().fill(Color(hex: 0xFF453A)))
-                .padding(6)
-            }
+            if suggested { badge("Suggested", dot: false) }
           }
-        Text(title).font(.system(size: 12, weight: .semibold)).foregroundColor(Mono.text).lineLimit(1)
+          .overlay(alignment: .topTrailing) {
+            if live { badge("Recording", dot: true) }
+          }
+        HStack(spacing: 6) {
+          if let appIcon {
+            Image(nsImage: appIcon).resizable().frame(width: 14, height: 14)
+          }
+          Text(title).font(.system(size: 12, weight: .semibold)).foregroundColor(Mono.text).lineLimit(1)
+        }
         Text(subtitle).font(.system(size: 11)).foregroundColor(Mono.textDim).lineLimit(1)
       }
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+    .onHover { hovering = $0 }
+  }
+
+  private func badge(_ text: String, dot: Bool) -> some View {
+    HStack(spacing: 4) {
+      if dot { Circle().fill(Color.white).frame(width: 6, height: 6) }
+      Text(text)
+    }
+    .font(.system(size: 10, weight: .semibold)).foregroundColor(.white)
+    .padding(.horizontal, 6).padding(.vertical, 2)
+    .background(Capsule().fill(Color(hex: 0xFF453A)))
+    .padding(6)
   }
 }

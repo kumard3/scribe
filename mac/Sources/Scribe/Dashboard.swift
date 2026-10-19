@@ -76,6 +76,8 @@ struct DashboardView: View {
   @ObservedObject var support = SupportModelStore.shared
   @ObservedObject var meeting = MeetingRecorder.shared
   @ObservedObject var screen = ScreenRecorder.shared
+  @ObservedObject var usage = Usage.shared
+  @State private var confirmReset = false
   @State private var launchAtLogin = LoginItem.enabled
   @State private var axTrusted = Paster.trusted
   @State private var ollamaModels: [String] = []
@@ -190,9 +192,11 @@ struct DashboardView: View {
     switch tab {
     case .home:
       header
+      statsCard
       quickActionsCard
       if !axTrusted { permissionCard }
       recentCard
+      cloudCard
     case .dictation:
       pageTitle("Dictation", "Hold a key, talk, and your words appear wherever you type.")
       hotkeysCard
@@ -290,6 +294,72 @@ struct DashboardView: View {
       .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Mono.border))
     }
     .buttonStyle(.plain)
+  }
+
+  private var statsCard: some View {
+    let stats = UsageStats(usage.days)
+    return section("Your stats") {
+      LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
+        statTile(stats.todayWords.formatted(), "Words today")
+        statTile(stats.weekWords.formatted(), "Words this week")
+        statTile(stats.words.formatted(), "Words all time")
+        statTile(stats.dictations.formatted(), "Dictations")
+        statTile(stats.wpm.map { "\($0) wpm" } ?? "-", "Speaking speed")
+        statTile("\(stats.streak) \(stats.streak == 1 ? "day" : "days")", "Day streak")
+        statTile(Usage.duration(stats.speechSeconds), "Time dictated")
+        if MeetingRecorder.supported {
+          statTile("\(meeting.recordings.count)", "Meetings, \(Usage.duration(meeting.recordings.reduce(0) { $0 + $1.duration }))")
+        }
+      }
+    }
+  }
+
+  private func statTile(_ value: String, _ label: String) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Text(value).font(.system(size: 20, weight: .semibold)).monospacedDigit().foregroundColor(Mono.text).lineLimit(1)
+      Text(label).font(.system(size: 11.5)).foregroundColor(Mono.textDim).lineLimit(1)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(12)
+    .background(RoundedRectangle(cornerRadius: 10).fill(Mono.surfaceAlt))
+    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Mono.border))
+  }
+
+  private var cloudCard: some View {
+    let stats = UsageStats(usage.days)
+    let providers = stats.allTime.filter { $0.value.calls > 0 }.keys.sorted()
+    return section("Cloud usage") {
+      if providers.isEmpty {
+        Text("No cloud calls yet. Everything ran on this device.")
+          .font(.system(size: 13)).foregroundColor(Mono.textDim)
+      }
+      ForEach(Array(providers.enumerated()), id: \.element) { i, id in
+        if i > 0 { Divider().overlay(Mono.border) }
+        VStack(alignment: .leading, spacing: 5) {
+          Text(Usage.providerNames[id] ?? id).font(.system(size: 13, weight: .semibold)).foregroundColor(Mono.text)
+          cloudLine("This month", stats.month[id])
+          cloudLine("All time", stats.allTime[id])
+        }
+      }
+      Text("Bolkit counts requests on this device. Your Azure or OpenAI dashboard has the bill.")
+        .font(.caption).foregroundColor(Mono.textFaint)
+      Button("Reset stats") { confirmReset = true }.font(.caption)
+    }
+    .alert("Reset stats?", isPresented: $confirmReset) {
+      Button("Reset", role: .destructive) { usage.reset() }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("Clears word, dictation and cloud counts on this Mac. Meetings and history stay.")
+    }
+  }
+
+  private func cloudLine(_ label: String, _ cloud: UsageDay.Cloud?) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 10) {
+      Text(label).foregroundColor(Mono.textFaint).frame(width: 72, alignment: .leading)
+      Text(cloud.map(Usage.describe) ?? "No calls").foregroundColor(Mono.textDim)
+    }
+    .font(.system(size: 12))
+    .monospacedDigit()
   }
 
   private var recentCard: some View {
@@ -718,6 +788,10 @@ struct DashboardView: View {
         Toggle("Tidy every dictation automatically", isOn: $settings.autoCleanLLM)
           .font(.system(size: 13))
         Text("Fixes punctuation and removes filler words. Adds a second or two before the text appears.")
+          .font(.caption).foregroundColor(Mono.textFaint)
+        Toggle("Smart corrections", isOn: $settings.smartCorrections)
+          .font(.system(size: 13))
+        Text("When you correct yourself (\"at 2, actually 3\"), keeps only the correction. Runs only when you do.")
           .font(.caption).foregroundColor(Mono.textFaint)
       }
     }

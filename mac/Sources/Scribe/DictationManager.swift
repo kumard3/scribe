@@ -106,6 +106,8 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
   private var applePrepareGen = 0
   private var appleSessionLocale = ""
   private var transcribeWatch: DispatchWorkItem?
+  private var listeningSince = Date()
+  private var dictationSeconds = 0.0
   private let sherpaQueue = DispatchQueue(label: "ai.scribe.sherpa")
   // Past 15 minutes we stop buffering rather than grow without a bound. Use
   // the actual hardware rate because microphones may run at 44.1, 48 or 96 kHz.
@@ -305,6 +307,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     lastPendingText = ""
     lastRawText = ""
     isRecording = true
+    listeningSince = Date()
     phase = .listening
     set("Listening…")
     HUD.shared.show()
@@ -1159,6 +1162,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     }
     releaseEngine()
     isRecording = false
+    dictationSeconds = Date().timeIntervalSince(listeningSince)
     level = 0
 
     if let live = azureLive {
@@ -1416,6 +1420,25 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
       return
     }
 
+    if Settings.shared.smartCorrections, BacktrackValidator.hasCue(finalText), LLMRuntime.isAvailable {
+      phase = .postProcessing
+      set("Applying corrections…")
+      SherpaEngineCache.shared.unload()
+      AsrRuntime.shared.release {
+        LLMRuntime.shared.process(
+          instruction: LLMRuntime.backtrackInstruction, text: finalText, maxTokens: 1024
+        ) { corrected in
+          let decision = BacktrackValidator.choose(raw: finalText, candidate: corrected)
+          dlog("backtrack \(decision.accepted ? "accepted" : "rejected"): \(decision.reason)")
+          self.cleanUpAndInsert(decision.text, alreadyCleaned: alreadyCleaned)
+        }
+      }
+      return
+    }
+    cleanUpAndInsert(finalText, alreadyCleaned: alreadyCleaned)
+  }
+
+  private func cleanUpAndInsert(_ finalText: String, alreadyCleaned: Bool) {
     // Optional AI cleanup before insertion. Skip when live chunks already went
     // through Gemma so a second pass cannot rewrite earlier utterances.
     if !alreadyCleaned, Settings.shared.autoCleanLLM, LLMRuntime.isAvailable {
@@ -1448,6 +1471,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     Paster.insert(text) { outcome in
       if case .copiedOnly(let why) = outcome { self.set(why) }
     }
+    Usage.shared.recordDictation(text, seconds: dictationSeconds)
     if Settings.shared.saveHistory {
       history.insert(text, at: 0)
       if history.count > 50 { history.removeLast(history.count - 50) }

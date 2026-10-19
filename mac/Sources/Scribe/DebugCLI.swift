@@ -22,6 +22,7 @@ enum DebugCLI {
     }
     if CommandLine.arguments.contains("--selftest-commands") {
       VoiceCommands.selfTest()
+      BacktrackValidator.selfTest()
       Diarizer.selfTest()
       Romanizer.selfTest()
       Paster.selfTest()
@@ -33,6 +34,7 @@ enum DebugCLI {
       OllamaRuntime.selfTest()
       MeetingPipeline.selfTest()
       AzureSpeech.selfTest()
+      Usage.selfTest()
       exit(0)
     }
     if CommandLine.arguments.contains("--selftest-transcription-safety") {
@@ -42,6 +44,7 @@ enum DebugCLI {
     runAzureTestIfRequested()
     runMeetingCaptureTestIfRequested()
     runScreenCaptureTestIfRequested()
+    runRecorderPreviewIfRequested()
     runRenderDashboardIfRequested()
     runMeetingProcessIfRequested()
     runSummaryTestIfRequested()
@@ -775,6 +778,76 @@ private func runScreenCaptureTestIfRequested() {
   exit(0)
 }
 
+/// `open -W -n Bolkit.app --args --recorder-preview <dir>` opens the Recorder, hover-highlights the first
+/// screen and window, records each for a few seconds to <dir>, and screenshots every step to <dir>/*.png.
+private func runRecorderPreviewIfRequested() {
+  let args = CommandLine.arguments
+  guard let i = args.firstIndex(of: "--recorder-preview"), args.count > i + 1, #available(macOS 15, *) else { return }
+  let dir = URL(fileURLWithPath: args[i + 1], isDirectory: true)
+  try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+  var lines: [String] = []
+  defer {
+    try? lines.joined(separator: "\n").write(to: dir.appendingPathComponent("result.txt"), atomically: true, encoding: .utf8)
+    exit(0)
+  }
+  func wait(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+  func shot(_ name: String) {
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+    p.arguments = ["-x", dir.appendingPathComponent("\(name).png").path]
+    try? p.run()
+    p.waitUntilExit()
+  }
+  _ = NSApplication.shared
+  MeetingWindow.useModel = false
+  var window: SCWindow?
+  var done = false
+  Task {
+    let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+    window = content.flatMap { MeetingWindow.candidates($0).first }
+    done = true
+  }
+  while !done { wait(0.1) }
+  guard let display = NSScreen.main?.displayID else { return lines.append("no display") }
+  let screenTarget = "display:\(display)"
+  let windowTarget = window.map { "window:\($0.windowID)" }
+  lines.append("display=\(screenTarget) window=\(windowTarget ?? "none") \(window.map(MeetingWindow.label) ?? "")")
+  RecorderPanel.shared.show(.screen)
+  wait(4)
+  shot("1-picker")
+  ShareFrame.hover.show(screenTarget)
+  wait(1)
+  shot("2-hover-screen")
+  if let windowTarget {
+    ShareFrame.hover.show(windowTarget)
+    wait(1)
+    shot("3-hover-window")
+  }
+  ShareFrame.hover.hide()
+  let screen = ScreenRecorder.shared
+  for (name, target) in [("screen", screenTarget), ("window", windowTarget)] {
+    guard let target else { continue }
+    screen.start(to: dir.appendingPathComponent("\(name).mp4"), choice: target, standalone: false)
+    let started = Date()
+    while screen.live == nil, Date().timeIntervalSince(started) < 15 { wait(0.2) }
+    lines.append("\(name): started in \(String(format: "%.1f", Date().timeIntervalSince(started)))s")
+    wait(3)
+    lines.append("\(name): recording=\(screen.isRecording) live=\(screen.live ?? "nil") status=\(DictationManager.shared.status)")
+    shot("4-recording-\(name)")
+    RecorderPanel.shared.close()
+    wait(1)
+    shot("5-recording-\(name)-closed")
+    screen.stop()
+    wait(2)
+    lines.append("\(name) after stop: live=\(screen.live ?? "nil") frame=\(ShareFrame.live.target)")
+    RecorderPanel.shared.show(.screen)
+    wait(1)
+  }
+  RecorderPanel.shared.close()
+  wait(1)
+  shot("6-after")
+}
+
 /// `Scribe --render-dashboard <dir>` draws every dashboard tab to <dir>/<tab>.png.
 private func runRenderDashboardIfRequested() {
   let args = CommandLine.arguments
@@ -785,7 +858,7 @@ private func runRenderDashboardIfRequested() {
   for tab in DashboardView.Tab.allCases {
     UserDefaults.standard.set(tab.rawValue, forKey: "dashboardTab")
     let host = NSHostingView(rootView: DashboardView())
-    host.frame = NSRect(x: 0, y: 0, width: 920, height: tab == .models ? 2600 : 700)
+    host.frame = NSRect(x: 0, y: 0, width: 920, height: tab == .models ? 2600 : tab == .home ? 1400 : 700)
     let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
     window.contentView = host
     host.layoutSubtreeIfNeeded()

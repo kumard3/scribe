@@ -168,7 +168,8 @@ enum AzureSpeech {
     let request: (AzureCredentials) async throws -> Data = { resource in
       guard let url = URL(string: trimmed(resource.endpoint) + "/speechtotext/transcriptions:transcribe?api-version=2025-10-15")
       else { throw AzureError.noCredentials }
-      return try await post(url, header: ("Ocp-Apim-Subscription-Key", resource.speechKey), parts: parts, audioSeconds: seconds)
+      return try await post(url, provider: "azure-speech", header: ("Ocp-Apim-Subscription-Key", resource.speechKey),
+                            parts: parts, audioSeconds: seconds)
     }
     let body: Data
     if let backup = credentials.backup {
@@ -210,7 +211,7 @@ enum AzureSpeech {
     try await withThrowingTaskGroup(of: (Int, String).self) { group in
       for (i, chunk) in chunks.enumerated() {
         group.addTask {
-          let body = try await post(url, header: ("api-key", credentials.openAIKey),
+          let body = try await post(url, provider: "azure-openai-transcribe", header: ("api-key", credentials.openAIKey),
                                     parts: [("file", try flac(chunk))] + fields, audioSeconds: Double(chunk.count) / 16_000)
           return (i, try JSONDecoder().decode(OpenAIResponse.self, from: body).text)
         }
@@ -267,7 +268,7 @@ enum AzureSpeech {
   ]
 
   private static func post(
-    _ url: URL, header: (String, String), parts: [(String, Data)], audioSeconds: Double
+    _ url: URL, provider: String, header: (String, String), parts: [(String, Data)], audioSeconds: Double
   ) async throws -> Data {
     let boundary = "bolkit-\(UUID().uuidString)"
     var body = Data()
@@ -292,13 +293,19 @@ enum AzureSpeech {
         (data, response) = try await withDeadline(15 + audioSeconds / 4) {
           try await URLSession.shared.upload(for: request, from: body)
         }
-      } catch let error as URLError where attempt < 2 && retryable.contains(error.code) {
+      } catch {
+        Usage.shared.recordCloud(provider, failed: !Task.isCancelled, audioSeconds: audioSeconds)
+        guard attempt < 2, let urlError = error as? URLError, retryable.contains(urlError.code) else { throw error }
         dlog("azure retry \(attempt + 1) after: \(error.localizedDescription)")
         continue
       }
       let http = response as? HTTPURLResponse
       let status = http?.statusCode ?? 0
-      if (200..<300).contains(status) { return data }
+      let ok = (200..<300).contains(status)
+      let usage = ok ? (try? JSONDecoder().decode(TokenUsage.self, from: data))?.usage : nil
+      Usage.shared.recordCloud(provider, failed: !ok, audioSeconds: audioSeconds,
+                               inputTokens: usage?.input_tokens ?? 0, outputTokens: usage?.output_tokens ?? 0)
+      if ok { return data }
       guard [429, 500, 502, 503, 504].contains(status), attempt < 2 else {
         throw AzureError.http(status, String(decoding: data.prefix(300), as: UTF8.self))
       }
@@ -372,6 +379,14 @@ enum AzureSpeech {
   }
 
   private struct OpenAIResponse: Decodable { let text: String }
+
+  private struct TokenUsage: Decodable {
+    struct Tokens: Decodable {
+      let input_tokens: Int?
+      let output_tokens: Int?
+    }
+    let usage: Tokens?
+  }
 }
 
 /// Azure Speech real-time over the Speech SDK's WebSocket protocol (framing from
@@ -390,6 +405,7 @@ final class AzureRealtime: @unchecked Sendable {
   private var hypothesis = ""
   private var finishing = false
   private var closed = false
+  private var failed = false
   private var onText: (String) -> Void = { _ in }
   private var onFailure: (String) -> Void = { _ in }
   private var onEnd: ((String) -> Void)?
@@ -441,6 +457,12 @@ final class AzureRealtime: @unchecked Sendable {
 
   func cancel() {
     socket.cancel(with: .normalClosure, reason: nil)
+    recordUsage()
+  }
+
+  private func recordUsage() {
+    let (failed, seconds) = lock.withLock { (self.failed, Double(audio.count) / 32_000) }
+    Usage.shared.recordCloud("azure-speech-realtime", failed: failed, audioSeconds: seconds)
   }
 
   private var text: String { (phrases + (hypothesis.isEmpty ? [] : [hypothesis])).joined(separator: " ") }
@@ -452,6 +474,7 @@ final class AzureRealtime: @unchecked Sendable {
     }
     guard let done else { return }
     socket.cancel(with: .normalClosure, reason: nil)
+    recordUsage()
     guard final.isEmpty, !recorded.isEmpty else { return DispatchQueue.main.async { done(final) } }
     dlog("azure live: no text, falling back to MAI-Transcribe-2")
     let pcm = recorded.withUnsafeBytes { Array($0.bindMemory(to: Int16.self)).map { Float($0) / 32_768 } }
@@ -469,6 +492,7 @@ final class AzureRealtime: @unchecked Sendable {
         lock.withLock { self.closed = true }
         let reason = socket.closeReason.map { String(decoding: $0, as: UTF8.self) } ?? ""
         if !lock.withLock({ self.finishing }) {
+          lock.withLock { self.failed = true }
           let status = (socket.response as? HTTPURLResponse)?.statusCode ?? socket.closeCode.rawValue
           dlog("azure live closed: \(status) \(reason) \(error.localizedDescription)")
           onFailure(status == 401 || status == 403

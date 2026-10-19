@@ -49,6 +49,25 @@ final class LLMRuntime: @unchecked Sendable {
       "Only rewrite the NEW CHUNK. Previous text is context. Do not change it.\n" +
       "OUTPUT (new chunk only):"
   }
+  static let backtrackInstruction = """
+    You apply a speaker's spoken self-corrections to their dictation. When the speaker takes \
+    something back or corrects it ("scratch that", "no wait", "actually", "I mean", "sorry", \
+    "make that", "delete everything I said"), remove the words they took back and the \
+    correction phrase itself, and keep the correction. If they ask to delete everything said so \
+    far, keep only what comes after that request. Do not add, reword, reorder, translate or \
+    re-punctuate anything else. If there is no self-correction, return the text unchanged. \
+    Output only the final text.
+
+    Examples:
+    In: let's meet at 2 actually 3 pm
+    Out: let's meet at 3 pm
+    In: send it to Rahul no wait send it to Priya
+    Out: send it to Priya
+    In: no no no delete everything I said till now the meeting is moved to Friday
+    Out: the meeting is moved to Friday
+    In: I actually liked the demo
+    Out: I actually liked the demo
+    """
   static let summaryInstruction =
     "Summarize the following transcript in 2-3 sentences, in the same language as the " +
     "input. Output only the summary, nothing else."

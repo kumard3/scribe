@@ -250,6 +250,9 @@ final class Settings: ObservableObject {
   @AppStorage("autoCleanLLM") var autoCleanLLM: Bool = false {
     willSet { objectWillChange.send() }
   }
+  @AppStorage("smartCorrections") var smartCorrections: Bool = true {
+    willSet { objectWillChange.send() }
+  }
   /// A cleanupModels id, or ModelCatalog.ollamaId to route through Ollama.
   @AppStorage("cleanupModelId") var cleanupModelId: String = ModelCatalog.gemmaAsrId {
     willSet { objectWillChange.send() }
