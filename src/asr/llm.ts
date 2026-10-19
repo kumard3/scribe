@@ -209,10 +209,13 @@ const SUMMARY =
 export type AI = (instruction: string, text: string, maxTokens: number) => Promise<string>;
 
 export function activeAI(): AI | null {
-  const local = llmModelById(getLLMModelId());
-  if (local && llmInstalled(local)) return (i, t, n) => runLocal(local, i, t, n);
-  const cfg = getCloud();
-  return cloudChatReady(cfg) ? (i, t) => chatCloud(cfg, i, t) : null;
+  const id = getLLMModelId();
+  if (id === 'cloud') {
+    const cfg = getCloud();
+    return cloudChatReady(cfg) ? (i, t) => chatCloud(cfg, i, t) : null;
+  }
+  const local = llmModelById(id);
+  return local && llmInstalled(local) ? (i, t, n) => runLocal(local, i, t, n) : null;
 }
 
 export async function cleanupWithLLM(ai: AI, text: string, opts?: CleanupOpts): Promise<string> {
