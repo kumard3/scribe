@@ -1,7 +1,10 @@
 import { Directory, File, Paths, DownloadTask } from 'expo-file-system';
 import { initLlama, releaseAllLlama, type LlamaContext } from 'llama.rn';
+import { chatCloud, cloudChatReady } from './cloud';
+import { getCloud, getLLMModelId, getSmartCorrections } from './settings';
+import { backtrack } from '../util/corrections';
 
-// On-device LLM (Gemma 4 E2B) for post-processing transcripts, AI Cleanup and
+// On-device LLM for post-processing transcripts, AI Cleanup and
 // Summary. It is a POST-PROCESSOR, never a transcription engine: it is install/
 // delete only and is invoked on a finished transcript. Inference runs through
 // llama.rn (llama.cpp); the GGUF is a single file pulled from Hugging Face.
@@ -10,6 +13,7 @@ export type LLMModelSpec = {
   id: string;
   label: string;
   note: string;
+  chip: string;
   url: string;
   fileName: string;
   sizeBytes: number;
@@ -18,11 +22,39 @@ export type LLMModelSpec = {
 export const LLM_MODELS: LLMModelSpec[] = [
   {
     id: 'gemma-4-e2b',
-    label: 'Gemma 4 · E2B (cleanup & summary)',
-    note: 'Google · on-device text AI · offline',
+    label: 'Gemma 4 E2B',
+    note: 'Google. The best balance of quality and speed on most phones.',
+    chip: 'Recommended',
     url: 'https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf',
     fileName: 'gemma-4-E2B-it-Q4_K_M.gguf',
-    sizeBytes: 3_110_000_000,
+    sizeBytes: 3_106_738_272,
+  },
+  {
+    id: 'gemma-4-e4b',
+    label: 'Gemma 4 E4B',
+    note: 'Google. Smartest cleanup and summaries. For high-end phones with lots of memory.',
+    chip: 'Smartest',
+    url: 'https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf',
+    fileName: 'gemma-4-E4B-it-Q4_K_M.gguf',
+    sizeBytes: 4_977_171_584,
+  },
+  {
+    id: 'gemma-3-1b',
+    label: 'Gemma 3 1B',
+    note: 'Google. Small and fast, for phones with less memory.',
+    chip: 'Fast',
+    url: 'https://huggingface.co/unsloth/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf',
+    fileName: 'gemma-3-1b-it-Q4_K_M.gguf',
+    sizeBytes: 806_058_272,
+  },
+  {
+    id: 'qwen-2.5-1.5b',
+    label: 'Qwen 2.5 1.5B',
+    note: 'Alibaba. Small and fast, strongest in plain English.',
+    chip: 'Fast',
+    url: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf',
+    fileName: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
+    sizeBytes: 1_117_320_736,
   },
 ];
 
@@ -134,13 +166,13 @@ export async function release(): Promise<void> {
 
 // Gemma's chat template has no separate system role, so the instruction is
 // folded into the single user turn for portability across GGUF builds.
-async function run(spec: LLMModelSpec, instruction: string, text: string, maxTokens: number) {
+async function runLocal(spec: LLMModelSpec, instruction: string, text: string, maxTokens: number) {
   const c = await ensureLoaded(spec);
   const res = await c.completion({
     messages: [{ role: 'user', content: `${instruction}\n\n---\n${text.trim()}` }],
     temperature: 0.2,
     n_predict: maxTokens,
-    stop: ['<end_of_turn>'],
+    stop: ['<end_of_turn>', '<|im_end|>'],
   });
   return (res.text ?? '').trim();
 }
@@ -174,14 +206,25 @@ const SUMMARY =
   'Summarize the following transcript in 2-3 sentences, in the same language as the ' +
   'input. Output only the summary, nothing else.';
 
-export async function cleanupWithLLM(
-  spec: LLMModelSpec,
-  text: string,
-  opts?: CleanupOpts
-): Promise<string> {
-  return run(spec, cleanupInstruction(opts), text, 1024);
+export type AI = (instruction: string, text: string, maxTokens: number) => Promise<string>;
+
+export function activeAI(): AI | null {
+  const local = llmModelById(getLLMModelId());
+  if (local && llmInstalled(local)) return (i, t, n) => runLocal(local, i, t, n);
+  const cfg = getCloud();
+  return cloudChatReady(cfg) ? (i, t) => chatCloud(cfg, i, t) : null;
 }
 
-export async function summarizeWithLLM(spec: LLMModelSpec, text: string): Promise<string> {
-  return run(spec, SUMMARY, text, 256);
+export async function cleanupWithLLM(ai: AI, text: string, opts?: CleanupOpts): Promise<string> {
+  return ai(cleanupInstruction(opts), text, 1024);
+}
+
+export async function summarizeWithLLM(ai: AI, text: string): Promise<string> {
+  return ai(SUMMARY, text, 256);
+}
+
+export async function smartCorrect(text: string): Promise<string> {
+  const ai = getSmartCorrections() ? activeAI() : null;
+  if (!ai || !text.trim()) return text;
+  return backtrack(text, (i, t) => ai(i, t, 512));
 }

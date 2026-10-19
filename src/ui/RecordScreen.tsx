@@ -31,6 +31,7 @@ import {
 } from '../audio/fileRecorder';
 import { CatalogModel } from '../asr/catalog';
 import { canRecordWith, recordTranscribe } from '../asr/recordTranscribe';
+import { cloudMissing } from '../asr/cloud';
 import { prepareModel, isInstalled } from '../asr';
 import { downloadNemo, nemoInstalled } from '../asr/nemo';
 import { downloadSherpa, sherpaInstalled, sherpaModelById } from '../asr/sherpa';
@@ -182,8 +183,9 @@ export function RecordScreen({ language, recordModel, onPickModel, onSaved, onBu
       setError('Pick an offline or cloud model to record.');
       return;
     }
-    if (recordModel.kind === 'cloud' && !getCloud().apiKey) {
-      setError('Add your API key in Settings → Models → Your API key.');
+    const missing = recordModel.kind === 'cloud' ? cloudMissing(getCloud()) : null;
+    if (missing) {
+      setError(missing);
       return;
     }
     const perm = await requestRecordingPermissionsAsync();

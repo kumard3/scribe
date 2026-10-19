@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
+import * as Sharing from 'expo-sharing';
 import { theme } from './theme';
 import {
   audioFile,
@@ -20,16 +21,32 @@ import {
   getMeeting,
   listMeetings,
   meetingText,
+  meetingTextFile,
   renameSpeaker,
   speakerLabel,
   updateMeeting,
   type Meeting,
 } from '../meetings';
-import { LLM_MODELS, llmInstalled, summarizeWithLLM } from '../asr/llm';
+import { activeAI, summarizeWithLLM } from '../asr/llm';
 import { summarize } from '../util/summarize';
 
 type Props = { visible: boolean; onClose: () => void };
 type Tab = 'summary' | 'transcript' | 'speakers';
+
+function shareFile(uri: string, mimeType: string, UTI: string) {
+  Sharing.shareAsync(uri, { mimeType, UTI }).catch((e) => Alert.alert('Could not share', String(e)));
+}
+
+function shareMeeting(m: Meeting) {
+  const audio = audioFile(m.id);
+  Alert.alert('Share meeting', 'Save it to iCloud Drive, Google Drive or Files, or send it to any app.', [
+    { text: 'Transcript', onPress: () => shareFile(meetingTextFile(m).uri, 'text/plain', 'public.plain-text') },
+    ...(m.hasAudio && audio.exists
+      ? [{ text: 'Audio', onPress: () => shareFile(audio.uri, 'audio/wav', 'com.microsoft.waveform-audio') }]
+      : []),
+    { text: 'Cancel', style: 'cancel' as const },
+  ]);
+}
 
 function dayLabel(ts: number): string {
   return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
@@ -87,9 +104,8 @@ export function MeetingsModal({ visible, onClose }: Props) {
     setError(null);
     try {
       const body = meetingText(open);
-      const spec = LLM_MODELS[0];
-      const text =
-        spec && llmInstalled(spec) ? await summarizeWithLLM(spec, body) : summarize(body);
+      const ai = activeAI();
+      const text = ai ? await summarizeWithLLM(ai, body) : summarize(body);
       const next = updateMeeting(open.id, { summary: text });
       if (next) {
         setOpen(next);
@@ -181,10 +197,7 @@ export function MeetingsModal({ visible, onClose }: Props) {
                 <Text style={styles.title} numberOfLines={1}>
                   {open.title}
                 </Text>
-                <Pressable
-                  onPress={() => Share.share({ message: meetingText(open) })}
-                  hitSlop={10}
-                >
+                <Pressable onPress={() => shareMeeting(open)} hitSlop={10}>
                   <Ionicons name="share-outline" size={20} color={theme.textDim} />
                 </Pressable>
               </View>

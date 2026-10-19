@@ -1,6 +1,6 @@
 import { writeWavFromFloat32 } from '../../audio/wav';
 import { transcribeWithModel } from '../index';
-import { cleanupWithLLM, LLM_MODELS, llmInstalled } from '../llm';
+import { activeAI, cleanupWithLLM } from '../llm';
 import { getAutoPolish, getChunkPauseMs, getDictationStyle } from '../settings';
 import { decodeLanguage } from '../whisperText';
 import { biasTerms } from '../settings';
@@ -106,8 +106,8 @@ async function drain(): Promise<void> {
 async function accept(raw: string, cb: TextCb | null): Promise<void> {
   pending = join(pending, raw);
   cb?.(committed, pending);
-  const llm = LLM_MODELS[0];
-  if (getAutoPolish() && llm && llmInstalled(llm)) {
+  const llm = getAutoPolish() ? activeAI() : null;
+  if (llm) {
     try {
       const cleaned = (await cleanupWithLLM(llm, raw, { previous: committed, hotwords: biasTerms() })).trim();
       committed = join(committed, cleaned || raw);

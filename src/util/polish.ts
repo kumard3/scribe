@@ -35,8 +35,29 @@ const SCRATCH = /[^.!?\n]*\b(?:scratch|strike|delete|cross)\s+that\b[.,!?]*/gi;
 const LAST_WORD = /(?:\S+)\s+\b(?:scratch|delete|cross)\s+(?:the\s+)?last word\b[.,!?]*/gi;
 const LAST_LINE = /\b(?:scratch|delete|cross)\s+(?:this |the |that )?last line\b[.,!?]*/i;
 
+const NOW = '(?:so far|till now|until now|up to now|up till now)';
+const TIME = '(?:so far|till now|until now|up to now|up till now|before|above|earlier)';
+const QUALIFIER = `(?:\\s+(?:(?:that|what|which)\\s+)?i(?:\\s+have|'ve|’ve)?\\s+(?:said|told you|dictated|spoken|spoke|wrote|typed)(?:\\s+${TIME})?|\\s+${NOW})`;
+const CLEAR_ALL = new RegExp(
+  `\\b(?:(?:delete|erase|scratch|clear|remove|cancel|forget|undo)\\s+(?:everything|all of that|all of this|all of it|all that|all this|it all)|start\\s+(?:over|again))\\b(${QUALIFIER})?\\b([.,!?;]*)`,
+  'gi'
+);
+const AND_START_OVER = /^\s*and\s+start\s+(?:over|again)\b[.,!?;]*/i;
+
+function clearAll(text: string): string {
+  let keepFrom = -1;
+  for (const m of text.matchAll(CLEAR_ALL)) {
+    let end = (m.index ?? 0) + m[0].length;
+    const rest = text.slice(end);
+    const andStart = rest.match(AND_START_OVER);
+    if (andStart) end += andStart[0].length;
+    if (!rest.trim() || m[1] || m[2] || andStart) keepFrom = end;
+  }
+  return keepFrom < 0 ? text : text.slice(keepFrom).replace(/^[\s.,!?;:]+/, '');
+}
+
 export function applyVoiceCommands(text: string): string {
-  let t = text.replace(SCRATCH, '').replace(LAST_WORD, '');
+  let t = clearAll(text).replace(SCRATCH, '').replace(LAST_WORD, '');
   if (LAST_LINE.test(t)) {
     const out: string[] = [];
     for (const line of t.split('\n')) {

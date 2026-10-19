@@ -1,0 +1,7 @@
+New in 1.1:
+- Take it back by voice: say "no no no, delete everything I said" and only what you say next is kept. "Start over" works too.
+- Smart corrections: with an on-device AI model, slips like "meet at 2, actually 3" come out as "meet at 3".
+- More on-device AI models: Gemma 4 E2B and E4B, Gemma 3 1B and Qwen 2.5 1.5B, all in the new Models screen.
+- Optional cloud accounts with your own keys: Azure Speech, Azure OpenAI or OpenAI. Keys stay in your Keychain. Off by default.
+- Your stats: words today, this week and all time, speaking speed, day streak and cloud usage, under Settings.
+- Apple's on-device speech recognizer for Dictate and Record.

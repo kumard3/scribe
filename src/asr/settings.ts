@@ -1,4 +1,5 @@
 import { File, Paths } from 'expo-file-system';
+import * as SecureStore from 'expo-secure-store';
 import { mergeVocab } from './vocab';
 
 type Settings = {
@@ -13,6 +14,16 @@ type Settings = {
   cloudApiKey: string;
   cloudBaseUrl: string;
   cloudModel: string;
+  cloudChatModel: string;
+  cloudProvider: CloudProvider;
+  azureSpeechRegion: string;
+  azureSpeechEndpoint: string;
+  azureOpenAIEndpoint: string;
+  azureOpenAIApiVersion: string;
+  azureOpenAITranscribe: string;
+  azureOpenAIChat: string;
+  llmModelId: string;
+  smartCorrections: boolean;
   diarizationEnabled: boolean;
   diarizationSpeakers: number;
   recordModelId: string;
@@ -30,6 +41,16 @@ const DEFAULT: Settings = {
   cloudApiKey: '',
   cloudBaseUrl: 'https://api.openai.com/v1',
   cloudModel: 'whisper-1',
+  cloudChatModel: '',
+  cloudProvider: 'openai',
+  azureSpeechRegion: '',
+  azureSpeechEndpoint: '',
+  azureOpenAIEndpoint: '',
+  azureOpenAIApiVersion: '2025-03-01-preview',
+  azureOpenAITranscribe: '',
+  azureOpenAIChat: '',
+  llmModelId: 'gemma-4-e2b',
+  smartCorrections: true,
   diarizationEnabled: false,
   diarizationSpeakers: 0,
   recordModelId: '',
@@ -157,19 +178,102 @@ export function setRecordModelId(recordModelId: string): void {
   persist({ ...load(), recordModelId });
 }
 
-export type CloudSettings = { apiKey: string; baseUrl: string; model: string };
+export function getLLMModelId(): string {
+  return load().llmModelId;
+}
+
+export function setLLMModelId(llmModelId: string): void {
+  persist({ ...load(), llmModelId });
+}
+
+export function getSmartCorrections(): boolean {
+  return load().smartCorrections;
+}
+
+export function setSmartCorrections(smartCorrections: boolean): void {
+  persist({ ...load(), smartCorrections });
+}
+
+export type CloudProvider = 'openai' | 'azure-speech' | 'azure-openai';
+
+type CloudSecrets = { apiKey: string; azureSpeechKey: string; azureOpenAIKey: string };
+
+export type CloudSettings = CloudSecrets & {
+  provider: CloudProvider;
+  baseUrl: string;
+  model: string;
+  chatModel: string;
+  azureSpeechRegion: string;
+  azureSpeechEndpoint: string;
+  azureOpenAIEndpoint: string;
+  azureOpenAIApiVersion: string;
+  azureOpenAITranscribe: string;
+  azureOpenAIChat: string;
+};
+
+const SECRETS_KEY = 'bolkit.cloud.keys';
+const SECRETS_OPTS = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY };
+const NO_SECRETS: CloudSecrets = { apiKey: '', azureSpeechKey: '', azureOpenAIKey: '' };
+let secretsCache: CloudSecrets | null = null;
+
+function readSecrets(): CloudSecrets {
+  if (secretsCache) return secretsCache;
+  try {
+    const raw = SecureStore.getItem(SECRETS_KEY, SECRETS_OPTS);
+    secretsCache = { ...NO_SECRETS, ...(raw ? JSON.parse(raw) : {}) };
+  } catch {
+    secretsCache = { ...NO_SECRETS };
+  }
+  const s = load();
+  if (s.cloudApiKey && writeSecrets({ ...secretsCache!, apiKey: secretsCache!.apiKey || s.cloudApiKey })) {
+    persist({ ...s, cloudApiKey: '' });
+  }
+  return secretsCache!;
+}
+
+function writeSecrets(next: CloudSecrets): boolean {
+  try {
+    SecureStore.setItem(SECRETS_KEY, JSON.stringify(next), SECRETS_OPTS);
+    secretsCache = next;
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function getCloud(): CloudSettings {
   const s = load();
-  return { apiKey: s.cloudApiKey, baseUrl: s.cloudBaseUrl, model: s.cloudModel };
+  return {
+    ...readSecrets(),
+    provider: s.cloudProvider,
+    baseUrl: s.cloudBaseUrl,
+    model: s.cloudModel,
+    chatModel: s.cloudChatModel,
+    azureSpeechRegion: s.azureSpeechRegion,
+    azureSpeechEndpoint: s.azureSpeechEndpoint,
+    azureOpenAIEndpoint: s.azureOpenAIEndpoint,
+    azureOpenAIApiVersion: s.azureOpenAIApiVersion,
+    azureOpenAITranscribe: s.azureOpenAITranscribe,
+    azureOpenAIChat: s.azureOpenAIChat,
+  };
 }
 
-export function setCloud(patch: Partial<CloudSettings>): void {
-  const s = load();
+export function setCloud(patch: Partial<CloudSettings>): boolean {
+  const c = { ...getCloud(), ...patch };
+  const t = (v: string) => v.trim();
+  const saved = writeSecrets({ apiKey: t(c.apiKey), azureSpeechKey: t(c.azureSpeechKey), azureOpenAIKey: t(c.azureOpenAIKey) });
   persist({
-    ...s,
-    cloudApiKey: patch.apiKey ?? s.cloudApiKey,
-    cloudBaseUrl: patch.baseUrl ?? s.cloudBaseUrl,
-    cloudModel: patch.model ?? s.cloudModel,
+    ...load(),
+    cloudProvider: c.provider,
+    cloudBaseUrl: t(c.baseUrl),
+    cloudModel: t(c.model),
+    cloudChatModel: t(c.chatModel),
+    azureSpeechRegion: t(c.azureSpeechRegion),
+    azureSpeechEndpoint: t(c.azureSpeechEndpoint),
+    azureOpenAIEndpoint: t(c.azureOpenAIEndpoint),
+    azureOpenAIApiVersion: t(c.azureOpenAIApiVersion),
+    azureOpenAITranscribe: t(c.azureOpenAITranscribe),
+    azureOpenAIChat: t(c.azureOpenAIChat),
   });
+  return saved;
 }

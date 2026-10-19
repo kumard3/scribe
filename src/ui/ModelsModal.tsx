@@ -24,12 +24,32 @@ import {
   deleteLLM,
   downloadLLM,
   llmInstalled,
+  llmModelById,
   deleteAllLLM,
   installedLLMStorageBytes,
 } from '../asr/llm';
+import { cloudChatLabel, cloudChatReady } from '../asr/cloud';
 import { clearHistory } from '../history';
-import { getCloud, getSelectedModelId, setCloud, setSelectedModelId } from '../asr/settings';
+import { clearUsage } from '../util/usage';
+import {
+  getCloud,
+  getLLMModelId,
+  getSelectedModelId,
+  setCloud,
+  setLLMModelId,
+  setSelectedModelId,
+  type CloudProvider,
+  type CloudSettings,
+} from '../asr/settings';
 import { theme } from './theme';
+
+const CLOUD_AI = 'cloud';
+
+const PROVIDERS: { id: CloudProvider; label: string }[] = [
+  { id: 'azure-speech', label: 'Azure Speech' },
+  { id: 'azure-openai', label: 'Azure OpenAI' },
+  { id: 'openai', label: 'OpenAI' },
+];
 
 type Props = {
   visible: boolean;
@@ -47,20 +67,15 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const [showMore, setShowMore] = useState(false);
-  const [showCloud, setShowCloud] = useState(false);
-
-  const [apiKey, setApiKey] = useState('');
-  const [baseUrl, setBaseUrl] = useState('');
-  const [cloudModel, setCloudModel] = useState('');
+  const [aiId, setAiId] = useState(getLLMModelId());
+  const [cfg, setCfg] = useState<CloudSettings>(getCloud);
   const controllers = useRef<Record<string, AbortController>>({});
 
   useEffect(() => {
     if (!visible) return;
     setSelectedId(getSelectedModelId());
-    const c = getCloud();
-    setApiKey(c.apiKey);
-    setBaseUrl(c.baseUrl);
-    setCloudModel(c.model);
+    setAiId(getLLMModelId());
+    setCfg(getCloud());
     const map: Record<string, boolean> = {};
     for (const m of catalog) {
       if (m.kind === 'whisper' && m.whisper) map[m.id] = isInstalled(m.whisper);
@@ -85,6 +100,12 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
     onChanged();
   }
 
+  function chooseAI(id: string) {
+    setLLMModelId(id);
+    setAiId(id);
+    onChanged();
+  }
+
   async function getModel(m: CatalogModel) {
     if (m.kind !== 'whisper' && m.kind !== 'nemo' && m.kind !== 'llm') return;
     setError(null);
@@ -101,6 +122,10 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
       // The LLM is a post-processor, not a transcription engine, installing it
       // must not change the selected voice model.
       if (m.kind !== 'llm') choose(m);
+      else if (m.llm) {
+        const current = llmModelById(getLLMModelId());
+        if (!current || !llmInstalled(current)) chooseAI(m.llm.id);
+      }
     } catch (e: any) {
       if (e?.name !== 'AbortError' && !/abort/i.test(e?.message ?? '')) {
         setError(e?.message ?? String(e));
@@ -134,15 +159,34 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
     ]);
   }
 
-  function persistCloud(next: { apiKey?: string; baseUrl?: string; model?: string }) {
-    setCloud(next);
+  function saveCloud(patch: Partial<CloudSettings>) {
+    const next = { ...cfg, ...patch };
+    setCfg(next);
+    if (!setCloud(next)) setError('Could not save the key to the secure store on this phone.');
     onChanged();
+  }
+
+  function field(k: keyof CloudSettings, placeholder: string, secret = false) {
+    return (
+      <TextInput
+        key={k}
+        style={styles.input}
+        placeholder={placeholder}
+        placeholderTextColor={theme.textFaint}
+        value={cfg[k]}
+        onChangeText={(v) => setCfg((c) => ({ ...c, [k]: v }))}
+        onEndEditing={() => saveCloud({})}
+        autoCapitalize="none"
+        autoCorrect={false}
+        secureTextEntry={secret}
+      />
+    );
   }
 
   function wipeAll() {
     Alert.alert(
       'Delete all data',
-      'This removes every downloaded model and your entire transcription history. This cannot be undone.',
+      'This removes every downloaded model, your entire transcription history and your stats. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -153,6 +197,7 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
             deleteAllNemo();
             deleteAllLLM();
             clearHistory();
+            clearUsage();
             setSelectedModelId('system');
             setSelectedId('system');
             onWipeData();
@@ -168,10 +213,13 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
   const more = catalog.filter((m) => !m.featured && m.kind !== 'cloud' && m.kind !== 'llm');
   const llmModels = catalog.filter((m) => m.kind === 'llm');
   const cloud = catalog.find((m) => m.kind === 'cloud');
+  const chatReady = cloudChatReady(cfg);
+  const aiLocal = llmModelById(aiId);
+  const aiActive = aiLocal && installed[`llm:${aiLocal.id}`] ? aiLocal.label : chatReady ? cloudChatLabel(cfg) : '';
 
   function Row({ m, card }: { m: CatalogModel; card?: boolean }) {
     const isLLM = m.kind === 'llm';
-    const isSel = !isLLM && selectedId === m.id;
+    const isSel = isLLM ? aiId === m.llm?.id : selectedId === m.id;
     const isDl = busyId === m.id;
     const pct = Math.round((progress[m.id] ?? 0) * 100);
     const have = installed[m.id];
@@ -184,18 +232,14 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
     return (
       <Pressable
         style={[card ? styles.card : styles.row, card && isSel && styles.cardSel]}
-        onPress={isLLM ? undefined : () => choose(m)}
+        onPress={() => (isLLM && m.llm ? chooseAI(m.llm.id) : choose(m))}
         key={m.id}
       >
-        {isLLM ? (
-          <Ionicons name="sparkles" size={20} color={theme.primary} />
-        ) : (
-          <Ionicons
-            name={isSel ? 'radio-button-on' : 'radio-button-off'}
-            size={22}
-            color={isSel ? theme.primary : theme.textFaint}
-          />
-        )}
+        <Ionicons
+          name={isSel ? 'radio-button-on' : 'radio-button-off'}
+          size={22}
+          color={isSel ? theme.primary : theme.textFaint}
+        />
         <View style={styles.rowText}>
           <View style={styles.labelRow}>
             <Text style={styles.label}>{name}</Text>
@@ -270,20 +314,48 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
         <Pressable style={styles.sheet} onPress={() => {}}>
           <View style={styles.handle} />
           <View style={styles.header}>
-            <Text style={styles.title}>Voice</Text>
+            <Text style={styles.title}>Models</Text>
             <Text style={styles.storage}>{storage} used</Text>
           </View>
-          <Text style={styles.subtitle}>
-            Everything runs privately on your phone. Pick what fits how you’ll use it. You can
-            change this anytime.
-          </Text>
 
-          <ScrollView style={{ maxHeight: 460 }} key={tick} keyboardShouldPersistTaps="handled">
-            {featured.map((m) => (
+          <ScrollView style={styles.scroll} key={tick} keyboardShouldPersistTaps="handled">
+            <Text style={styles.section}>On-device AI</Text>
+            <Text style={styles.subtitle}>
+              Cleans up, summarizes and applies spoken corrections like “no wait” or “delete
+              everything I said”. Text only, runs offline.{' '}
+              {aiActive ? `Using ${aiActive}.` : 'Get one below to turn it on.'}
+            </Text>
+            {llmModels.map((m) => (
               <Row m={m} card key={m.id} />
             ))}
+            <Pressable
+              style={[styles.card, aiId === CLOUD_AI && styles.cardSel, !chatReady && styles.dim]}
+              onPress={() => chatReady && chooseAI(CLOUD_AI)}
+            >
+              <Ionicons
+                name={aiId === CLOUD_AI ? 'radio-button-on' : 'radio-button-off'}
+                size={22}
+                color={aiId === CLOUD_AI ? theme.primary : theme.textFaint}
+              />
+              <View style={styles.rowText}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.label}>Your cloud AI</Text>
+                  <Text style={[styles.chip, styles.chipSubtle]}>Text leaves your phone</Text>
+                </View>
+                <Text style={styles.meta}>
+                  {chatReady
+                    ? cloudChatLabel(cfg)
+                    : 'Add a chat model or Azure OpenAI chat deployment under Cloud accounts.'}
+                </Text>
+              </View>
+            </Pressable>
 
-            {llmModels.map((m) => (
+            <Text style={styles.section}>Voice</Text>
+            <Text style={styles.subtitle}>
+              Turns your speech into text. Everything runs privately on your phone unless you pick
+              your cloud account.
+            </Text>
+            {featured.map((m) => (
               <Row m={m} card key={m.id} />
             ))}
 
@@ -298,48 +370,61 @@ export function ModelsModal({ visible, onClose, onChanged, onWipeData }: Props) 
             </Expander>
 
             {cloud && (
-              <Expander
-                title="Advanced · use your own cloud key"
-                open={showCloud}
-                onToggle={() => setShowCloud((v) => !v)}
-              >
-                <Row m={cloud} />
-                <Text style={styles.byokHint}>
-                  Audio is sent to your provider. Works with OpenAI, Groq, or any
-                  OpenAI-compatible endpoint.
+              <>
+                <Text style={styles.section}>Cloud accounts (your own keys)</Text>
+                <Text style={styles.subtitle}>
+                  Keys stay in this phone’s secure storage. Audio leaves your phone and goes to
+                  your provider when you transcribe with your cloud account.
                 </Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="API key (sk-…)"
-                  placeholderTextColor={theme.textFaint}
-                  value={apiKey}
-                  onChangeText={setApiKey}
-                  onEndEditing={() => persistCloud({ apiKey })}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  secureTextEntry
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Base URL"
-                  placeholderTextColor={theme.textFaint}
-                  value={baseUrl}
-                  onChangeText={setBaseUrl}
-                  onEndEditing={() => persistCloud({ baseUrl })}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Model (e.g. whisper-1)"
-                  placeholderTextColor={theme.textFaint}
-                  value={cloudModel}
-                  onChangeText={setCloudModel}
-                  onEndEditing={() => persistCloud({ model: cloudModel })}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-              </Expander>
+                <Row m={cloud} card />
+                <View style={styles.segment}>
+                  {PROVIDERS.map((p) => (
+                    <Pressable
+                      key={p.id}
+                      style={[styles.segBtn, cfg.provider === p.id && styles.segBtnOn]}
+                      onPress={() => saveCloud({ provider: p.id })}
+                    >
+                      <Text style={[styles.segText, cfg.provider === p.id && styles.segTextOn]}>
+                        {p.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                {cfg.provider === 'azure-speech' && (
+                  <>
+                    <Text style={styles.byokHint}>
+                      MAI-Transcribe-2, best for Hinglish. From your Azure Speech resource, Keys
+                      and Endpoint.
+                    </Text>
+                    {field('azureSpeechKey', 'Speech key', true)}
+                    {field('azureSpeechEndpoint', 'Endpoint, https://<name>.cognitiveservices.azure.com')}
+                    {field('azureSpeechRegion', 'Region if no endpoint, e.g. eastus')}
+                  </>
+                )}
+                {cfg.provider === 'azure-openai' && (
+                  <>
+                    <Text style={styles.byokHint}>
+                      From your Azure OpenAI resource. Use deployment names, not model names.
+                    </Text>
+                    {field('azureOpenAIKey', 'API key', true)}
+                    {field('azureOpenAIEndpoint', 'Endpoint, https://<name>.openai.azure.com')}
+                    {field('azureOpenAITranscribe', 'Transcription deployment, e.g. gpt-4o-transcribe')}
+                    {field('azureOpenAIChat', 'Chat deployment for AI (optional)')}
+                    {field('azureOpenAIApiVersion', 'API version')}
+                  </>
+                )}
+                {cfg.provider === 'openai' && (
+                  <>
+                    <Text style={styles.byokHint}>
+                      OpenAI, Groq, or any OpenAI-compatible endpoint.
+                    </Text>
+                    {field('apiKey', 'API key (sk-…)', true)}
+                    {field('baseUrl', 'Base URL')}
+                    {field('model', 'Transcription model (e.g. whisper-1)')}
+                    {field('chatModel', 'Chat model for AI (optional, e.g. gpt-4o-mini)')}
+                  </>
+                )}
+              </>
             )}
           </ScrollView>
 
@@ -383,6 +468,29 @@ const styles = StyleSheet.create({
   title: { color: theme.text, fontSize: 22, fontWeight: '800' },
   storage: { color: theme.textFaint, fontSize: 13 },
   subtitle: { color: theme.textDim, fontSize: 13, lineHeight: 19, marginBottom: 6 },
+  scroll: { flexShrink: 1 },
+  section: {
+    color: theme.textDim,
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginTop: 22,
+    marginBottom: 6,
+  },
+  dim: { opacity: 0.55 },
+  segment: {
+    flexDirection: 'row',
+    backgroundColor: theme.surfaceAlt,
+    borderRadius: 12,
+    padding: 4,
+    gap: 4,
+    marginTop: 12,
+  },
+  segBtn: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 9 },
+  segBtnOn: { backgroundColor: theme.primary },
+  segText: { color: theme.textDim, fontSize: 13, fontWeight: '700' },
+  segTextOn: { color: theme.onPrimary },
   card: {
     flexDirection: 'row',
     alignItems: 'center',

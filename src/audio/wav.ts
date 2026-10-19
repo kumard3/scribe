@@ -1,4 +1,4 @@
-import { Directory, File, Paths } from 'expo-file-system';
+import { Directory, File, FileMode, Paths } from 'expo-file-system';
 
 const TARGET_RATE = 16000;
 
@@ -134,6 +134,26 @@ export async function decodeWavTo16kMono(uri: string): Promise<Float32Array> {
     mono[i] = acc / channels;
   }
   return sampleRate === TARGET_RATE ? mono : resample(mono, sampleRate, TARGET_RATE);
+}
+
+export function wavSeconds(uri: string): number {
+  try {
+    const f = new File(uri);
+    const h = f.open(FileMode.ReadOnly);
+    let head: Uint8Array;
+    try {
+      head = h.readBytes(44);
+    } finally {
+      h.close();
+    }
+    if (head.length < 44) return 0;
+    const tag = (o: number) => String.fromCharCode(head[o], head[o + 1], head[o + 2], head[o + 3]);
+    if (tag(0) !== 'RIFF' || tag(8) !== 'WAVE') return 0;
+    const byteRate = new DataView(head.buffer, head.byteOffset, 44).getUint32(28, true);
+    return byteRate > 0 ? Math.max(0, f.size - 44) / byteRate : 0;
+  } catch {
+    return 0;
+  }
 }
 
 export function float32ToInt16Bytes(samples: Float32Array): Uint8Array {

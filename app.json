@@ -58,7 +58,8 @@
           "forceCxx20": true
         }
       ],
-      "expo-font"
+      "expo-font",
+      ["expo-secure-store", { "faceIDPermission": false }]
     ]
   }
 }

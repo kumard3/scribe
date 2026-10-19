@@ -143,3 +143,10 @@ export function speakerLabel(m: Meeting, speaker: number): string {
 export function meetingText(m: Meeting): string {
   return m.turns?.length ? turnsToText(m.turns, m.speakerNames) : m.transcript;
 }
+
+export function meetingTextFile(m: Meeting): File {
+  const f = new File(Paths.cache, `${m.title.replace(/[\\/:*?"<>|]/g, '-') || 'Meeting'}.txt`);
+  if (!f.exists) f.create();
+  f.write(`${m.title}\n\n${m.summary ? `Summary\n${m.summary}\n\n` : ''}Transcript\n${meetingText(m)}\n`);
+  return f;
+}

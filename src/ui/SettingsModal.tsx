@@ -20,19 +20,23 @@ import {
   getAutoPolish,
   getChunkPauseMs,
   getDictationStyle,
+  getSmartCorrections,
   getTranslateTarget,
   getVocab,
   setAutoPolish,
   setChunkPauseMs,
   setDictationStyle,
+  setSmartCorrections,
   setTranslateTarget,
   setVocab,
 } from '../asr/settings';
 import { deleteAllModels } from '../asr/modelManager';
 import { clearHistory } from '../history';
+import { clearUsage } from '../util/usage';
 import { FlowBubble, flowBubbleSupported } from '../flowBubble';
 import { TRANSLATE_TARGETS, translateTargetLabel, translationSupported } from '../asr/translate';
 import { LanguagePicker } from './LanguagePicker';
+import { StatsModal } from './StatsModal';
 import { theme } from './theme';
 import { BRAND } from './brand';
 
@@ -49,10 +53,12 @@ const APP_VERSION = '1.0.0';
 export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWipeData }: Props) {
   const [vocab, setVocabState] = useState<string[]>([]);
   const [autoPolish, setAutoPolishState] = useState(false);
+  const [smart, setSmartState] = useState(true);
   const [style, setStyleState] = useState<'auto' | 'english' | 'hinglish'>('auto');
   const [pauseMs, setPauseState] = useState(550);
   const [target, setTargetState] = useState('');
   const [targetPickerOpen, setTargetPickerOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
   const [input, setInput] = useState('');
   const [bubbleOverlay, setBubbleOverlay] = useState(false);
   const [bubbleAccess, setBubbleAccess] = useState(false);
@@ -69,6 +75,7 @@ export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWip
     if (!visible) return;
     setVocabState(getVocab());
     setAutoPolishState(getAutoPolish());
+    setSmartState(getSmartCorrections());
     setStyleState(getDictationStyle());
     setPauseState(getChunkPauseMs());
     setTargetState(getTranslateTarget());
@@ -128,6 +135,12 @@ export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWip
     onChanged();
   }
 
+  function toggleSmart(v: boolean) {
+    setSmartCorrections(v);
+    setSmartState(v);
+    onChanged();
+  }
+
   function openKeyboardSettings() {
     Linking.sendIntent('android.settings.INPUT_METHOD_SETTINGS').catch(() => {});
   }
@@ -135,7 +148,7 @@ export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWip
   function wipeAll() {
     Alert.alert(
       'Delete all data',
-      'This removes every downloaded model and your entire transcription history. This cannot be undone.',
+      'This removes every downloaded model, your entire transcription history and your stats. This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -144,6 +157,7 @@ export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWip
           onPress: () => {
             deleteAllModels();
             clearHistory();
+            clearUsage();
             onWipeData();
           },
         },
@@ -167,10 +181,23 @@ export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWip
         </View>
 
         <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+          <Pressable style={styles.actionBtn} onPress={() => setStatsOpen(true)}>
+            <Ionicons name="stats-chart-outline" size={18} color={theme.text} />
+            <Text style={styles.actionText}>Your stats</Text>
+            <View style={{ flex: 1 }} />
+            <Ionicons name="chevron-forward" size={18} color={theme.textFaint} />
+          </Pressable>
+
           <Text style={styles.section}>Transcription</Text>
           <Pressable style={styles.actionBtn} onPress={onOpenModels}>
             <Ionicons name="cube-outline" size={18} color={theme.text} />
-            <Text style={styles.actionText}>Models</Text>
+            <Text style={styles.actionText}>Voice and AI models</Text>
+            <View style={{ flex: 1 }} />
+            <Ionicons name="chevron-forward" size={18} color={theme.textFaint} />
+          </Pressable>
+          <Pressable style={styles.actionBtn} onPress={onOpenModels}>
+            <Ionicons name="key-outline" size={18} color={theme.text} />
+            <Text style={styles.actionText}>Cloud accounts and API keys</Text>
             <View style={{ flex: 1 }} />
             <Ionicons name="chevron-forward" size={18} color={theme.textFaint} />
           </Pressable>
@@ -179,12 +206,27 @@ export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWip
               <View style={{ flex: 1 }}>
                 <Text style={styles.label}>Auto-polish</Text>
                 <Text style={styles.meta}>
-                  Gemma 4 E2B cleans punctuation and fillers after ASR. Audio never goes to Gemma.
+                  Your AI model cleans punctuation and fillers after ASR. Audio never goes to it.
                 </Text>
               </View>
               <Switch
                 value={autoPolish}
                 onValueChange={toggleAuto}
+                trackColor={{ true: theme.primary, false: theme.border }}
+                thumbColor="#fff"
+              />
+            </View>
+            <View style={[styles.row, styles.rowDivider]}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.label}>Smart corrections</Text>
+                <Text style={styles.meta}>
+                  Say “actually 3 pm”, “no wait” or “delete everything I said” while dictating and
+                  your AI model fixes the text. Live dictation only.
+                </Text>
+              </View>
+              <Switch
+                value={smart}
+                onValueChange={toggleSmart}
                 trackColor={{ true: theme.primary, false: theme.border }}
                 thumbColor="#fff"
               />
@@ -375,6 +417,7 @@ export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWip
         onSelect={selectTarget}
         onClose={() => setTargetPickerOpen(false)}
       />
+      <StatsModal visible={statsOpen} onClose={() => setStatsOpen(false)} />
     </Modal>
   );
 }

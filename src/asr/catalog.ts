@@ -109,16 +109,16 @@ export function buildCatalog(): CatalogModel[] {
     note: m.note,
     sizeLabel: `~${(m.sizeBytes / 1e9).toFixed(1)} GB`,
     live: false,
-    title: 'AI Cleanup & Summary',
-    tagline: 'On-device AI that cleans up and summarizes your transcript. One-time download, fully offline.',
-    chip: 'On-device AI',
+    title: m.label,
+    tagline: m.note,
+    chip: m.chip,
     llm: m,
   }));
   const cloud: CatalogModel = {
     id: CLOUD_MODEL_ID,
     kind: 'cloud',
-    label: 'Your API key',
-    note: 'OpenAI-compatible cloud transcription. Audio leaves your phone. Highest accuracy.',
+    label: 'Your cloud account',
+    note: 'Transcribe with Azure Speech, Azure OpenAI, OpenAI, Groq or any OpenAI-compatible key. Audio leaves your phone.',
     sizeLabel: 'BYOK',
     live: false,
   };

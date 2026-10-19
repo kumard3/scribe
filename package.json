@@ -20,6 +20,8 @@
     "expo-keep-awake": "~56.0.3",
     "expo-modules-core": "~56.0.26",
     "expo-quick-actions": "^6.0.2",
+    "expo-secure-store": "~56.0.4",
+    "expo-sharing": "~56.0.26",
     "expo-speech-recognition": "^56.0.1",
     "expo-status-bar": "~56.0.4",
     "llama.rn": "^0.12.4",

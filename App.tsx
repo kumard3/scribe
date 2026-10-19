@@ -57,7 +57,7 @@ import {
 } from './src/asr/live/whisperChunks';
 import { startLiveMic, stopLiveMic } from './src/audio/liveMic';
 import { catalogModelById, CatalogModel, SYSTEM_MODEL_ID } from './src/asr/catalog';
-import { transcribeCloud } from './src/asr/cloud';
+import { cloudMissing, transcribeCloud } from './src/asr/cloud';
 import {
   getAutoPolish,
   getCloud,
@@ -100,9 +100,10 @@ import {
 } from './src/asr/punctuate';
 import { translateText, translateTargetLabel } from './src/asr/translate';
 import { polish, applyVoiceCommands } from './src/util/polish';
+import { cueCount } from './src/util/corrections';
 import * as haptics from './src/util/haptics';
 import { summarize } from './src/util/summarize';
-import { LLM_MODELS, llmInstalled, cleanupWithLLM, summarizeWithLLM } from './src/asr/llm';
+import { activeAI, cleanupWithLLM, smartCorrect, summarizeWithLLM } from './src/asr/llm';
 import type { LanguageCode } from './src/asr/types';
 import {
   addHistory,
@@ -112,6 +113,7 @@ import {
   loadHistory,
   updateHistory,
 } from './src/history';
+import { recordDictation } from './src/util/usage';
 import { deleteFileSafe } from './src/util/files';
 import { theme } from './src/ui/theme';
 import { Waveform, BAR_COUNT } from './src/ui/Waveform';
@@ -191,6 +193,8 @@ export default function App() {
     appleSpeechReady.then(setAppleReady);
   }, []);
   const lastHistoryId = useRef<string | null>(null);
+  const dictStart = useRef(0);
+  const dictSeconds = () => (dictStart.current ? (Date.now() - dictStart.current) / 1000 : 0);
   const keyboardHandoff = useRef(false);
   const liveScrollRef = useRef<ScrollView>(null);
 
@@ -258,16 +262,19 @@ export default function App() {
   // Finish a live (system) session: polish, translate to the target if one is
   // set, then show + save the result. Async so the ML Kit translate can run.
   const finalizeLive = useCallback(async (raw: string) => {
-    let text = applyVoiceCommands(raw);
-    if (getAutoPolish()) text = polish(text);
     const target = recTarget.current;
+    const seconds = dictSeconds();
+    let text = applyVoiceCommands(raw);
+    const slow = !!target || cueCount(text) > 0;
+    if (slow) setBusy(true);
+    text = await smartCorrect(text);
+    if (getAutoPolish()) text = polish(text);
     if (target) {
-      setBusy(true);
       try {
         text = await translateText(text, target, liveLang.current);
       } catch {}
-      setBusy(false);
     }
+    if (slow) setBusy(false);
     setTranscript(text);
     setLiveXlate('');
     setResultTarget(target || '');
@@ -283,6 +290,7 @@ export default function App() {
     });
     lastHistoryId.current = items[0]?.id ?? null;
     setHistory(items);
+    recordDictation(text, seconds);
   }, []);
 
   const onLiveEnd = () => {
@@ -407,6 +415,7 @@ export default function App() {
       setTranscript('');
       setLiveXlate('');
       setResultTarget('');
+      dictStart.current = Date.now();
       liveIntent.current = true;
       liveApple.current = appleSpeechAvailable();
       if (liveApple.current) {
@@ -431,6 +440,7 @@ export default function App() {
       const m = recModel.current;
       const lang = recLang.current;
       const target = recTarget.current;
+      const seconds = dictSeconds();
       let uri: string | null = null;
       try {
         if (nativeRec) {
@@ -457,7 +467,7 @@ export default function App() {
           const res = await transcribeWithModel(uri, m.whisper, lang, false);
           text = res.text || '';
         }
-        text = applyVoiceCommands(text);
+        text = await smartCorrect(applyVoiceCommands(text));
         if (getAutoPolish()) text = polish(text);
         if (target && text.trim()) text = await translateText(text, target, lang);
         setTranscript(text);
@@ -471,6 +481,7 @@ export default function App() {
           });
           lastHistoryId.current = items[0]?.id ?? null;
           setHistory(items);
+          recordDictation(text, seconds);
         }
       } catch (e: any) {
         setError(e?.message ?? String(e));
@@ -502,8 +513,9 @@ export default function App() {
           return;
         }
       } else if (selected.kind === 'cloud') {
-        if (!getCloud().apiKey) {
-          setError('Add your API key in Settings → Models → Your API key.');
+        const missing = cloudMissing(getCloud());
+        if (missing) {
+          setError(missing);
           return;
         }
       } else if (selected.kind === 'whisper' && selected.whisper) {
@@ -521,6 +533,7 @@ export default function App() {
       recTarget.current = translateTarget;
       recModel.current = selected;
       setTranscript('');
+      dictStart.current = Date.now();
       if (hasNativeRecorder) {
         await startNative();
         setNativeRec(true);
@@ -541,6 +554,7 @@ export default function App() {
 
   const onModelLivePress = useCallback(async () => {
     if (modelLive) {
+      const seconds = dictSeconds();
       await stopLiveMic();
       setModelLive(false);
       const lang = recLang.current;
@@ -551,7 +565,7 @@ export default function App() {
           recModel.current?.kind === 'whisper'
             ? await stopWhisperChunks()
             : await stopSherpaLive();
-        let text = applyVoiceCommands(raw);
+        let text = await smartCorrect(applyVoiceCommands(raw));
         if (getAutoPolish()) text = polish(text);
         if (target && text.trim()) text = await translateText(text, target, lang);
         setTranscript(text);
@@ -566,6 +580,7 @@ export default function App() {
           });
           lastHistoryId.current = items[0]?.id ?? null;
           setHistory(items);
+          recordDictation(text, seconds);
         }
       } catch (e: any) {
         setError(e?.message ?? String(e));
@@ -614,6 +629,7 @@ export default function App() {
         return;
       }
 
+      dictStart.current = Date.now();
       await startLiveMic(
         (samples, sr) => {
           const norm = Math.max(0.06, Math.min(1, rms(samples) * 8));
@@ -728,12 +744,12 @@ export default function App() {
 
   const onPolish = useCallback(async () => {
     if (aiBusy) return;
-    const spec = LLM_MODELS[0];
-    if (spec && llmInstalled(spec)) {
+    const ai = activeAI();
+    if (ai) {
       setAiBusy('clean');
       setError(null);
       try {
-        const cleaned = await cleanupWithLLM(spec, transcript);
+        const cleaned = await cleanupWithLLM(ai, transcript);
         setTranscript(cleaned);
         if (lastHistoryId.current) setHistory(updateHistory(lastHistoryId.current, cleaned));
       } catch (e: any) {
@@ -750,12 +766,12 @@ export default function App() {
 
   const onSummarize = useCallback(async () => {
     if (aiBusy) return;
-    const spec = LLM_MODELS[0];
-    if (spec && llmInstalled(spec)) {
+    const ai = activeAI();
+    if (ai) {
       setAiBusy('summary');
       setError(null);
       try {
-        const s = await summarizeWithLLM(spec, transcript);
+        const s = await summarizeWithLLM(ai, transcript);
         setTranscript(s);
         lastHistoryId.current = null;
       } catch (e: any) {
@@ -801,8 +817,9 @@ export default function App() {
           return;
         }
       }
-      if (m.kind === 'cloud' && !getCloud().apiKey) {
-        setError('Add your API key in Settings → Models → Your API key.');
+      const missing = m.kind === 'cloud' ? cloudMissing(getCloud()) : null;
+      if (missing) {
+        setError(missing);
         return;
       }
 
