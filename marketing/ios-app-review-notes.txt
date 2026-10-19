@@ -1,0 +1,59 @@
+BOLKIT 1.1, REVIEW NOTES
+
+NEW IN 1.1
+- Spoken corrections: saying "delete everything I said" or "start over" while dictating keeps only
+  what follows. With an optional on-device AI model, self-corrections ("at 2, actually 3") are
+  applied; the result is only accepted when words were removed, never added.
+- Models screen: optional on-device AI models (Gemma 4 E2B/E4B, Gemma 3 1B, Qwen 2.5 1.5B),
+  one-time downloads from Hugging Face, run locally with llama.cpp.
+- Cloud accounts (optional, off by default): the user can enter their own Azure Speech, Azure
+  OpenAI or OpenAI-compatible key. Keys are stored in the iOS Keychain. Only then does audio or
+  text leave the device, to the user's own account.
+- Settings > Your stats: word counts, speaking speed, streak and a count of the user's own cloud
+  requests, stored only on the device.
+
+NO ACCOUNT, NO PURCHASES
+There is no sign up, login, account, or account deletion flow, because the app has no
+accounts and no backend. No in-app purchase or subscription. No demo credentials needed.
+Free and open source under the MIT licence.
+
+WHAT IT DOES
+Bolkit is a dictation app. You speak, it writes the text on the device. Mainstream
+dictation apps stream your voice to a company server and charge monthly. Bolkit runs the
+speech models locally, works with the network off, and we operate no server.
+
+HOW TO REACH THE MAIN FEATURES
+1. Launch. Onboarding runs once, then the record screen opens.
+2. Allow the microphone and speech recognition prompts.
+3. Tap the large button, speak, tap again. The transcript appears and can be copied. No
+   download is required, the default engine is the phone's built-in one.
+4. Models: every entry other than the default is an optional one-time download of an
+   offline speech model. Pick one and dictation then runs fully offline.
+5. Import: pick an m4a or mp3 and get a transcript.
+6. History: past transcripts, stored only on the device, deletable.
+
+EXTERNAL SERVICES
+- Apple Speech framework (SFSpeechRecognizer), the default engine.
+- Hugging Face and GitHub Releases: static file downloads only, for the optional offline
+  models. No API key, no account, nothing sent up.
+- Google ML Kit on-device Translation, bundled. Downloads a language pack once, then
+  translates locally.
+- Optional, off by default: the user may enter their own Azure Speech, Azure OpenAI or
+  OpenAI-compatible key (Models > Cloud accounts). Only then does audio or text leave the
+  device, to the provider they chose. No key ships in the app.
+No authentication provider, payment processor, analytics, advertising SDK, crash reporting,
+or backend operated by us.
+
+REGIONAL DIFFERENCES
+None. Identical behaviour in every region, no geofenced features, no regional pricing.
+
+REGULATED INDUSTRY AND THIRD-PARTY MATERIAL
+Not a regulated industry; a productivity utility with no health, financial, gambling or
+medical functionality. All speech models are publicly released open-weight models (Whisper,
+MIT; NVIDIA NeMo via k2-fsa/sherpa-onnx, Apache 2.0/CC-BY; Google Gemma, Gemma Terms of
+Use). Our source is MIT and public at https://github.com/kumard3/scribe.
+
+TESTED ON
+iPhone 17 Pro (iPhone18,1), iOS 27.0. Build 1.1.0 (11) was installed, launched, and confirmed
+to stay running before submitting. Minimum deployment target iOS 16.4. iPhone only; on iPad it
+runs in iPhone compatibility mode.
