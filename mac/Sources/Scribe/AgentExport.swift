@@ -22,22 +22,32 @@ enum AgentExport {
       .write(to: file(in: dir), atomically: true, encoding: .utf8)
   }
 
-  /// What "Copy for agent" puts on the clipboard: a path any coding agent can open.
+  /// What "Copy for agent" puts on the clipboard: the meeting id for the bolkit MCP server, with the file as a fallback.
   static func prompt(dir: URL) -> String {
-    "Bolkit meeting recording. Read \(file(in: dir).path): summary, timestamped transcript, " +
-      "and screenshots of the shared screen in \(dir.appendingPathComponent("frames").path)."
+    let id = dir.lastPathComponent
+    let frames = dir.appendingPathComponent("frames")
+    let shots = existingFrames(frames).isEmpty ? "" : " Screenshots of the shared screen: \(frames.path)."
+    return "Bolkit meeting \(id). With the bolkit MCP server: get_meeting id=\(id) returns the summary and the " +
+      "first page of the transcript (from_ms/to_ms reads a part), and search_memory finds a topic. " +
+      "Without MCP, read \(file(in: dir).path).\(shots)"
   }
 
   private static func markdown(_ d: MeetingDetail, date: Date, dir: URL, frames: [(Double, String)]) -> String {
-    let duration = d.turns.compactMap(\.start).max().map { "  ·  about \(clock($0))" } ?? ""
+    let duration = (d.duration ?? d.turns.compactMap(\.start).max()).map { "  ·  \(clock($0))" } ?? ""
+    let fm = FileManager.default
+    let files = (fm.fileExists(atPath: dir.appendingPathComponent("meeting.m4a").path) ? ["meeting.m4a is the audio"] : [])
+      + (MeetingRecorder.clips(in: dir).isEmpty ? [] : ["\(MeetingRecorder.clips(in: dir).map(\.lastPathComponent).joined(separator: ", ")) are the screen clips"])
     var lines = [
-      "# Meeting, \(date.formatted(date: .abbreviated, time: .shortened))\(duration)",
+      "# \(d.title ?? "Meeting"), \(date.formatted(date: .abbreviated, time: .shortened))\(duration)",
       "",
-      "Speakers: " + d.speakers.map { d.name($0) }.joined(separator: ", "),
-      "Folder: \(dir.path) (meeting.m4a is the audio; screen*.mp4 are the screen clips)",
-      "",
+      "Speakers: " + d.speakers.map { d.agentName($0) }.joined(separator: ", "),
     ]
+    if d.name(MeetingPipeline.you) == "You" { lines.append("You = \(Settings.shared.yourName)") }
+    lines += ["Folder: \(dir.path)" + (files.isEmpty ? "" : " (\(files.joined(separator: "; ")))"), ""]
     if let summary = d.summary, !summary.isEmpty { lines += ["## Summary", "", summary, ""] }
+    if let chapters = d.chapters {
+      lines += ["## Chapters", ""] + chapters.map { "- \(clock($0.start))-\(clock($0.end)) \($0.title)" } + [""]
+    }
     lines += ["## Transcript", ""]
     var pending = frames.sorted { $0.0 < $1.0 }[...]
     for turn in d.turns {
@@ -46,9 +56,9 @@ enum AgentExport {
           lines += ["![Screen at \(clock(next.0))](\(next.1))", ""]
           pending = pending.dropFirst()
         }
-        lines.append("[\(clock(start))] **\(d.name(turn.speaker))**: \(turn.text)")
+        lines.append("[\(clock(start))] **\(d.agentName(turn.speaker))**: \(turn.text)")
       } else {
-        lines.append("**\(d.name(turn.speaker))**: \(turn.text)")
+        lines.append("**\(d.agentName(turn.speaker))**: \(turn.text)")
       }
       lines.append("")
     }

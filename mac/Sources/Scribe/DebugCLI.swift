@@ -27,6 +27,9 @@ enum DebugCLI {
       Romanizer.selfTest()
       Paster.selfTest()
       Vocabulary.selfTest()
+      Snippets.selfTest()
+      CommandMode.selfTest()
+      HoldKeyMonitor.selfTest()
       PauseChunker.selfTest()
       #if !MAS
       CorrectionWatcher.selfTest()
@@ -41,10 +44,20 @@ enum DebugCLI {
       transcriptionSafetySelfTest()
       exit(0)
     }
+    if CommandLine.arguments.contains("--mcp") {
+      MemoryMCP.serve()
+      exit(0)
+    }
+    if CommandLine.arguments.contains("--selftest-memory") {
+      MemoryMCP.selfTest()
+      exit(0)
+    }
+    MemoryMCP.backfillIfRequested()
     runAzureTestIfRequested()
     runMeetingCaptureTestIfRequested()
     runScreenCaptureTestIfRequested()
     runRecorderPreviewIfRequested()
+    runScreenResumeTestIfRequested()
     runRenderDashboardIfRequested()
     runMeetingProcessIfRequested()
     runSummaryTestIfRequested()
@@ -60,6 +73,7 @@ enum DebugCLI {
     runAppleIfRequested()
     runTranscribeBatchIfRequested()
     runCleanupCompareIfRequested()
+    runVozIfRequested()
     let args = CommandLine.arguments
     guard let i = args.firstIndex(of: "--transcribe"), args.count > i + 2 else { return }
     let wavPath = args[i + 1]
@@ -97,6 +111,32 @@ enum DebugCLI {
     }
     print(text)
     exit(text.isEmpty ? 1 : 0)
+  }
+
+  /// `Scribe --voz <file> [--vocab "A,B"]`: Voz through the app's engine path; prints the transcript, timings and first words.
+  private static func runVozIfRequested() {
+    let args = CommandLine.arguments
+    guard let i = args.firstIndex(of: "--voz"), args.count > i + 1,
+          let (samples, rate) = AudioImport.decode(URL(fileURLWithPath: args[i + 1])) else { return }
+    let vocabulary = (argument(after: "--vocab") ?? "").split(separator: ",").map(String.init)
+    let done = DispatchSemaphore(value: 0)
+    Task.detached {
+      let start = Date()
+      do {
+        let out = try await VozEngine.shared.transcribe(samples, sampleRate: rate, vocabulary: vocabulary)
+        print("first call \(String(format: "%.2f", Date().timeIntervalSince(start))) s")
+        let again = Date()
+        _ = try await VozEngine.shared.transcribe(samples, sampleRate: rate, vocabulary: vocabulary)
+        print("warm call \(String(format: "%.2f", Date().timeIntervalSince(again))) s for \(String(format: "%.1f", Double(samples.count) / Double(rate))) s audio")
+        print(out.text)
+        print(out.words.prefix(5).map { "\($0.text)@\(String(format: "%.2f", $0.start))-\(String(format: "%.2f", $0.end))" }.joined(separator: " "))
+        exit(out.text.isEmpty ? 1 : 0)
+      } catch {
+        FileHandle.standardError.write("voz failed: \(error)\n".data(using: .utf8)!)
+        exit(3)
+      }
+    }
+    done.wait()
   }
 
   /// `Scribe --transcribe-batch <list.txt> <model-id>`: loads the model once and prints one
@@ -846,6 +886,36 @@ private func runRecorderPreviewIfRequested() {
   RecorderPanel.shared.close()
   wait(1)
   shot("6-after")
+}
+
+/// `Scribe --screen-resume-test <dir>` checks a system-stopped screen recording restarts and a user stop does not.
+private func runScreenResumeTestIfRequested() {
+  let args = CommandLine.arguments
+  guard let i = args.firstIndex(of: "--screen-resume-test"), args.count > i + 1, #available(macOS 15, *) else { return }
+  let dir = URL(fileURLWithPath: args[i + 1], isDirectory: true)
+  try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+  _ = NSApplication.shared
+  MeetingWindow.useModel = false
+  let screen = ScreenRecorder.shared
+  func wait(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+  func waitLive() -> Bool {
+    let started = Date()
+    while screen.live == nil, Date().timeIntervalSince(started) < 15 { wait(0.2) }
+    return screen.live != nil
+  }
+  screen.start(to: dir.appendingPathComponent("first.mp4"), choice: "display", standalone: true)
+  precondition(waitLive(), "first capture never started")
+  wait(2)
+  screen.failed(SCStreamError(.systemStoppedStream))
+  precondition(!screen.isRecording, "still recording after the system stop")
+  wait(4)
+  precondition(waitLive() && screen.isRecording, "capture did not resume")
+  wait(2)
+  screen.failed(SCStreamError(.userStopped))
+  wait(5)
+  precondition(!screen.isRecording, "resumed after the user stopped it")
+  print("screen resume test ok")
+  exit(0)
 }
 
 /// `Scribe --render-dashboard <dir>` draws every dashboard tab to <dir>/<tab>.png.

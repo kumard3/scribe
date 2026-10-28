@@ -3,14 +3,19 @@ import Carbon
 import ApplicationServices
 import ServiceManagement
 
-/// Global toggle hotkey via Carbon (works without Accessibility permission).
-/// Re-registrable so the dashboard can change the combo.
+/// Global hotkeys via Carbon (work without Accessibility permission): the
+/// dictation toggle and Command Mode. Re-registrable so the dashboard can change the combo.
 final class HotKeyManager {
-  static let shared = HotKeyManager()
+  static let shared = HotKeyManager(id: 1)
+  static let command = HotKeyManager(id: 2)
   var onTrigger: (() -> Void)?
+  var onRelease: (() -> Void)?
 
+  private let id: UInt32
   private var hotKeyRef: EventHotKeyRef?
   private var handlerRef: EventHandlerRef?
+
+  private init(id: UInt32) { self.id = id }
 
   func apply(keyCode: Int, mods: Int) {
     installHandlerIfNeeded()
@@ -19,24 +24,35 @@ final class HotKeyManager {
       hotKeyRef = nil
     }
     guard keyCode >= 0 else { return }
-    let id = EventHotKeyID(signature: OSType(0x53435242), id: 1) // 'SCRB'
-    RegisterEventHotKey(UInt32(keyCode), UInt32(mods), id, GetApplicationEventTarget(), 0, &hotKeyRef)
+    let hotKeyID = EventHotKeyID(signature: OSType(0x53435242), id: id) // 'SCRB'
+    RegisterEventHotKey(UInt32(keyCode), UInt32(mods), hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
   }
 
   private func installHandlerIfNeeded() {
     guard handlerRef == nil else { return }
-    var spec = EventTypeSpec(
-      eventClass: OSType(kEventClassKeyboard),
-      eventKind: UInt32(kEventHotKeyPressed)
-    )
+    var specs = [kEventHotKeyPressed, kEventHotKeyReleased].map {
+      EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32($0))
+    }
     InstallEventHandler(
       GetApplicationEventTarget(),
-      { (_, _, userData) -> OSStatus in
-        guard let userData else { return OSStatus(eventNotHandledErr) }
-        Unmanaged<HotKeyManager>.fromOpaque(userData).takeUnretainedValue().onTrigger?()
+      { (_, event, userData) -> OSStatus in
+        guard let event, let userData else { return OSStatus(eventNotHandledErr) }
+        var key = EventHotKeyID()
+        GetEventParameter(
+          event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
+          nil, MemoryLayout<EventHotKeyID>.size, nil, &key
+        )
+        let me = Unmanaged<HotKeyManager>.fromOpaque(userData).takeUnretainedValue()
+        // Every manager's handler sees every hot key; the next handler gets the ones that are not ours.
+        guard key.id == me.id else { return OSStatus(eventNotHandledErr) }
+        if GetEventKind(event) == UInt32(kEventHotKeyReleased) {
+          me.onRelease?()
+        } else {
+          me.onTrigger?()
+        }
         return noErr
       },
-      1, &spec, Unmanaged.passUnretained(self).toOpaque(), &handlerRef
+      2, &specs, Unmanaged.passUnretained(self).toOpaque(), &handlerRef
     )
   }
 }
@@ -48,9 +64,15 @@ final class HoldKeyMonitor {
   static let shared = HoldKeyMonitor()
   var onPress: (() -> Void)?
   var onRelease: ((TimeInterval) -> Void)?
+  /// Hold fn + ⌃ for Command Mode, Wispr's default. Modifiers only, so no keystroke reaches the app.
+  /// true when fn was already held for dictation, so that recording turns into the instruction.
+  var onCommandPress: ((_ upgrade: Bool) -> Void)?
+  var onCommandRelease: (() -> Void)?
 
   private var monitor: Any?
   private var downAt: Date?
+  private var commandHeld = false
+  private var holdSuppressed = false
 
   #if MAS
   // App Sandbox forbids the Accessibility-gated global monitor; a listen-only
@@ -89,10 +111,26 @@ final class HoldKeyMonitor {
   }
   #endif
 
-  private func handle(_ e: NSEvent) {
-    let key = Settings.shared.holdKey
+  private func handle(_ e: NSEvent, holdKey key: HoldKey = Settings.shared.holdKey) {
+    let chord = e.modifierFlags.contains([.function, .control])
+    if chord, !commandHeld {
+      let upgrade = downAt != nil
+      commandHeld = true
+      holdSuppressed = upgrade || key == .fn
+      downAt = nil
+      onCommandPress?(upgrade)
+      return
+    }
+    if !chord, commandHeld {
+      commandHeld = false
+      onCommandRelease?()
+    }
     guard let keyCode = key.keyCode, e.keyCode == keyCode else { return }
     let isDown = e.modifierFlags.contains(key.flag)
+    if holdSuppressed {
+      if !isDown { holdSuppressed = false }
+      return
+    }
     if isDown, downAt == nil {
       downAt = Date()
       onPress?()
@@ -100,6 +138,38 @@ final class HoldKeyMonitor {
       downAt = nil
       onRelease?(Date().timeIntervalSince(at))
     }
+  }
+
+  static func selfTest() {
+    func run(_ key: HoldKey, _ steps: [(Int, NSEvent.ModifierFlags)]) -> [String] {
+      let m = HoldKeyMonitor()
+      var log: [String] = []
+      m.onPress = { log.append("press") }
+      m.onRelease = { _ in log.append("release") }
+      m.onCommandPress = { log.append($0 ? "upgrade" : "command") }
+      m.onCommandRelease = { log.append("commandRelease") }
+      for (code, flags) in steps {
+        let e = NSEvent.keyEvent(
+          with: .flagsChanged, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0,
+          context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: UInt16(code)
+        )!
+        m.handle(e, holdKey: key)
+      }
+      return log
+    }
+    let fn = kVK_Function, ctrl = kVK_Control
+    let a = run(.off, [(ctrl, [.control]), (fn, [.control, .function]), (fn, [.control]), (ctrl, [])])
+    precondition(a == ["command", "commandRelease"], "\(a)")
+    let b = run(.fn, [(fn, [.function]), (ctrl, [.function, .control]), (ctrl, [.function]), (fn, [])])
+    precondition(b == ["press", "upgrade", "commandRelease"], "\(b)")
+    let c = run(.fn, [(ctrl, [.control]), (fn, [.control, .function]), (ctrl, [.function]), (fn, []), (fn, [.function]), (fn, [])])
+    precondition(c == ["command", "commandRelease", "press", "release"], "\(c)")
+    let d = run(.rightOption, [(ctrl, [.control]), (fn, [.control, .function]), (fn, [.control]), (ctrl, []),
+                               (kVK_RightOption, [.option]), (kVK_RightOption, [])])
+    precondition(d == ["command", "commandRelease", "press", "release"], "\(d)")
+    let e = run(.fn, [(fn, [.function]), (fn, [])])
+    precondition(e == ["press", "release"], "\(e)")
+    print("HoldKeyMonitor selftest ok")
   }
 }
 
@@ -187,6 +257,55 @@ enum Paster {
     paste(text, done: done)
   }
 
+  /// The selection in the focused app over Accessibility; nil when the app doesn't expose it.
+  static func accessibleSelection() -> String? {
+    #if MAS
+    return nil
+    #else
+    guard let element = focusedElement() else { return nil }
+    var ref: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &ref) == .success,
+          let text = ref as? String, !text.isEmpty else { return nil }
+    return text
+    #endif
+  }
+
+  /// The selection in the focused app: read over Accessibility, else copied with
+  /// Cmd-C and the clipboard put back. nil when nothing is selected.
+  static func selectedText(_ done: @escaping (String?) -> Void) {
+    if let text = accessibleSelection() { return done(text) }
+    guard !IsSecureEventInputEnabled() else { return done(nil) }
+    afterModifiersUp { up in
+      guard up else { return done(nil) }
+      copySelection(done)
+    }
+  }
+
+  private static let heldModifiers: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate, .maskShift, .maskSecondaryFn]
+
+  // A Cmd-C posted while the shortcut's ⌃⌥ are still down reaches the app with them added; in a terminal that is Ctrl-C.
+  private static func afterModifiersUp(tries: Int = 60, _ done: @escaping (Bool) -> Void) {
+    if CGEventSource.flagsState(.hidSystemState).intersection(heldModifiers).isEmpty { return done(true) }
+    guard tries > 0 else { return done(false) }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { afterModifiersUp(tries: tries - 1, done) }
+  }
+
+  private static func copySelection(_ done: @escaping (String?) -> Void) {
+    let pb = NSPasteboard.general
+    let saved = snapshot(pb)
+    let before = pb.changeCount
+    postCommand(kVK_ANSI_C)
+    func poll(_ tries: Int) {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+        guard pb.changeCount != before else { return tries > 1 ? poll(tries - 1) : done(nil) }
+        let text = pb.string(forType: .string)
+        restore(saved, to: pb)
+        done(text)
+      }
+    }
+    poll(8)
+  }
+
   #if MAS
   private struct Field {}
   private static func focusedField() -> Field? { nil }
@@ -203,7 +322,7 @@ enum Paster {
 
   private static let axTimeout: Float = 0.5
 
-  private static func focusedField() -> Field? {
+  private static func focusedElement() -> AXUIElement? {
     let system = AXUIElementCreateSystemWide()
     AXUIElementSetMessagingTimeout(system, axTimeout)
     var ref: CFTypeRef?
@@ -213,6 +332,11 @@ enum Paster {
 
     let element = unsafeBitCast(ref, to: AXUIElement.self)
     AXUIElementSetMessagingTimeout(element, axTimeout)
+    return element
+  }
+
+  private static func focusedField() -> Field? {
+    guard let element = focusedElement() else { return nil }
     // No readable caret means no way to tell an insert from a silent no-op,
     // and a wrong guess types the transcript twice.
     guard let caret = caret(of: element) else { return nil }
@@ -266,27 +390,14 @@ enum Paster {
 
     let field = focusedField()
     let pb = NSPasteboard.general
-    let saved: [[NSPasteboard.PasteboardType: Data]] = (pb.pasteboardItems ?? []).map { item in
-      var byType: [NSPasteboard.PasteboardType: Data] = [:]
-      for t in item.types {
-        if let data = item.data(forType: t) { byType[t] = data }
-      }
-      return byType
-    }
+    let saved = snapshot(pb)
     copyToPasteboard(text)
     let ourChange = pb.changeCount
 
     // Apps read the pasteboard asynchronously; posting Cmd-V in the same tick
     // gets some of them the previous contents.
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
-      let src = CGEventSource(stateID: .combinedSessionState)
-      let v = CGKeyCode(kVK_ANSI_V)
-      let down = CGEvent(keyboardEventSource: src, virtualKey: v, keyDown: true)
-      down?.flags = .maskCommand
-      let up = CGEvent(keyboardEventSource: src, virtualKey: v, keyDown: false)
-      up?.flags = .maskCommand
-      down?.post(tap: .cghidEventTap)
-      up?.post(tap: .cghidEventTap)
+      postCommand(kVK_ANSI_V)
       dlog("insert: pasted \(text.count) chars")
 
       confirmPaste(field, count: text.utf16.count) { landed in
@@ -300,14 +411,41 @@ enum Paster {
         #endif
         guard Settings.shared.restoreClipboard, !saved.isEmpty else { return }
         guard pb.changeCount == ourChange else { return }
-        pb.clearContents()
-        pb.writeObjects(saved.map { byType in
-          let item = NSPasteboardItem()
-          for (t, data) in byType { item.setData(data, forType: t) }
-          return item
-        })
+        restore(saved, to: pb)
       }
     }
+  }
+
+  private typealias Snapshot = [[NSPasteboard.PasteboardType: Data]]
+
+  private static func snapshot(_ pb: NSPasteboard) -> Snapshot {
+    (pb.pasteboardItems ?? []).map { item in
+      var byType: [NSPasteboard.PasteboardType: Data] = [:]
+      for t in item.types {
+        if let data = item.data(forType: t) { byType[t] = data }
+      }
+      return byType
+    }
+  }
+
+  private static func restore(_ saved: Snapshot, to pb: NSPasteboard) {
+    pb.clearContents()
+    pb.writeObjects(saved.map { byType in
+      let item = NSPasteboardItem()
+      for (t, data) in byType { item.setData(data, forType: t) }
+      return item
+    })
+  }
+
+  private static func postCommand(_ key: Int) {
+    let src = CGEventSource(stateID: .combinedSessionState)
+    let code = CGKeyCode(key)
+    let down = CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: true)
+    down?.flags = .maskCommand
+    let up = CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: false)
+    up?.flags = .maskCommand
+    down?.post(tap: .cghidEventTap)
+    up?.post(tap: .cghidEventTap)
   }
 
   #if !MAS

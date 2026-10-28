@@ -13,7 +13,10 @@ final class MeetingRecorder: ObservableObject {
   }
 
   static var root: URL {
-    FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    if let i = CommandLine.arguments.firstIndex(of: "--meetings-dir"), CommandLine.arguments.count > i + 1 {
+      return URL(fileURLWithPath: CommandLine.arguments[i + 1], isDirectory: true)
+    }
+    return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
       .appendingPathComponent("Scribe/Meetings", isDirectory: true)
   }
 
@@ -130,6 +133,7 @@ final class MeetingRecorder: ObservableObject {
     queued.removeAll { $0 == dir }
     failures[dir] = nil
     try? FileManager.default.trashItem(at: dir, resultingItemURL: nil)
+    MemoryIndex.shared.remove(meeting: dir)
     if openMeetingID == dir { openMeetingID = nil }
     refreshRecordings()
   }

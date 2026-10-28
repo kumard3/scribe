@@ -79,6 +79,9 @@ enum MeetingPipeline {
     var turns: [SpeakerTurn]
     var names: [Int: String]
     var summary: String?
+    var title: String?
+    var chapters: [MeetingDetail.Chapter] = []
+    var duration: Double = 0
   }
 
   struct Piece {
@@ -112,12 +115,13 @@ enum MeetingPipeline {
       report("Separating speakers…")
       // Sortformer can't be told a head count and filled all 4 slots for a 2-person call, so it only
       // runs on Auto; a known count goes to pyannote clustering, which honours it exactly.
-      let useSortformer = people == 0 || !SupportModelStore.diarInstalled
+      let who = people == 0 && Settings.shared.speakerDetection == "who" ? WhoDiarizer.diarize(samples: others) : nil
+      let useSortformer = who == nil && (people == 0 || !SupportModelStore.diarInstalled)
       let sortformer = useSortformer && people <= SortformerMeeting.maxSpeakers
         ? SortformerMeeting.diarize(samples: others).flatMap { $0.isEmpty ? nil : $0 } : nil
-      let segments = sortformer ?? (SupportModelStore.diarInstalled
+      let segments = who ?? sortformer ?? (SupportModelStore.diarInstalled
         ? Diarizer.diarize(samples: others, sampleRate: rate, numSpeakers: people) : [])
-      dlog("meeting speakers: \(sortformer != nil ? "sortformer" : "pyannote"), \(Set(segments.map(\.speaker)).count) speaker(s), \(segments.count) segment(s)")
+      dlog("meeting speakers: \(who != nil ? "who" : sortformer != nil ? "sortformer" : "pyannote"), \(Set(segments.map(\.speaker)).count) speaker(s), \(segments.count) segment(s)")
       othersPieces = segments.flatMap { seg -> [Piece] in
         let lo = max(0, Int(seg.start * Double(rate))), hi = min(others.count, Int(seg.end * Double(rate)))
         guard hi > lo else { return [] }
@@ -139,6 +143,11 @@ enum MeetingPipeline {
       place(azureWords(you), into: &pieces) { $0 == Self.you }
       report("Transcribing the call with Azure…")
       place(azureWords(others), into: &pieces) { $0 != Self.you }
+    } else if spec.kind == .voz {
+      report("Transcribing your side with Voz…")
+      place(vozWords(you), into: &pieces) { $0 == Self.you }
+      report("Transcribing the call with Voz…")
+      place(vozWords(others), into: &pieces) { $0 != Self.you }
     } else if spec.kind == .appleSystem, #available(macOS 26.0, *) {
       report("Transcribing your side…")
       place(appleWords(you, locale: spec.locale), into: &pieces) { $0 == Self.you }
@@ -165,22 +174,84 @@ enum MeetingPipeline {
     for p in dropEcho(pieces.filter { !$0.text.isEmpty }) {
       if let last = turns.last, last.speaker == p.speaker {
         turns[turns.count - 1].text += " " + p.text
+        turns[turns.count - 1].end = max(last.end ?? 0, Double(p.range.upperBound) / Double(rate))
       } else {
-        turns.append(SpeakerTurn(speaker: p.speaker, text: p.text, start: Double(p.range.lowerBound) / Double(rate)))
+        turns.append(SpeakerTurn(speaker: p.speaker, text: p.text, start: Double(p.range.lowerBound) / Double(rate), end: Double(p.range.upperBound) / Double(rate)))
       }
     }
     turns = turns.map {
-      SpeakerTurn(speaker: $0.speaker, text: Romanizer.normalizeScript(AudioImport.clean($0.text, spec: spec)), start: $0.start)
+      SpeakerTurn(speaker: $0.speaker, text: Romanizer.normalizeScript(AudioImport.clean($0.text, spec: spec)), start: $0.start, end: $0.end)
     }
 
-    var summary: String?
+    var out = Output(turns: turns, names: names, summary: nil, duration: Double(max(mic.count, system.count)) / Double(rate))
     if !turns.isEmpty, MeetingLLM.available {
       report("Finding speaker names…")
-      names = nameSpeakers(turns, names: names)
+      out.names = nameSpeakers(turns, names: names)
       report("Summarising…")
-      summary = summarize(text(turns, names: names))
+      let parts = windows(turns, names: out.names, stamps: true)
+      out.summary = summarize(parts.map(\.text))
+      out.title = out.summary.flatMap(title)
+      report("Finding chapters…")
+      out.chapters = chapters(parts, duration: out.duration)
     }
-    return Output(turns: turns, names: names, summary: summary)
+    return out
+  }
+
+  static func clock(_ t: Double) -> String {
+    let s = Int(t)
+    return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%02d:%02d", s / 60, s % 60)
+  }
+
+  /// The transcript cut at turn boundaries into pieces an on-device model can take; a longer turn is sliced.
+  static func windows(_ turns: [SpeakerTurn], names: [Int: String], stamps: Bool, limit: Int = 7000, youName: String = Settings.shared.yourName) -> [(text: String, start: Double)] {
+    var labels = names
+    if labels[you] == "You" { labels[you] = youName }
+    var out: [(text: String, start: Double)] = []
+    var current = "", start = 0.0
+    for turn in turns {
+      let line = (stamps ? "[\(clock(turn.start))] " : "") + "\(labels[turn.speaker] ?? Diarizer.speakerLabel(turn.speaker)): \(turn.text)"
+      if !current.isEmpty, current.count + line.count > limit {
+        out.append((current, start))
+        current = ""
+      }
+      if current.isEmpty { start = turn.start }
+      if line.count > limit {
+        var rest = Substring(line)
+        while !rest.isEmpty {
+          out.append((String(rest.prefix(limit)), turn.start))
+          rest = rest.dropFirst(limit)
+        }
+      } else {
+        current += (current.isEmpty ? "" : "\n\n") + line
+      }
+    }
+    if !current.isEmpty { out.append((current, start)) }
+    return out
+  }
+
+  private static func title(_ summary: String) -> String? {
+    let reply = MeetingLLM.run(
+      instruction: "Name this meeting in at most 6 words, as a short title a person would give it. Output only the title.",
+      text: summary, maxTokens: 24)
+    let name = reply?.split(whereSeparator: \.isNewline).first.map {
+      $0.trimmingCharacters(in: CharacterSet(charactersIn: " .\"'`*#"))
+    }
+    return name.flatMap { $0.isEmpty ? nil : String($0.prefix(60)) }
+  }
+
+  private static func chapters(_ parts: [(text: String, start: Double)], duration: Double) -> [MeetingDetail.Chapter] {
+    var found: [(title: String, start: Double)] = []
+    for part in parts {
+      guard let reply = MeetingLLM.run(
+        instruction: "Give a topic title of at most 6 words for this part of a meeting. Output only the title.",
+        text: part.text, maxTokens: 24),
+        let line = reply.split(whereSeparator: \.isNewline).first else { continue }
+      let title = line.trimmingCharacters(in: CharacterSet(charactersIn: " .\"'`*#"))
+      if !title.isEmpty, title != found.last?.title, part.start > (found.last?.start ?? -1) { found.append((String(title.prefix(60)), part.start)) }
+    }
+    return found.enumerated().map { i, c in
+      MeetingDetail.Chapter(title: c.title, start: c.start, end: i + 1 < found.count ? found[i + 1].start : max(duration, c.start))
+    }
   }
 
   static func text(_ turns: [SpeakerTurn], names: [Int: String]) -> String {
@@ -196,6 +267,7 @@ enum MeetingPipeline {
 
   /// Apple speech (English) when it's on, else dictation's Apple recognizer, else Gemma, else the dictation model.
   static var meetingModel: ModelSpec {
+    if let chosen = ModelCatalog.spec(Settings.shared.meetingModelId), canTranscribe(chosen) { return chosen }
     if Settings.shared.meetingAppleSpeech, appleSpeechAvailable, let apple = ModelCatalog.spec(ModelCatalog.systemId) {
       return apple
     }
@@ -207,6 +279,7 @@ enum MeetingPipeline {
   }
 
   static func canTranscribe(_ spec: ModelSpec) -> Bool {
+    if spec.kind == .autoResolve { return false }
     if spec.kind == .appleSystem {
       if #available(macOS 26.0, *) { return AppleLongForm.available }
       return false
@@ -223,8 +296,16 @@ enum MeetingPipeline {
     Task.detached {
       do {
         let phrases = try await AzureSpeech.mai(samples, words: true, credentials: credentials)
-        for (i, phrase) in phrases.enumerated() {
-          words += phrase.words.map { AppleLongForm.Word(text: $0.text, start: $0.start, end: $0.end, phrase: i) }
+        var chunk = 0
+        var previous: AzureSpeech.Word?
+        for phrase in phrases {
+          chunk += 1
+          for word in phrase.words {
+            // MAI phrases run for minutes across speakers; placing one whole put several people's words on one piece.
+            if let previous, word.start - previous.end > 0.8 || ".?!।".contains(previous.text.last ?? " ") { chunk += 1 }
+            words.append(AppleLongForm.Word(text: word.text, start: word.start, end: word.end, phrase: chunk))
+            previous = word
+          }
         }
       } catch {
         dlog("meeting azure transcribe: \(error.localizedDescription)")
@@ -233,6 +314,38 @@ enum MeetingPipeline {
     }
     done.wait()
     return words
+  }
+
+  private static func vozWords(_ samples: [Float]) -> [VozEngine.TimedWord] {
+    guard samples.contains(where: { abs($0) > 0.001 }) else { return [] }
+    let done = DispatchSemaphore(value: 0)
+    var words: [VozEngine.TimedWord] = []
+    let vocabulary = Vocabulary.terms
+    Task.detached {
+      do {
+        words = try await VozEngine.shared.transcribe(
+          samples, sampleRate: TranscriptionLimits.sampleRate, vocabulary: vocabulary).words
+      } catch {
+        dlog("meeting voz transcribe: \(error.localizedDescription)")
+      }
+      done.signal()
+    }
+    done.wait()
+    return words
+  }
+
+  static func place(_ words: [VozEngine.TimedWord], into pieces: inout [Piece], track: (Int) -> Bool) {
+    let rate = Double(TranscriptionLimits.sampleRate)
+    let candidates = pieces.indices.filter { track(pieces[$0].speaker) }
+    for word in words where !word.text.isEmpty {
+      let mid = Int((word.start + word.end) / 2 * rate)
+      func gap(_ i: Int) -> Int {
+        let r = pieces[i].range
+        return mid < r.lowerBound ? r.lowerBound - mid : mid >= r.upperBound ? mid - r.upperBound : 0
+      }
+      guard let best = candidates.min(by: { gap($0) < gap($1) }), gap(best) <= Int(rate) else { continue }
+      pieces[best].text += pieces[best].text.isEmpty ? word.text : " " + word.text
+    }
   }
 
   @available(macOS 26.0, *)
@@ -341,22 +454,37 @@ enum MeetingPipeline {
     return out
   }
 
-  /// Without headphones the mic hears the speakers; drop "You" pieces whose words mostly repeat
-  /// what the system track said around the same time. One mic piece often spans several system pieces.
+  /// Without headphones the mic hears the speakers. "You" pieces whose words mostly repeat what the system
+  /// track said around the same time are dropped; shorter runs (4+ words) shared with it are cut out.
   static func dropEcho(_ pieces: [Piece]) -> [Piece] {
-    let slack = TranscriptionLimits.sampleRate
+    let slack = 3 * TranscriptionLimits.sampleRate
     let system = pieces.filter { $0.speaker != you }
-    func words(_ s: String) -> Set<String> {
-      Set(s.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
+    func normalized(_ s: Substring) -> String { s.lowercased().filter { $0.isLetter || $0.isNumber } }
+    func grams(_ words: [String]) -> [String] {
+      guard words.count > 2 else { return [] }
+      return (0..<(words.count - 2)).map { words[$0...($0 + 2)].joined(separator: " ") }
     }
-    return pieces.filter { p in
-      guard p.speaker == you else { return true }
-      let mine = words(p.text)
-      guard !mine.isEmpty else { return false }
-      let heard = system
-        .filter { $0.range.lowerBound - slack < p.range.upperBound && p.range.lowerBound < $0.range.upperBound + slack }
-        .reduce(into: Set<String>()) { $0.formUnion(words($1.text)) }
-      return Double(mine.intersection(heard).count) / Double(mine.count) < 0.6
+    return pieces.compactMap { p in
+      guard p.speaker == you else { return p }
+      let raw = p.text.split(whereSeparator: \.isWhitespace)
+      let mine = raw.map(normalized)
+      guard !raw.isEmpty else { return nil }
+      var heardWords = Set<String>()
+      var heardGrams = Set<String>()
+      for s in system where s.range.lowerBound - slack < p.range.upperBound && p.range.lowerBound < s.range.upperBound + slack {
+        let words = s.text.split(whereSeparator: \.isWhitespace).map(normalized)
+        heardWords.formUnion(words)
+        heardGrams.formUnion(grams(words))
+      }
+      if Set(mine).count >= 6, Double(Set(mine).intersection(heardWords).count) / Double(Set(mine).count) >= 0.6 { return nil }
+      let shared = grams(mine).map { heardGrams.contains($0) && $0.split(separator: " ").contains { $0.count > 3 } }
+      var echo = [Bool](repeating: false, count: raw.count)
+      for i in shared.indices.dropLast() where shared[i] && shared[i + 1] { for j in i...(i + 3) { echo[j] = true } }
+      let kept = raw.indices.filter { !echo[$0] }
+      guard Double(kept.count) / Double(raw.count) > 0.5 else { return nil }
+      var out = p
+      out.text = kept.map { String(raw[$0]) }.joined(separator: " ")
+      return out
     }
   }
 
@@ -368,14 +496,23 @@ enum MeetingPipeline {
     "Only use labels that appear in the transcript. Output the single word none if no names are stated."
 
   /// Only accepts names that literally occur in the transcript, so a model guess can't rename anyone.
+  /// Names come up anywhere in a call, so the whole transcript is read a window at a time.
   static func nameSpeakers(_ turns: [SpeakerTurn], names: [Int: String]) -> [Int: String] {
-    let labelled = names.filter { $0.key != you }
-    guard !labelled.isEmpty else { return names }
-    let transcript = text(turns, names: names)
-    guard let reply = MeetingLLM.run(instruction: namingInstruction, text: String(transcript.prefix(8000)), maxTokens: 120) else {
-      return names
+    var out = names
+    for window in windows(turns, names: names, stamps: false, limit: 8000, youName: "You") {
+      guard out.contains(where: { $0.key != you && $0.value == names[$0.key] }) else { break }
+      guard let reply = MeetingLLM.run(instruction: namingInstruction, text: window.text, maxTokens: 120) else { continue }
+      dlog("meeting naming \(clock(window.start)): \(reply.replacingOccurrences(of: "\n", with: " | "))")
+      let named = applyNames(reply: reply, transcript: window.text, names: names).filter { $0.key != you && $0.value != names[$0.key] }
+      let counts = Dictionary(grouping: named.values, by: { $0.lowercased() }).mapValues(\.count)
+      for (id, name) in named
+      where out[id] == names[id] && counts[name.lowercased()] == 1
+        && name.lowercased() != Settings.shared.yourName.lowercased()
+        && !out.values.contains(where: { $0.lowercased() == name.lowercased() }) {
+        out[id] = name
+      }
     }
-    return applyNames(reply: reply, transcript: transcript, names: names)
+    return out
   }
 
   static func applyNames(reply: String, transcript: String, names: [Int: String]) -> [Int: String] {
@@ -400,31 +537,33 @@ enum MeetingPipeline {
     return out
   }
 
-  static let summaryInstruction =
+  static var summaryInstruction: String {
     "Summarise this meeting transcript for the attendees. Use short bullet points under the headings " +
-    "Key points, Decisions, Action items (write none when empty). Use speaker names as given. Same language as the transcript. " +
-    "Do not add facts. Output only the summary."
+      "Key points, Decisions, Suggestions, Action items (write none when empty). " +
+      "Decisions are only what the people explicitly agreed or settled. An idea that was proposed, floated or " +
+      "\"we could / we should\" without agreement goes under Suggestions, never Decisions. " +
+      "Each Action item is one line: Owner: task [mm:ss], where Owner is the person who took it on, " +
+      "or Unassigned when nobody did, and [mm:ss] is the timestamp of the line where it was said, copied from the transcript. " +
+      "Use speaker names as given. Same language as the transcript. Do not add facts. Output only the summary." +
+      spellings
+  }
 
-  private static func summarize(_ transcript: String) -> String? {
-    let chunk = 7000
-    guard transcript.count > chunk else {
-      return MeetingLLM.run(instruction: summaryInstruction, text: transcript, maxTokens: 500)
+  private static var spellings: String {
+    Vocabulary.terms.isEmpty ? "" : " Spell these names and terms exactly this way, and fix mishearings of them: \(Vocabulary.terms.joined(separator: ", "))."
+  }
+
+  private static func summarize(_ parts: [String]) -> String? {
+    guard parts.count > 1 else {
+      return parts.first.flatMap { MeetingLLM.run(instruction: summaryInstruction, text: $0, maxTokens: 700) }
     }
-    var start = transcript.startIndex
-    var partials: [String] = []
-    while start < transcript.endIndex {
-      let end = transcript.index(start, offsetBy: chunk, limitedBy: transcript.endIndex) ?? transcript.endIndex
-      if let s = MeetingLLM.run(instruction: summaryInstruction, text: String(transcript[start..<end]), maxTokens: 400) {
-        partials.append(s)
-      }
-      start = end
-    }
+    let partials = parts.compactMap { MeetingLLM.run(instruction: summaryInstruction, text: $0, maxTokens: 500) }
     guard !partials.isEmpty else { return nil }
     return MeetingLLM.run(
       instruction: "These are summaries of consecutive parts of ONE meeting. Write a single summary of the whole meeting " +
-        "with each heading (Key points, Decisions, Action items) exactly once, and short bullet points under each. " +
-        "Combine and de-duplicate the bullets. Output only the summary.",
-      text: partials.joined(separator: "\n\n"), maxTokens: 900
+        "with each heading (Key points, Decisions, Suggestions, Action items) exactly once, and short bullet points under each. " +
+        "Combine and de-duplicate the bullets. Keep Decisions and Suggestions apart. Keep every action item as one line " +
+        "Owner: task [mm:ss] with its original [mm:ss]. Output only the summary." + spellings,
+      text: partials.joined(separator: "\n\n"), maxTokens: 1400
     )
   }
 
@@ -478,6 +617,11 @@ enum MeetingPipeline {
       Piece(speaker: you, range: (20 * s)..<(22 * s), text: "Polar, the US one"),
     ])
     precondition(echoCase.filter { $0.speaker == you }.map(\.text) == ["Polar, the US one"], "echo: \(echoCase.map(\.text))")
+    let trimmed = dropEcho([
+      Piece(speaker: 1, range: 0..<(6 * s), text: "we will route all the traffic through the orchestration layer tomorrow"),
+      Piece(speaker: you, range: (1 * s)..<(9 * s), text: "okay we will route all the traffic through the orchestration layer tomorrow yes please book it for friday afternoon works for me and send the calendar invite to everyone on the team before lunch"),
+    ]).filter { $0.speaker == you }
+    precondition(trimmed.count == 1 && trimmed[0].text.contains("friday") && !trimmed[0].text.contains("orchestration"), "echo trim: \(trimmed.map(\.text))")
     // 30 s: the call talks for 0-20 s and leaks into the mic at 0.12; you talk alone at 22-25 s and over the call at 10-12 s.
     let rate = TranscriptionLimits.sampleRate
     let call = (0..<(30 * rate)).map { i -> Float in i < 20 * rate ? 0.2 * sin(Float(i) * 0.05) : 0 }

@@ -13,10 +13,9 @@ let mas = Context.environment["SCRIBE_MAS"] == "1"
 
 let package = Package(
   name: "Scribe",
-  // FluidAudio (CoreML/ANE Parakeet) requires macOS 14; it runs in-process
-  // alongside sherpa rather than replacing it, so the sherpa models are
-  // untouched and the two can be compared on the same audio.
-  platforms: [.macOS(.v14)],
+  // Voz requires macOS 15. FluidAudio (CoreML/ANE Parakeet) runs in-process
+  // alongside sherpa rather than replacing it.
+  platforms: [.macOS(.v15)],
   dependencies: [
     .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.4"),
     .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.9.0"),
@@ -29,8 +28,11 @@ let package = Package(
       // Xcode 27.0 SDK; Scribe doesn't use it.
       traits: []
     ),
+    .package(path: ".deps/desert-ant-core"),
     .package(url: "https://github.com/huggingface/swift-huggingface", from: "0.9.0"),
     .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
+    // 2.25+ pulls NumKong, whose header-only CNumKong target fails to link under the swiftbuild backend.
+    .package(url: "https://github.com/unum-cloud/usearch", exact: "2.24.0"),
   ],
   targets: [
     .target(name: "ObjCCatch", path: "Sources/ObjCCatch"),
@@ -51,12 +53,15 @@ let package = Package(
         .product(name: "Sparkle", package: "Sparkle"),
       ]) + [
         .product(name: "FluidAudio", package: "FluidAudio"),
+        .product(name: "Voz", package: "desert-ant-core"),
+        .product(name: "Who", package: "desert-ant-core"),
         .product(name: "MLXLLM", package: "mlx-swift-lm"),
         .product(name: "MLXVLM", package: "mlx-swift-lm"),
         .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
         .product(name: "MLXHuggingFace", package: "mlx-swift-lm"),
         .product(name: "HuggingFace", package: "swift-huggingface"),
         .product(name: "Tokenizers", package: "swift-transformers"),
+        .product(name: "USearch", package: "usearch"),
       ],
       path: "Sources/Scribe",
       swiftSettings: [

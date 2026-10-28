@@ -77,7 +77,10 @@ struct DashboardView: View {
   @ObservedObject var meeting = MeetingRecorder.shared
   @ObservedObject var screen = ScreenRecorder.shared
   @ObservedObject var usage = Usage.shared
+  @ObservedObject var memory = MemoryIndex.shared
   @State private var confirmReset = false
+  @State private var videoLink = ""
+  @State private var snippetDraft: Snippet?
   @State private var launchAtLogin = LoginItem.enabled
   @State private var axTrusted = Paster.trusted
   @State private var ollamaModels: [String] = []
@@ -117,6 +120,7 @@ struct DashboardView: View {
   }
 
   @AppStorage("dashboardTab") private var tabRaw = Tab.home.rawValue
+  @AppStorage("whatsNewSeen") private var whatsNewSeen = ""
   private var tab: Tab { Tab(rawValue: tabRaw) ?? .home }
 
   var body: some View {
@@ -192,6 +196,7 @@ struct DashboardView: View {
     switch tab {
     case .home:
       header
+      if whatsNewSeen != Self.whatsNewVersion { whatsNewCard }
       statsCard
       quickActionsCard
       if !axTrusted { permissionCard }
@@ -201,12 +206,14 @@ struct DashboardView: View {
       pageTitle("Dictation", "Hold a key, talk, and your words appear wherever you type.")
       hotkeysCard
       vocabularyCard
+      snippetsCard
     case .meetings:
       if let open = meeting.openMeetingID {
         MeetingDetailView(dir: open).id(open)
       } else {
         pageTitle("Meetings", "Record any call. Get a transcript with who said what, plus a summary.")
         recordCard
+        agentAccessCard
         recordingsCard
         meetingSettingsCard
       }
@@ -215,6 +222,7 @@ struct DashboardView: View {
     case .models:
       pageTitle("Models", "The speech model that turns your voice into text. On this Mac unless you turn on Azure.")
       modelsCard
+      section("Memory search") { embedderRow }
       section("Azure (cloud)") { AzureSettingsView() }
     case .cleanup:
       pageTitle("AI Cleanup", "Optional AI that tidies your text and writes meeting summaries. Runs on this Mac.")
@@ -257,6 +265,40 @@ struct DashboardView: View {
     .overlay(Capsule().strokeBorder(Mono.border))
   }
 
+  private static let whatsNewVersion = "1.3.6"
+
+  private var whatsNewCard: some View {
+    section("New in Bolkit \(Self.whatsNewVersion)") {
+      whatsNewRow("wand.and.stars", "Command Mode",
+                  "Select text anywhere, hold fn + ⌃, say what to change, let go. The rewrite replaces it.", .dictation)
+      whatsNewRow("text.badge.plus", "Snippets",
+                  "Say a short trigger like \u{201C}my address\u{201D} and Bolkit types the full text.", .dictation)
+      whatsNewRow("brain", "Agent memory",
+                  "Claude Code and other agents can search what was said in your meetings, with times and speakers.", .meetings)
+      whatsNewRow("rectangle.dashed.badge.record", "Screen recording resumes",
+                  "If macOS stops the screen capture, for example when the disk is low, Bolkit starts it again.", nil)
+      HStack {
+        Spacer()
+        Button("Got it") { whatsNewSeen = Self.whatsNewVersion }
+      }
+      .font(.system(size: 12))
+    }
+  }
+
+  private func whatsNewRow(_ icon: String, _ title: String, _ detail: String, _ target: Tab?) -> some View {
+    HStack(alignment: .top, spacing: 12) {
+      Image(systemName: icon).font(.system(size: 15)).foregroundColor(Mono.text).frame(width: 22)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title).font(.system(size: 13, weight: .semibold)).foregroundColor(Mono.text)
+        Text(detail).font(.caption).foregroundColor(Mono.textDim).fixedSize(horizontal: false, vertical: true)
+      }
+      Spacer()
+      if let target {
+        Button("Open") { tabRaw = target.rawValue }.font(.system(size: 12))
+      }
+    }
+  }
+
   private var quickActionsCard: some View {
     section("Quick actions") {
       HStack(spacing: 10) {
@@ -273,7 +315,7 @@ struct DashboardView: View {
         }
         quickAction("Transcribe file", "waveform") { AudioImport.present() }
       }
-      Text("Hold \(settings.holdKey == .off ? settings.toggleLabel : settings.holdKey.label) anywhere to dictate. Model: \(settings.activeModel.label).")
+      Text("Hold \(settings.holdKey == .off ? settings.toggleLabel : settings.holdKey.label) anywhere to dictate, fn + ⌃ for Command Mode. Model: \(settings.activeModel.label).")
         .font(.caption).foregroundColor(Mono.textDim)
       if !dictation.status.isEmpty {
         Text(dictation.status).font(.caption).foregroundColor(Mono.textFaint).lineLimit(2)
@@ -425,6 +467,18 @@ struct DashboardView: View {
       Text("Or press this shortcut once to start and again to stop. Click it to change it.")
         .font(.caption).foregroundColor(Mono.textDim)
 
+      Divider().overlay(Mono.border)
+
+      HStack {
+        Text("Command Mode: hold fn + ⌃").foregroundColor(Mono.text)
+        Spacer()
+        Text("Extra shortcut").foregroundColor(Mono.textDim)
+        ShortcutRecorder(command: true)
+      }
+      .font(.system(size: 13))
+      Text("Select text in any app, hold fn + ⌃, say what to change, like \u{201C}make this shorter\u{201D} or \u{201C}translate to Hindi\u{201D}, and let go. The rewrite replaces the selection. Uses the model from AI Cleanup.")
+        .font(.caption).foregroundColor(Mono.textDim)
+
       if settings.holdKey == .fn {
         Text("Tip: set System Settings → Keyboard → “Press 🌐 key” to “Do Nothing” so fn doesn’t also trigger macOS actions.")
           .font(.caption).foregroundColor(Mono.textFaint)
@@ -432,9 +486,28 @@ struct DashboardView: View {
     }
   }
 
+  private var azureChoices: [ModelSpec] {
+    ModelCatalog.all.filter { $0.kind == .azure && (AzureCredentials.saved?.supports($0) ?? false) }
+  }
+
+  private var dictationChoices: [ModelSpec] {
+    ModelCatalog.asrModels(showGemma: true).filter { models.isInstalled($0) } + azureChoices
+  }
+
+  private var meetingChoices: [ModelSpec] {
+    ModelCatalog.asrModels(showGemma: true).filter { MeetingPipeline.canTranscribe($0) } + azureChoices
+  }
+
   private var modelsCard: some View {
     let asr = ModelCatalog.asrModels(showGemma: true)
     return section("Models") {
+      Picker("Dictation model", selection: $settings.dictationModelChoice) {
+        ForEach(dictationChoices) { spec in Text(spec.label).tag(spec.id) }
+      }
+      .font(.system(size: 13))
+      Text("Used when you hold the dictation key. Meetings pick their own model on the Meetings page.")
+        .font(.caption).foregroundColor(Mono.textFaint)
+
       Picker("Style", selection: $settings.dictationStyle) {
         ForEach(DictationStyle.allCases) { s in Text(s.label).tag(s.rawValue) }
       }
@@ -551,14 +624,25 @@ struct DashboardView: View {
             Text("Screen: \(ScreenRecorder.describe(settings.meetingShare)). Press record to choose.")
               .font(.system(size: 12)).foregroundColor(Mono.textFaint)
           }
-          Button("Import a video (Loom, screen recording)…") { VideoImport.present() }
-            .font(.system(size: 12))
+          HStack(spacing: 8) {
+            TextField("Paste a Loom or video link", text: $videoLink)
+              .textFieldStyle(.roundedBorder)
+              .onSubmit(importVideoLink)
+            Button("Import", action: importVideoLink).disabled(videoLink.isEmpty)
+            Button("Choose file…") { VideoImport.present() }
+          }
+          .font(.system(size: 12))
         }
       }
       Spacer(minLength: 0)
       Button { MeetingScreen.shared.show() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
         .help("Record in full screen")
     }
+  }
+
+  private func importVideoLink() {
+    VideoImport.importLink(videoLink)
+    videoLink = ""
   }
 
   private var recordingsCard: some View {
@@ -625,14 +709,24 @@ struct DashboardView: View {
         .font(.system(size: 13))
       Text("When Zoom, Meet, Teams, Slack or another call app turns on your mic, Bolkit offers to record it.")
         .font(.caption).foregroundColor(Mono.textFaint)
-      if MeetingPipeline.appleSpeechAvailable {
-        Toggle("Transcribe with Apple speech (English only)", isOn: $settings.meetingAppleSpeech)
-          .font(.system(size: 13))
-        Text(settings.meetingAppleSpeech
-             ? "English calls only. Hindi and Hinglish come out as wrong English words."
-             : "Using \(MeetingPipeline.meetingModel.label). Handles Hindi, English and a mix of both.")
-          .font(.caption).foregroundColor(Mono.textFaint)
+      Picker("Meeting model", selection: $settings.meetingModelId) {
+        Text("Automatic").tag(Settings.autoMeetingId)
+        ForEach(meetingChoices) { spec in Text(spec.label).tag(spec.id) }
       }
+      .font(.system(size: 13))
+      Text(settings.meetingModelId == Settings.autoMeetingId
+           ? "Using \(MeetingPipeline.meetingModel.label). Handles Hindi, English and a mix of both."
+           : MeetingPipeline.meetingModel.kind == .appleSystem
+             ? "English calls only. Hindi and Hinglish come out as wrong English words."
+             : "Used for meetings only. Dictation keeps its own model under Models.")
+        .font(.caption).foregroundColor(Mono.textFaint)
+      Picker("Speaker detection", selection: $settings.speakerDetection) {
+        Text("Sortformer / pyannote").tag("default")
+        Text("Who (Desert Ant, downloads ~81 MB)").tag("who")
+      }
+      .font(.system(size: 13))
+      Text("Who is used when the number of people is Auto. A set number always uses pyannote.")
+        .font(.caption).foregroundColor(Mono.textFaint)
       Picker("Other people on the call or in the room", selection: $settings.diarizeSpeakers) {
         Text("Auto").tag(0)
         ForEach(1...6, id: \.self) { n in Text("\(n)").tag(n) }
@@ -951,6 +1045,7 @@ struct DashboardView: View {
         : "\(spec.label) · llama.cpp audio"
     case .autoResolve: return "Auto"
     case .azure: return "\(spec.label) · Microsoft Azure, sends audio to the cloud"
+    case .voz: return "\(spec.label) · Core ML"
     default: return "\(spec.label) · sherpa-onnx"
     }
   }
@@ -1037,6 +1132,86 @@ struct DashboardView: View {
     .padding(.vertical, 2)
   }
 
+  private var agentAccessCard: some View {
+    let exe = Bundle.main.executablePath ?? "/Applications/Bolkit.app/Contents/MacOS/Scribe"
+    let command = exe.contains(" ") ? "\"\(exe)\"" : exe
+    let embedder = ModelCatalog.spec(ModelCatalog.embedderId).map(models.isInstalled) ?? false
+    return section("Agent access") {
+      Toggle("Build memory index", isOn: $settings.memoryIndex)
+        .font(.system(size: 13))
+        .onChange(of: settings.memoryIndex) { _, on in if on { memory.backfill() } }
+      Text("Lets AI agents such as Claude Code search what was said in your meetings and dictations, with the meeting, time and speaker. Everything stays on this Mac.")
+        .font(.caption).foregroundColor(Mono.textFaint)
+      HStack {
+        Text(memory.status).foregroundColor(Mono.textDim).monospacedDigit()
+        Spacer()
+        if memory.busy { ProgressView().controlSize(.small) }
+        Button("Rebuild") { memory.rebuild() }
+          .disabled(memory.busy || !settings.memoryIndex)
+      }
+      .font(.system(size: 12))
+      Text(embedder
+           ? "Search by meaning is on."
+           : "Searching by exact words. Get EmbeddingGemma 2 under Models to also search by meaning.")
+        .font(.caption).foregroundColor(Mono.textFaint)
+      Divider().overlay(Mono.border)
+      copyLine("Claude Code", "claude mcp add bolkit -- \(command) --mcp")
+      copyLine("Other MCP clients", "{\"mcpServers\": {\"bolkit\": {\"command\": \"\(exe)\", \"args\": [\"--mcp\"]}}}")
+    }
+    .onAppear { memory.refresh() }
+  }
+
+  private func copyLine(_ label: String, _ value: String) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Text(label).font(.system(size: 12)).foregroundColor(Mono.textDim)
+      HStack(alignment: .top) {
+        Text(value)
+          .font(.system(size: 11, design: .monospaced)).foregroundColor(Mono.text)
+          .textSelection(.enabled)
+          .frame(maxWidth: .infinity, alignment: .leading)
+        Button("Copy") {
+          NSPasteboard.general.clearContents()
+          NSPasteboard.general.setString(value, forType: .string)
+        }
+        .font(.system(size: 12))
+      }
+      .padding(8)
+      .background(RoundedRectangle(cornerRadius: 8).fill(Mono.surfaceAlt))
+    }
+  }
+
+  @ViewBuilder
+  private var embedderRow: some View {
+    if let spec = ModelCatalog.spec(ModelCatalog.embedderId) {
+      let installed = models.isInstalled(spec)
+      VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 10) {
+          Image(systemName: installed ? "checkmark.circle.fill" : "circle")
+            .font(.system(size: 14))
+            .foregroundColor(installed ? .white : Mono.textFaint)
+          VStack(alignment: .leading, spacing: 2) {
+            Text(spec.label).font(.system(size: 13)).foregroundColor(Mono.text)
+            Text(spec.note).font(.system(size: 11)).foregroundColor(Mono.textDim)
+          }
+          Spacer()
+          if let progress = models.progress[spec.id] {
+            ProgressView(value: progress).progressViewStyle(.linear).frame(width: 90)
+            Button("Cancel") { models.cancel(spec) }.font(.system(size: 11))
+          } else if installed {
+            Button { models.delete(spec) } label: { Image(systemName: "trash") }
+              .buttonStyle(.plain).foregroundColor(Mono.textFaint).help("Delete model files")
+          } else {
+            Button("Get · \(spec.sizeLabel)") { models.download(spec) }.font(.system(size: 12))
+          }
+        }
+        if let err = models.errors[spec.id] {
+          Text(err).font(.system(size: 11))
+            .foregroundColor(Color(hex: 0xFF453A)).padding(.leading, 24)
+        }
+      }
+    }
+  }
+
   private var generalCard: some View {
     section("General") {
       Toggle("Launch at login", isOn: $launchAtLogin)
@@ -1091,6 +1266,63 @@ struct DashboardView: View {
     }
   }
 
+  private var snippetsCard: some View {
+    section("Snippets") {
+      Text("Say a trigger while dictating and Bolkit types the saved text in its place.")
+        .font(.caption).foregroundColor(Mono.textDim)
+      ForEach(Snippets.all) { snippet in
+        HStack(alignment: .top) {
+          VStack(alignment: .leading, spacing: 2) {
+            Text(snippet.trigger).font(.system(size: 13, weight: .medium)).foregroundColor(Mono.text)
+            Text(snippet.expansion).font(.system(size: 12)).foregroundColor(Mono.textDim).lineLimit(2)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          Button { snippetDraft = snippet } label: { Image(systemName: "pencil") }
+            .buttonStyle(.plain).foregroundColor(Mono.textDim).help("Edit snippet")
+          Button { Snippets.all.removeAll { $0.id == snippet.id } } label: { Image(systemName: "trash") }
+            .buttonStyle(.plain).foregroundColor(Mono.textFaint).help("Delete snippet")
+        }
+        Divider().overlay(Mono.border)
+      }
+      if snippetDraft != nil {
+        snippetEditor
+      } else {
+        Button("Add snippet") { snippetDraft = Snippet(trigger: "", expansion: "") }
+          .font(.system(size: 12))
+      }
+    }
+  }
+
+  private var snippetEditor: some View {
+    let trigger = Binding(get: { snippetDraft?.trigger ?? "" }, set: { snippetDraft?.trigger = $0 })
+    let expansion = Binding(get: { snippetDraft?.expansion ?? "" }, set: { snippetDraft?.expansion = $0 })
+    let ready = !trigger.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && !expansion.wrappedValue.isEmpty
+    return VStack(alignment: .leading, spacing: 8) {
+      TextField("Trigger, like \u{201C}my LinkedIn\u{201D}", text: trigger)
+        .textFieldStyle(.roundedBorder)
+        .font(.system(size: 13))
+      Text("Text to insert").font(.caption).foregroundColor(Mono.textDim)
+      TextEditor(text: expansion)
+        .font(.system(size: 12))
+        .frame(height: 90)
+        .border(Mono.textDim.opacity(0.3))
+      HStack {
+        Button("Save") {
+          guard var draft = snippetDraft else { return }
+          draft.trigger = draft.trigger.trimmingCharacters(in: .whitespacesAndNewlines)
+          var list = Snippets.all
+          if let i = list.firstIndex(where: { $0.id == draft.id }) { list[i] = draft } else { list.append(draft) }
+          Snippets.all = list
+          snippetDraft = nil
+        }
+        .disabled(!ready)
+        Button("Cancel") { snippetDraft = nil }
+      }
+      .font(.system(size: 12))
+    }
+  }
+
   private var historyCard: some View {
     section("Recent transcripts") {
       Toggle("Save transcript history on this Mac", isOn: $settings.saveHistory)
@@ -1127,6 +1359,7 @@ struct DashboardView: View {
         Button("Clear history") {
           dictation.history = []
           UserDefaults.standard.set([String](), forKey: "history")
+          memory.clearDictations()
         }
         .font(.caption)
       }

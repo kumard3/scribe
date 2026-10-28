@@ -13,10 +13,12 @@ enum ModelKind: String {
   case qwenAsr
   case whisperCpp
   case fluidParakeet
+  case voz
   case arkasrOnnx
   case arkOnnx
   case llm
   case mlx
+  case embedding
   case autoResolve
   case azure
 }
@@ -106,6 +108,7 @@ enum ModelCatalog {
   static let turboId = "whisper-large-v3-turbo-q5"
   static let gemmaAsrId = "gemma4-e2b-audio"
   static let mlxId = "gemma4-e2b-mlx"
+  static let embedderId = "embeddinggemma-2-q8"
   static let releases = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
 
   // Same k2-fsa archives the mobile app uses (src/asr/nemo.ts).
@@ -289,6 +292,12 @@ enum ModelCatalog {
       archive: "", sizeBytes: 0, live: false, quality: .best
     ),
     ModelSpec(
+      id: "voz-0.5", kind: .voz,
+      label: "Voz · English",
+      note: "Desert Ant Labs · Core ML · English-tuned, fails on Hinglish · word timestamps · transcribes on release",
+      archive: "", sizeBytes: 321_000_000, live: false, quality: .best
+    ),
+    ModelSpec(
       id: "audio8-asr-0.1b", kind: .arkasrOnnx,
       label: "Audio8 0.1B · Multilingual",
       note: "Audio8 · EN/ZH/YUE/FR/JA/DE/KO · handles code-switching · non-commercial licence (CC BY-NC 4.0)",
@@ -359,6 +368,15 @@ enum ModelCatalog {
           ("model.safetensors", 278_064_920),
         ])
     ),
+    ModelSpec(
+      id: embedderId, kind: .embedding,
+      label: "EmbeddingGemma 2 · Memory search",
+      note: "Google · multilingual · lets agents find meetings by meaning, not just exact words",
+      archive: "", sizeBytes: 309_855_520, live: false,
+      directURL: "https://huggingface.co/unsloth/embeddinggemma-2-GGUF/resolve/main/embeddinggemma-2-Q8_0.gguf",
+      fileName: "embeddinggemma-2-Q8_0.gguf",
+      sha256: "6f1bd4ac6c5df7444f9cca7ca36cafe6cfa34cd6f49fefb1e0b4be8143aed8bc"
+    ),
   ] + AzureSpeech.specs
 
   /// Audio8 bundles live under model_bundle/ in their HF repo.
@@ -422,7 +440,7 @@ enum ModelCatalog {
 
   static func asrModels(showGemma: Bool) -> [ModelSpec] {
     all.filter {
-      $0.kind != .llm && $0.kind != .mlx && $0.kind != .azure && (showGemma || !$0.hiddenAsr)
+      ![.llm, .mlx, .azure, .embedding].contains($0.kind) && (showGemma || !$0.hiddenAsr)
     }
   }
 

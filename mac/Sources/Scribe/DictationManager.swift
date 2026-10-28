@@ -36,6 +36,10 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
   @Published var level: Float = 0
   @Published var phase: Phase = .idle
   @Published var status = "Ready"
+  @Published var hudNote: String?
+  /// Set while a Command Mode instruction is recorded; it is applied to the selection on release.
+  @Published private(set) var isCommand = false
+  private var commandSelection: String?
   @Published var history: [String] =
     (UserDefaults.standard.stringArray(forKey: "history") ?? [])
 
@@ -117,10 +121,12 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
 
   func toggle() { isRecording ? stop() : start() }
 
-  func start() {
+  func start(command: Bool = false) {
     guard !MeetingRecorder.shared.isRecording else {
       set("Stop the meeting recording to dictate."); return
     }
+    isCommand = command
+    commandSelection = command ? Paster.accessibleSelection() : nil
     let spec = Settings.shared.activeModel
     appleAudioLock.withLock {
       appleAudio = []
@@ -150,12 +156,43 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
         switch spec.kind {
         case .qwenAsr: self.beginQwen(spec)
         case .whisperCpp: self.beginWhisperCpp(spec)
-        case .fluidParakeet: self.beginFluid(spec)
+        case .fluidParakeet, .voz: self.beginFluid(spec)
         case .arkasrOnnx, .arkOnnx: self.beginArkasr(spec)
         case .azure: self.beginAzure(spec)
         default: self.beginSherpa(spec)
         }
       }
+    }
+  }
+
+  func startCommand() {
+    guard LLMRuntime.isAvailable else {
+      note(CommandMode.needsModel)
+      DashboardWindow.show(.cleanup)
+      return
+    }
+    guard Paster.trusted else { return note("Command Mode needs \(Paster.permissionName)") }
+    start(command: true)
+  }
+
+  /// fn + ⌃ pressed while the fn hold had just started dictating: that recording becomes the instruction.
+  func upgradeToCommand() {
+    guard isRecording, !isCommand, LLMRuntime.isAvailable, Paster.trusted else { return }
+    isCommand = true
+    commandSelection = Paster.accessibleSelection()
+  }
+
+  /// A short message in the HUD, for anything that ends without inserting text.
+  func note(_ message: String) {
+    set(message)
+    isCommand = false
+    commandSelection = nil
+    hudNote = message
+    phase = .idle
+    HUD.shared.show()
+    HUD.shared.hide(after: 2.2)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+      if self.hudNote == message { self.hudNote = nil }
     }
   }
 
@@ -306,6 +343,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     lastText = ""
     lastPendingText = ""
     lastRawText = ""
+    hudNote = nil
     isRecording = true
     listeningSince = Date()
     phase = .listening
@@ -1182,6 +1220,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
       set("Transcribing…")
       let rate = hwRate
       let version: AsrModelVersion = spec.id.contains("v3") ? .v3 : .v2
+      let vocabulary = Vocabulary.terms
       sherpaQueue.async { [weak self] in
         guard let self else { return }
         let samples = self.sherpaSamples
@@ -1191,9 +1230,9 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
         }
         Task {
           do {
-            let text = try await FluidEngine.shared.transcribe(
-              samples, sampleRate: rate, version: version
-            )
+            let text = spec.kind == .voz
+              ? try await VozEngine.shared.transcribe(samples, sampleRate: rate, vocabulary: vocabulary).text
+              : try await FluidEngine.shared.transcribe(samples, sampleRate: rate, version: version)
             dlog("fluid transcribed \(text.count) chars from \(samples.count) samples")
             await MainActor.run {
               self.set("Ready")
@@ -1401,12 +1440,14 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
       history.insert(text, at: 0)
       if history.count > 50 { history.removeLast(history.count - 50) }
       UserDefaults.standard.set(history, forKey: "history")
+      MemoryIndex.shared.addDictation(text)
     }
   }
 
   private func finishProcessed(with text: String, alreadyCleaned: Bool = false) {
     transcribeWatch?.cancel()
     transcribeWatch = nil
+    if isCommand { return rewriteSelection(instruction: text) }
     var finalText = VoiceCommands.apply(text, allowDestructive: true)
     finalText = Romanizer.normalizeScript(finalText)
     dlog("finish text=\(finalText.count) chars")
@@ -1466,16 +1507,52 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     insertAndFinalize(finalText)
   }
 
-  private func insertAndFinalize(_ text: String) {
-    lastText = text
-    Paster.insert(text) { outcome in
-      if case .copiedOnly(let why) = outcome { self.set(why) }
+  private func rewriteSelection(instruction: String) {
+    guard !instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      return note("No instruction heard, try again")
     }
-    Usage.shared.recordDictation(text, seconds: dictationSeconds)
+    phase = .postProcessing
+    set("Rewriting…")
+    if let selection = commandSelection { return rewrite(selection, instruction: instruction) }
+    Paster.selectedText { selection in
+      dlog("command mode: selection copied=\(selection != nil)")
+      guard let selection = CommandMode.usable(selection) else { return self.note(CommandMode.selectFirst) }
+      self.rewrite(selection, instruction: instruction)
+    }
+  }
+
+  private func rewrite(_ selection: String, instruction: String) {
+    SherpaEngineCache.shared.unload()
+    let maxTokens = Int32(min(4096, max(512, selection.utf8.count)))
+    AsrRuntime.shared.release {
+      CommandMode.run(instruction: instruction, selection: selection, llm: { system, user, done in
+        LLMRuntime.shared.process(instruction: system, text: user, maxTokens: maxTokens, completion: done)
+      }) { rewritten in
+        guard let rewritten else { return self.note("The AI model returned no usable rewrite") }
+        dlog("command mode: \(selection.count) chars rewritten to \(rewritten.count)")
+        self.isCommand = false
+        self.commandSelection = nil
+        self.deliver(rewritten)
+      }
+    }
+  }
+
+  private func insertAndFinalize(_ transcript: String) {
+    let text = Snippets.expand(transcript)
+    deliver(text)
+    Usage.shared.recordDictation(transcript, seconds: dictationSeconds)
     if Settings.shared.saveHistory {
       history.insert(text, at: 0)
       if history.count > 50 { history.removeLast(history.count - 50) }
       UserDefaults.standard.set(history, forKey: "history")
+      MemoryIndex.shared.addDictation(text)
+    }
+  }
+
+  private func deliver(_ text: String) {
+    lastText = text
+    Paster.insert(text) { outcome in
+      if case .copiedOnly(let why) = outcome { self.set(why) }
     }
     phase = .inserted
     NSSound(named: "Pop")?.play()

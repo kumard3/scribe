@@ -207,6 +207,58 @@ char *cllama_chat(cllama_ctx *h, const char *system, const char *user,
   return out;
 }
 
+cllama_ctx *cllama_embed_load(const char *model_path, int n_ctx) {
+  if (!g_backend_inited) {
+    llama_backend_init();
+    g_backend_inited = 1;
+  }
+  struct llama_model_params mp = llama_model_default_params();
+  mp.n_gpu_layers = 0;
+  struct llama_model *model = llama_model_load_from_file(model_path, mp);
+  if (!model) return NULL;
+
+  struct llama_context_params cp = llama_context_default_params();
+  cp.n_ctx = (uint32_t)n_ctx;
+  // Non-causal encoders need the whole input in one ubatch.
+  cp.n_batch = (uint32_t)n_ctx;
+  cp.n_ubatch = (uint32_t)n_ctx;
+  cp.embeddings = true;
+  cp.pooling_type = LLAMA_POOLING_TYPE_MEAN;
+  struct llama_context *ctx = llama_init_from_model(model, cp);
+  if (!ctx) {
+    llama_model_free(model);
+    return NULL;
+  }
+  cllama_ctx *h = (cllama_ctx *)calloc(1, sizeof(cllama_ctx));
+  h->model = model;
+  h->ctx = ctx;
+  h->vocab = llama_model_get_vocab(model);
+  return h;
+}
+
+int cllama_embed(cllama_ctx *h, const char *text, float *out, int cap) {
+  if (!h || !text || !out) return -1;
+  const int len = (int)strlen(text);
+  int n = -llama_tokenize(h->vocab, text, len, NULL, 0, true, false);
+  if (n <= 0) return -1;
+  llama_token *tokens = (llama_token *)malloc(sizeof(llama_token) * (size_t)n);
+  if (!tokens || llama_tokenize(h->vocab, text, len, tokens, n, true, false) < 0) {
+    free(tokens);
+    return -1;
+  }
+  const int n_ctx = (int)llama_n_ctx(h->ctx);
+  if (n > n_ctx) n = n_ctx;
+  llama_memory_clear(llama_get_memory(h->ctx), true);
+  int rc = llama_decode(h->ctx, llama_batch_get_one(tokens, n));
+  free(tokens);
+  if (rc != 0) return -1;
+  const float *e = llama_get_embeddings_seq(h->ctx, 0);
+  if (!e) return -1;
+  const int dims = llama_model_n_embd_out(h->model);
+  memcpy(out, e, sizeof(float) * (size_t)(dims < cap ? dims : cap));
+  return dims;
+}
+
 void cllama_free_str(char *s) { free(s); }
 
 void cllama_free(cllama_ctx *h) {

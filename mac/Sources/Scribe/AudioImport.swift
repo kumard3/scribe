@@ -152,6 +152,8 @@ enum AudioImport {
       return fm.fileExists(atPath: dir.appendingPathComponent(spec.fileName).path)
     case .azure:
       return AzureCredentials.saved?.supports(spec) ?? false
+    case .voz:
+      return VozEngine.downloaded
     default:
       return ModelStore.tokensFile(in: dir) != nil
     }

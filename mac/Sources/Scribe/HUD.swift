@@ -64,15 +64,20 @@ struct HUDView: View {
           .foregroundColor(.green)
         Text("Inserted")
           .foregroundColor(.white)
+      } else if let note = dictation.hudNote {
+        Image(systemName: "exclamationmark.circle.fill")
+          .foregroundColor(.yellow)
+        Text(note)
+          .foregroundColor(.white)
       } else if dictation.phase == .transcribing || dictation.phase == .postProcessing {
         ProgressView()
           .controlSize(.small)
           .tint(.white)
-        Text("Transcribing…")
+        Text(dictation.isCommand ? "Rewriting…" : "Transcribing…")
           .foregroundColor(.white)
       } else {
         LevelBars(level: dictation.level)
-        Text("Listening")
+        Text(dictation.isCommand ? "Say what to change" : "Listening")
           .foregroundColor(.white)
       }
     }

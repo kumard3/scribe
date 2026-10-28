@@ -54,7 +54,7 @@ fi
 # llama.cpp (Metal, universal2) built from source for the on-device text AI
 # (Gemma 4, AI Cleanup & Summary). Pin a tag via LLAMA_TAG if master drifts past
 # the C API the CLlama shim targets.
-LLAMA_TAG="${LLAMA_TAG:-master}"
+LLAMA_TAG="${LLAMA_TAG:-b11740}"
 LLAMA_LIB=".deps/llama/lib"
 LLAMA_STALE=0
 if [ -f "$LLAMA_LIB/libllama.dylib" ]; then
@@ -64,6 +64,7 @@ if [ -f "$LLAMA_LIB/libllama.dylib" ]; then
 else
   LLAMA_STALE=1
 fi
+[ "$(cat .deps/llama/TAG 2>/dev/null)" = "$LLAMA_TAG" ] || LLAMA_STALE=1
 if [ "$LLAMA_STALE" = "1" ]; then
   command -v cmake >/dev/null || { echo "cmake required, install with: brew install cmake"; exit 1; }
   echo "Building llama.cpp ($LLAMA_TAG, Metal, universal2)… first build is slow."
@@ -86,6 +87,7 @@ if [ "$LLAMA_STALE" = "1" ]; then
   cp .deps/llama-src/include/llama.h Sources/CLlama/vendor/
   cp .deps/llama-src/ggml/include/*.h Sources/CLlama/vendor/
   cp .deps/llama-src/tools/mtmd/mtmd.h .deps/llama-src/tools/mtmd/mtmd-helper.h Sources/CLlama/vendor/
+  echo "$LLAMA_TAG" > .deps/llama/TAG
 fi
 
 # whisper.cpp is kept in a private helper directory so its ggml ABI cannot

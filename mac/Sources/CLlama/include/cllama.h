@@ -24,6 +24,13 @@ char *cllama_chat(cllama_ctx *h, const char *system, const char *user,
 void cllama_free_str(char *s);
 void cllama_free(cllama_ctx *h);
 
+// Embedding model (EmbeddingGemma GGUF), CPU, mean pooling. Free with cllama_free().
+cllama_ctx *cllama_embed_load(const char *model_path, int n_ctx);
+
+// Pooled embedding of `text` (prompt already applied) into `out`, at most `cap`
+// floats. Returns the model's embedding size, or -1 on failure.
+int cllama_embed(cllama_ctx *h, const char *text, float *out, int cap);
+
 // --- Audio ASR via mtmd (Srota / Qwen3-ASR, Gemma 4 E2B & E4B) ---
 
 typedef struct cllama_asr cllama_asr;

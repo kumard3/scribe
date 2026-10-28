@@ -9,13 +9,28 @@ struct MeetingDetail: Codable {
     var text: String
     /// Seconds into the meeting; nil in meetings saved before timings were kept.
     var start: Double?
+    var end: Double?
+  }
+
+  struct Chapter: Codable {
+    let title: String
+    let start: Double
+    let end: Double
   }
 
   var names: [String: String]
   var turns: [Turn]
   var summary: String?
+  var title: String?
+  var chapters: [Chapter]?
+  var duration: Double?
 
   func name(_ speaker: Int) -> String { names[String(speaker)] ?? Diarizer.speakerLabel(speaker) }
+
+  /// The user's own name for agents, who can't tell that "You" is the person who recorded.
+  func agentName(_ speaker: Int) -> String {
+    speaker == MeetingPipeline.you && name(speaker) == "You" ? Settings.shared.yourName : name(speaker)
+  }
 
   var speakers: [Int] { Array(Set(turns.map(\.speaker))).sorted() }
 
@@ -62,8 +77,11 @@ struct MeetingDetail: Codable {
 
   init(_ out: MeetingPipeline.Output) {
     names = Dictionary(uniqueKeysWithValues: out.names.map { (String($0.key), $0.value) })
-    turns = out.turns.map { Turn(speaker: $0.speaker, text: $0.text, start: $0.start) }
+    turns = out.turns.map { Turn(speaker: $0.speaker, text: $0.text, start: $0.start, end: $0.end) }
     summary = out.summary
+    title = out.title
+    chapters = out.chapters.isEmpty ? nil : out.chapters
+    duration = out.duration
   }
 
   func save(to dir: URL) {
@@ -74,6 +92,7 @@ struct MeetingDetail: Codable {
     if let summary {
       try? summary.write(to: dir.appendingPathComponent("summary.txt"), atomically: true, encoding: .utf8)
     }
+    MemoryIndex.shared.indexMeeting(dir)
   }
 }
 
@@ -218,8 +237,9 @@ struct MeetingDetailView: View {
       VStack(alignment: .leading, spacing: 4) {
         Text(date.formatted(date: .complete, time: .shortened))
           .font(.system(size: 22, weight: .bold)).foregroundColor(Mono.text)
-        Text(clock(player.duration) + (speakers.map { "  ·  \($0) speaker\($0 == 1 ? "" : "s")" } ?? ""))
+        Text(clock(player.duration) + (speakers.map { "  ·  \($0) speaker\($0 == 1 ? "" : "s")" } ?? "") + "  ·  ID \(dir.lastPathComponent)")
           .font(.system(size: 12)).foregroundColor(Mono.textDim).monospacedDigit()
+          .textSelection(.enabled)
       }
       Spacer()
       HStack(spacing: 8) {
@@ -228,7 +248,7 @@ struct MeetingDetailView: View {
           NSPasteboard.general.setString(detail?.fileText ?? "", forType: .string)
         }
         .disabled(detail == nil)
-        Button(copiedForAgent ? "Copied for agent" : "Copy for agent") {
+        Button(copiedForAgent ? "Copied ID" : "Copy ID for AI") {
           Task {
             await AgentExport.write(dir: dir)
             NSPasteboard.general.clearContents()
@@ -237,7 +257,7 @@ struct MeetingDetailView: View {
           }
         }
         .disabled(detail == nil)
-        .help("Writes agent.md (summary, timestamped transcript, screenshots) and copies its path for an AI agent")
+        .help("Copies the meeting id so an AI agent can read it through the bolkit MCP server (agent.md is written as a fallback)")
         Menu {
           ShareLink("Share…", items: shareFiles)
             .disabled(shareFiles.isEmpty)
@@ -257,6 +277,7 @@ struct MeetingDetailView: View {
           .help("Move this meeting to the Trash")
           .disabled(meeting.processing == dir)
       }
+      .fixedSize()
       .font(.system(size: 12))
     }
   }

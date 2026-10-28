@@ -46,7 +46,7 @@ final class ModelStore: NSObject, ObservableObject {
       let dir = Self.dir(for: spec)
       let installed: Bool
       switch spec.kind {
-      case .llm:
+      case .llm, .embedding:
         installed = Self.ggufFile(in: dir) != nil
       case .mlx:
         installed = Self.mlxInstalled(spec)
@@ -66,6 +66,8 @@ final class ModelStore: NSObject, ObservableObject {
         )
       case .arkasrOnnx, .arkOnnx:
         installed = Self.bundleInstalled(spec)
+      case .voz:
+        installed = VozEngine.downloaded
       default:
         installed = Self.tokensFile(in: dir) != nil
       }
@@ -91,7 +93,23 @@ final class ModelStore: NSObject, ObservableObject {
   }
 
   func download(_ spec: ModelSpec) {
-    guard tasks[spec.id] == nil else { return }
+    guard tasks[spec.id] == nil, progress[spec.id] == nil else { return }
+    if spec.kind == .voz {
+      errors[spec.id] = nil
+      progress[spec.id] = 0
+      Task {
+        do {
+          try await VozEngine.shared.prepare { fraction in
+            Task { @MainActor in self.progress[spec.id] = min(fraction, 0.99) }
+          }
+        } catch {
+          errors[spec.id] = error.localizedDescription
+        }
+        progress[spec.id] = nil
+        refreshInstalled()
+      }
+      return
+    }
     if spec.kind == .arkasrOnnx || spec.kind == .arkOnnx || spec.kind == .mlx {
       guard !spec.bundleFiles.isEmpty else { return }
       errors[spec.id] = nil
@@ -129,12 +147,20 @@ final class ModelStore: NSObject, ObservableObject {
   func delete(_ spec: ModelSpec) {
     if spec.kind == .llm { LLMRuntime.shared.release() }
     if spec.kind == .mlx { MLXRuntime.shared.release() }
+    if spec.kind == .embedding { MemoryIndex.shared.releaseEmbedder() }
     if spec.kind == .qwenAsr { AsrRuntime.shared.release() }
     if spec.kind == .arkasrOnnx || spec.kind == .arkOnnx { ArkasrRuntime.shared.release() }
+    if spec.kind == .voz {
+      Task { await VozEngine.shared.release() }
+      try? FileManager.default.removeItem(at: VozEngine.cacheDir)
+    }
     try? FileManager.default.removeItem(at: Self.dir(for: spec))
     refreshInstalled()
     if Settings.shared.activeModelId == spec.id {
       Settings.shared.activeModelId = ModelCatalog.autoId
+    }
+    if Settings.shared.meetingModelId == spec.id {
+      Settings.shared.meetingModelId = Settings.autoMeetingId
     }
   }
 
@@ -166,7 +192,7 @@ final class ModelStore: NSObject, ObservableObject {
 
   /// On-disk GGUF to run text generation with, nil when it isn't downloaded.
   nonisolated static func llmPath(for spec: ModelSpec) -> String? {
-    let file = spec.kind == .llm
+    let file = spec.kind == .llm || spec.kind == .embedding
       ? ggufFile(in: dir(for: spec))
       : dir(for: spec).appendingPathComponent(spec.fileName)
     guard let file, FileManager.default.fileExists(atPath: file.path) else { return nil }
@@ -236,6 +262,7 @@ final class ModelStore: NSObject, ObservableObject {
         self.tasks[spec.id] = nil
         self.refreshInstalled()
         dlog("model installed \(spec.id)")
+        if spec.kind == .embedding { MemoryIndex.shared.embedPending() }
       } else if let mmprojURL = spec.mmprojURL, let url = URL(string: mmprojURL) {
         let task = self.session.downloadTask(with: url)
         task.taskDescription = "\(spec.id)#mmproj"
@@ -351,7 +378,7 @@ extension ModelStore: URLSessionDownloadDelegate {
     let (id, mmproj, file) = Self.parse(desc)
     guard let spec = ModelCatalog.spec(id) else { return }
     // The temp file dies when this delegate returns, move it out first.
-    let singleFile = spec.kind == .llm || spec.kind == .qwenAsr || spec.kind == .whisperCpp
+    let singleFile = [.llm, .embedding, .qwenAsr, .whisperCpp].contains(spec.kind)
     let ext = spec.kind == .whisperCpp ? "bin" : (singleFile ? "gguf" : "tar.bz2")
     let kept = FileManager.default.temporaryDirectory
       .appendingPathComponent(
@@ -372,7 +399,7 @@ extension ModelStore: URLSessionDownloadDelegate {
             self.startBundleFile(spec, index: file + 1)
           }
         }
-      case .llm:
+      case .llm, .embedding:
         self.installSingleFile(spec: spec, tempFile: kept, name: spec.fileName,
                                expectedBytes: spec.sizeBytes, wipe: true, isFinal: true)
       case .qwenAsr:

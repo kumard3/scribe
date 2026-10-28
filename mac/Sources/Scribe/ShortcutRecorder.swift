@@ -2,10 +2,11 @@ import SwiftUI
 import AppKit
 import Carbon
 
-/// "Click, then press any key combo" capture field for the toggle shortcut.
-/// Esc cancels. Plain keys need a modifier unless they're function keys.
+/// "Click, then press any key combo" capture field for the toggle or Command Mode
+/// shortcut. Esc cancels. Plain keys need a modifier unless they're function keys.
 struct ShortcutRecorder: View {
   @ObservedObject var settings = Settings.shared
+  var command = false
   @State private var recording = false
   @State private var monitor: Any?
   @State private var hint = ""
@@ -15,7 +16,7 @@ struct ShortcutRecorder: View {
       Button {
         recording ? stopRecording() : startRecording()
       } label: {
-        Text(recording ? "Press keys… (⎋ to cancel)" : settings.toggleLabel)
+        Text(recording ? "Press keys… (⎋ to cancel)" : command ? settings.commandLabel : settings.toggleLabel)
           .font(.system(size: 12, weight: .medium, design: .monospaced))
           .padding(.horizontal, 10)
           .padding(.vertical, 5)
@@ -31,9 +32,9 @@ struct ShortcutRecorder: View {
       }
       .buttonStyle(.plain)
 
-      if !recording && settings.toggleKeyCode >= 0 {
+      if !recording && (command ? settings.commandKeyCode : settings.toggleKeyCode) >= 0 {
         Button("Off") {
-          settings.setToggle(keyCode: -1, mods: 0)
+          save(keyCode: -1, mods: 0)
         }
         .font(.system(size: 11))
       }
@@ -58,8 +59,21 @@ struct ShortcutRecorder: View {
         hint = "Add a modifier (⌃⌥⇧⌘), or use an F-key alone"
         return nil
       }
-      settings.setToggle(keyCode: Int(e.keyCode), mods: Int(mods))
+      let other = command ? (settings.toggleKeyCode, settings.toggleMods) : (settings.commandKeyCode, settings.commandMods)
+      guard (Int(e.keyCode), Int(mods)) != other else {
+        hint = "Already used by the other shortcut"
+        return nil
+      }
+      save(keyCode: Int(e.keyCode), mods: Int(mods))
       return nil
+    }
+  }
+
+  private func save(keyCode: Int, mods: Int) {
+    if command {
+      settings.setCommand(keyCode: keyCode, mods: mods)
+    } else {
+      settings.setToggle(keyCode: keyCode, mods: mods)
     }
   }
 

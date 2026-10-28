@@ -46,6 +46,8 @@ final class ScreenRecorder: NSObject, ObservableObject {
   private var startedAt = Date()
   private var timer: Timer?
   private var generation = 0
+  private var resumes = 0
+  private var resumePending = false
 
   override init() {
     super.init()
@@ -117,7 +119,9 @@ final class ScreenRecorder: NSObject, ObservableObject {
   }
 
   func stop() {
+    resumePending = false
     guard isRecording else { return }
+    resumes = 0
     generation += 1
     isRecording = false
     timer?.invalidate()
@@ -216,8 +220,9 @@ final class ScreenRecorder: NSObject, ObservableObject {
     return (SCContentFilter(display: display, excludingApplications: me, exceptingWindows: []), "display:\(display.displayID)")
   }
 
-  private func failed(_ error: Error) {
+  func failed(_ error: Error) {
     dlog("screen recording: \(error)")
+    let wasRecording = isRecording
     endStream()
     output = nil
     clearLive()
@@ -227,9 +232,32 @@ final class ScreenRecorder: NSObject, ObservableObject {
       timer = nil
     }
     NotchHUD.shared.refresh()
-    DictationManager.shared.status = (error as? SCStreamError)?.code == .userDeclined
+    let code = (error as? SCStreamError)?.code
+    if Date().timeIntervalSince(startedAt) > 60 { resumes = 0 }
+    if wasRecording, code != .userDeclined, code != .userStopped, resumes < 10 {
+      resumes += 1
+      resumePending = true
+      DictationManager.shared.status = "macOS stopped the screen recording\(lowDisk). Restarting it…"
+      DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.resume() }
+      return
+    }
+    guard !resumePending else { return }
+    DictationManager.shared.status = code == .userDeclined
       ? "Allow Bolkit under System Settings > Privacy & Security > Screen & System Audio Recording, then try again."
-      : "Screen recording stopped: \(error.localizedDescription)"
+      : "Screen recording stopped\(lowDisk): \(error.localizedDescription)"
+  }
+
+  private func resume() {
+    guard resumePending, !isRecording else { return }
+    resumePending = false
+    dlog("screen recording: resuming \(choice)")
+    if standalone { startStandalone(choice) } else { MeetingRecorder.shared.setScreen(choice) }
+  }
+
+  private var lowDisk: String {
+    let home = URL(fileURLWithPath: NSHomeDirectory())
+    let free = (try? home.resourceValues(forKeys: [.volumeAvailableCapacityKey]))?.volumeAvailableCapacity ?? .max
+    return free < 20_000_000_000 ? " because the disk is almost full (\(free / 1_000_000_000) GB free)" : ""
   }
 }
 
@@ -252,7 +280,7 @@ extension ScreenRecorder: SCRecordingOutputDelegate {
       self.finished(recordingOutput)
       if self.output === recordingOutput { self.output = nil }
       self.refreshRecordings()
-      guard self.standalone, !self.isRecording, let url = self.url else { return }
+      guard self.standalone, !self.isRecording, !self.resumePending, let url = self.url else { return }
       self.openRecording = url
       DashboardWindow.show(.screen)
     }

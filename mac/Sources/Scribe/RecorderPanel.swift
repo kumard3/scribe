@@ -194,26 +194,28 @@ final class ShareSources: ObservableObject {
   private var call: CGWindowID?
 
   func run(while open: @escaping () -> Bool) async {
-    guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
-      denied = true
-      return
-    }
     denied = false
     call = nil
     var asked = false
     var tick = 0
     repeat {
-      if tick % 3 == 0, let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true) {
-        list(content)
-        if !asked {
-          asked = true
-          // Apple's model answers in a few seconds; ask once per open, not on every relist.
-          Task {
-            guard let window = await MeetingWindow.find(in: content) else { return }
-            self.call = window.windowID
-            self.list(content)
+      if tick % 3 == 0 {
+        do {
+          let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+          list(content)
+          if !asked {
+            asked = true
+            // Apple's model answers in a few seconds; ask once per open, not on every relist.
+            Task {
+              guard let window = await MeetingWindow.find(in: content) else { return }
+              self.call = window.windowID
+              self.list(content)
+            }
           }
-        }
+        } catch let error as SCStreamError where error.code == .userDeclined {
+          denied = true
+          return
+        } catch {}
       }
       await refreshThumbnails()
       tick += 1

@@ -174,6 +174,12 @@ final class Settings: ObservableObject {
   @AppStorage("toggleMods") var toggleMods: Int = Int(controlKey | optionKey) {
     willSet { objectWillChange.send() }
   }
+  @AppStorage("commandKeyCode") var commandKeyCode: Int = -1 {
+    willSet { objectWillChange.send() }
+  }
+  @AppStorage("commandMods") var commandMods: Int = Int(controlKey | optionKey) {
+    willSet { objectWillChange.send() }
+  }
   @AppStorage("tapHandsFree") var tapHandsFree: Bool = true {
     willSet { objectWillChange.send() }
   }
@@ -183,11 +189,18 @@ final class Settings: ObservableObject {
   @AppStorage("saveHistory") var saveHistory: Bool = true {
     willSet { objectWillChange.send() }
   }
+  @AppStorage("memoryIndex") var memoryIndex: Bool = true {
+    willSet { objectWillChange.send() }
+  }
   @AppStorage("keepLatestDiagnosticAudio") var keepLatestRecording: Bool = true {
     willSet { objectWillChange.send() }
   }
   /// One term per line. Biases transducer decoding and primes whisper.cpp.
   @AppStorage("vocabulary") var vocabulary: String = "" {
+    willSet { objectWillChange.send() }
+  }
+  /// JSON array of Snippet.
+  @AppStorage("snippets") var snippets: String = "" {
     willSet { objectWillChange.send() }
   }
   @AppStorage("learnCorrections") var learnCorrections: Bool = true {
@@ -261,6 +274,15 @@ final class Settings: ObservableObject {
   @AppStorage("meetingAppleSpeech") var meetingAppleSpeech: Bool = false {
     willSet { objectWillChange.send() }
   }
+  @AppStorage("meetingModel") var meetingModelId: String = Settings.autoMeetingId {
+    willSet { objectWillChange.send() }
+  }
+  @AppStorage("yourName") var yourName: String = NSFullUserName().split(separator: " ").first.map(String.init) ?? "You" {
+    willSet { objectWillChange.send() }
+  }
+  @AppStorage("speakerDetection") var speakerDetection: String = "default" {
+    willSet { objectWillChange.send() }
+  }
   /// ScreenRecorder share choices for the Recorder's two modes.
   @AppStorage("meetingShare") var meetingShare: String = "none" {
     willSet { objectWillChange.send() }
@@ -281,6 +303,8 @@ final class Settings: ObservableObject {
     willSet { objectWillChange.send() }
   }
 
+  static let autoMeetingId = "auto"
+
   private init() {
     // Qwen 0.5B cleanup shipped before output-preservation checks existed.
     // Turn the unsafe old preference off once; users can opt back in now that
@@ -295,6 +319,10 @@ final class Settings: ObservableObject {
       if defaults.string(forKey: "activeModel") == ModelCatalog.gemmaAsrId {
         defaults.set(ModelCatalog.autoId, forKey: "activeModel")
       }
+    }
+    if defaults.string(forKey: "meetingModel") == nil, defaults.bool(forKey: "meetingAppleSpeech") {
+      defaults.set(ModelCatalog.systemId, forKey: "meetingModel")
+      defaults.set(false, forKey: "meetingAppleSpeech")
     }
     // migrate from the old preset-enum storage
     if let old = UserDefaults.standard.string(forKey: "toggleHotkey"),
@@ -322,21 +350,41 @@ final class Settings: ObservableObject {
     return stored
   }
 
+  var dictationModelChoice: String {
+    get { azureEnabled ? azureModelId : activeModelId }
+    set {
+      if ModelCatalog.spec(newValue)?.kind == .azure {
+        azureModelId = newValue
+        azureEnabled = true
+      } else {
+        azureEnabled = false
+        activeModelId = newValue
+      }
+    }
+  }
+
   var holdKey: HoldKey {
     get { HoldKey(rawValue: holdKeyRaw) ?? .fn }
     set { holdKeyRaw = newValue.rawValue }
   }
 
   /// "⌃⌥Space", or "Off" when disabled.
-  var toggleLabel: String {
-    toggleKeyCode < 0
-      ? "Off"
-      : modifierSymbols(UInt32(toggleMods)) + keyName(UInt32(toggleKeyCode))
+  var toggleLabel: String { shortcutLabel(toggleKeyCode, toggleMods) }
+  var commandLabel: String { shortcutLabel(commandKeyCode, commandMods) }
+
+  private func shortcutLabel(_ keyCode: Int, _ mods: Int) -> String {
+    keyCode < 0 ? "Off" : modifierSymbols(UInt32(mods)) + keyName(UInt32(keyCode))
   }
 
   func setToggle(keyCode: Int, mods: Int) {
     toggleKeyCode = keyCode
     toggleMods = mods
     HotKeyManager.shared.apply(keyCode: keyCode, mods: mods)
+  }
+
+  func setCommand(keyCode: Int, mods: Int) {
+    commandKeyCode = keyCode
+    commandMods = mods
+    HotKeyManager.command.apply(keyCode: keyCode, mods: mods)
   }
 }

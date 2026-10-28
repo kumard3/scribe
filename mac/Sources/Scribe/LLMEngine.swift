@@ -163,3 +163,27 @@ final class LLMRuntime: @unchecked Sendable {
     }
   }
 }
+
+/// EmbeddingGemma 2 GGUF through llama.cpp. The memory index only sees `MemoryStore.Embed`,
+/// so swapping the model means replacing this one function.
+enum EmbeddingGemma2 {
+  static func load() -> MemoryStore.Embed? {
+    guard let spec = ModelCatalog.spec(ModelCatalog.embedderId), let path = ModelStore.llmPath(for: spec),
+          let model = Handle(cllama_embed_load(path, 1024)) else { return nil }
+    return { text, isQuery in
+      var out = [Float](repeating: 0, count: 2048)
+      let n = cllama_embed(model.ptr, (isQuery ? "task: search result | query: " : "title: none | text: ") + text, &out, 2048)
+      guard n >= MemoryStore.dims else { return nil }
+      return MemoryStore.normalized(Array(out.prefix(MemoryStore.dims)))
+    }
+  }
+
+  private final class Handle {
+    let ptr: OpaquePointer
+    init?(_ ptr: OpaquePointer?) {
+      guard let ptr else { return nil }
+      self.ptr = ptr
+    }
+    deinit { cllama_free(ptr) }
+  }
+}

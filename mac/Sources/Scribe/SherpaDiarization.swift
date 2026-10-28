@@ -12,6 +12,7 @@ struct SpeakerTurn {
   var text: String
   /// Seconds from the start of the recording, when the pipeline knows it.
   var start: Double = 0
+  var end: Double?
 }
 
 /// On-device speaker diarization (who-said-what) for imported recordings. Wraps

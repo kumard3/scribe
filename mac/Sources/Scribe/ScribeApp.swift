@@ -49,6 +49,8 @@ struct ScribeApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
   private var stoppedOnHoldPress = false
+  private var commandDownAt: Date?
+  private var stoppedOnCommandPress = false
   #if !MAS
   private let updates = UpdateManager.shared
   #endif
@@ -67,7 +69,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       keyCode: Settings.shared.toggleKeyCode, mods: Settings.shared.toggleMods
     )
 
+    let pressCommand: (Bool) -> Void = { [weak self] upgrade in
+      guard let self, self.commandDownAt == nil else { return }
+      self.commandDownAt = Date()
+      let d = DictationManager.shared
+      if upgrade, d.isRecording {
+        self.stoppedOnCommandPress = false
+        return d.upgradeToCommand()
+      }
+      self.stoppedOnCommandPress = d.isRecording
+      d.isRecording ? d.stop() : d.startCommand()
+    }
+    let releaseCommand = { [weak self] in
+      guard let self, let at = self.commandDownAt else { return }
+      self.commandDownAt = nil
+      guard !self.stoppedOnCommandPress else { return }
+      if Date().timeIntervalSince(at) >= 0.4 || !Settings.shared.tapHandsFree {
+        DictationManager.shared.stop()
+      }
+    }
+    let command = HotKeyManager.command
+    command.onTrigger = { pressCommand(false) }
+    command.onRelease = releaseCommand
+    command.apply(keyCode: Settings.shared.commandKeyCode, mods: Settings.shared.commandMods)
+
     let hold = HoldKeyMonitor.shared
+    hold.onCommandPress = pressCommand
+    hold.onCommandRelease = releaseCommand
     hold.onPress = { [weak self] in
       let d = DictationManager.shared
       if d.isRecording {
@@ -87,6 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     hold.start()
     if #available(macOS 14.4, *) { CallDetector.shared.start() }
+    MemoryIndex.shared.backfill()
   }
 }
 

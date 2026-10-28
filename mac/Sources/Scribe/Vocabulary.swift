@@ -181,3 +181,101 @@ enum Vocabulary {
     print("Vocabulary selftest ok")
   }
 }
+
+struct Snippet: Codable, Identifiable, Equatable {
+  var id = UUID()
+  var trigger: String
+  var expansion: String
+}
+
+/// Spoken shortcuts: saying a trigger inside a dictation inserts its expansion in its place.
+enum Snippets {
+  static var all: [Snippet] {
+    get { (try? JSONDecoder().decode([Snippet].self, from: Data(Settings.shared.snippets.utf8))) ?? [] }
+    set {
+      Settings.shared.snippets = (try? JSONEncoder().encode(newValue))
+        .flatMap { String(data: $0, encoding: .utf8) } ?? ""
+    }
+  }
+
+  private static func words(_ text: String) -> [Substring] {
+    text.split { !$0.isLetter && !$0.isNumber && $0 != "'" && $0 != "’" }
+  }
+
+  private static func key(_ word: Substring) -> String {
+    word.lowercased().replacingOccurrences(of: "’", with: "'").trimmingCharacters(in: CharacterSet(charactersIn: "'"))
+  }
+
+  /// Whole words, ignoring case and punctuation, longest trigger first. Expansions are
+  /// inserted verbatim and never matched again. A trigger that is the whole utterance
+  /// becomes just the expansion, without the punctuation the recognizer put around it.
+  static func expand(_ text: String, with snippets: [Snippet] = all) -> String {
+    let triggers = snippets
+      .map { (words: words($0.trigger).map(key).filter { !$0.isEmpty }, expansion: $0.expansion) }
+      .filter { !$0.words.isEmpty && !$0.expansion.isEmpty }
+      .sorted { ($0.words.count, $0.words.joined().count) > ($1.words.count, $1.words.joined().count) }
+    guard !triggers.isEmpty else { return text }
+    let spoken = words(text)
+    let keys = spoken.map(key)
+    if let whole = triggers.first(where: { $0.words == keys }) { return whole.expansion }
+    var taken = [Bool](repeating: false, count: keys.count)
+    var hits: [(range: Range<Int>, expansion: String)] = []
+    for trigger in triggers {
+      var i = 0
+      while i + trigger.words.count <= keys.count {
+        let r = i..<(i + trigger.words.count)
+        if !taken[r].contains(true), Array(keys[r]) == trigger.words {
+          r.forEach { taken[$0] = true }
+          hits.append((r, trigger.expansion))
+          i = r.upperBound
+        } else {
+          i += 1
+        }
+      }
+    }
+    var out = ""
+    var cursor = text.startIndex
+    for hit in hits.sorted(by: { $0.range.lowerBound < $1.range.lowerBound }) {
+      out += text[cursor..<spoken[hit.range.lowerBound].startIndex]
+      out += hit.expansion
+      cursor = spoken[hit.range.upperBound - 1].endIndex
+    }
+    return out + text[cursor...]
+  }
+
+  static func selfTest() {
+    let intro = "Hi, I'm Kumar from Bolkit."
+    let snippets = [
+      Snippet(trigger: "intro", expansion: "INTRO"),
+      Snippet(trigger: "Intro Email", expansion: intro),
+      Snippet(trigger: "my LinkedIn", expansion: "linkedin.com/in/kumar"),
+      Snippet(trigger: "LinkedIn profile URL", expansion: "https://linkedin.com/in/kumar"),
+      Snippet(trigger: "cal", expansion: "cal.com/kumar"),
+      Snippet(trigger: "sig", expansion: "my LinkedIn"),
+      Snippet(trigger: "  ", expansion: "never"),
+      Snippet(trigger: "empty", expansion: ""),
+    ]
+    func eq(_ input: String, _ want: String, _ line: Int = #line) {
+      let got = expand(input, with: snippets)
+      precondition(got == want, "line \(line): expand(\(input.debugDescription)) = \(got.debugDescription), want \(want.debugDescription)")
+    }
+    eq("Intro email.", intro)
+    eq("intro email", intro)
+    eq("  My LinkedIn!  ", "linkedin.com/in/kumar")
+    eq("Please send the intro email to Rahul today", "Please send the \(intro) to Rahul today")
+    eq("Here is my LinkedIn, thanks.", "Here is linkedin.com/in/kumar, thanks.")
+    eq("Here is (my LinkedIn).", "Here is (linkedin.com/in/kumar).")
+    eq("Send the intro, email: done", "Send the \(intro): done")
+    eq("A quick intro then the intro email", "A quick INTRO then the \(intro)")
+    eq("See my LinkedIn profile URL now", "See my https://linkedin.com/in/kumar now")
+    eq("book via cal today", "book via cal.com/kumar today")
+    eq("check the calendar and call me", "check the calendar and call me")
+    eq("an introduction emails thread", "an introduction emails thread")
+    eq("my linkedinprofile", "my linkedinprofile")
+    eq("add my sig here", "add my my LinkedIn here")
+    eq("leave empty alone", "leave empty alone")
+    eq("", "")
+    precondition(expand("intro email", with: []) == "intro email")
+    print("Snippets selftest ok")
+  }
+}
