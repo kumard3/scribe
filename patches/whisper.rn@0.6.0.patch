@@ -1,0 +1,22 @@
+diff --git a/cpp/jsi/RNWhisperJSI.cpp b/cpp/jsi/RNWhisperJSI.cpp
+index 4db7591..2b56357 100644
+--- a/cpp/jsi/RNWhisperJSI.cpp
++++ b/cpp/jsi/RNWhisperJSI.cpp
+@@ -1704,6 +1704,8 @@ void installJSIBindings(
+                         config.params.new_segment_callback_user_data = &segmentsState;
+                     }
+ 
++                    if (!config.prompt.empty()) config.params.initial_prompt = config.prompt.c_str();
++                    if (!config.language.empty()) config.params.language = config.language.c_str();
+                     rnwhisper::job *job = rnwhisper::job_new(config.jobId, config.params);
+                     if (job == nullptr) {
+                         throw JsiError("Failed to create transcription job");
+@@ -1820,6 +1822,8 @@ void installJSIBindings(
+                         config.params.new_segment_callback_user_data = &segmentsState;
+                     }
+ 
++                    if (!config.prompt.empty()) config.params.initial_prompt = config.prompt.c_str();
++                    if (!config.language.empty()) config.params.language = config.language.c_str();
+                     rnwhisper::job *job = rnwhisper::job_new(config.jobId, config.params);
+                     if (job == nullptr) {
+                         throw JsiError("Failed to create transcription job");

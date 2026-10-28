@@ -44,5 +44,8 @@
   "trustedDependencies": [
     "llama.rn"
   ],
-  "private": true
+  "private": true,
+  "patchedDependencies": {
+    "whisper.rn@0.6.0": "patches/whisper.rn@0.6.0.patch"
+  }
 }
