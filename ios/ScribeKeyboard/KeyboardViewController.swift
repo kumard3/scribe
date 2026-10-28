@@ -1,113 +1,202 @@
 import UIKit
 
-// Scribe voice keyboard (iOS). Apple forbids keyboard extensions from using the
-// microphone, so this keyboard hands off to the main Scribe app to record
-// on-device. Same pattern Wispr Flow uses, but transcription stays on-device.
-//
-// Handoff: tap Dictate -> opens Scribe via scribe://dictate-session -> speak (on-device)
-// -> Scribe copies the result to the clipboard -> swipe back -> tap Paste to insert.
-// (Clipboard is used instead of an App Group so no special provisioning is needed.)
+/// Keyboards can't use the microphone, so Bolkit records. The first mic tap opens Bolkit, which
+/// starts a Flow session and listens right away; after the user swipes back, later taps start and
+/// stop dictation in place and the text is typed straight into the field.
 class KeyboardViewController: UIInputViewController {
-  private var statusLabel: UILabel!
+  private let status = UILabel()
+  private let mic = UIButton(type: .system)
+  private let cancel = UIButton(type: .system)
+  private let globe = UIButton(type: .system)
+  private var phase = FlowPhase.off
+  private var visible = false
+  private var startCheck: Timer?
+
+  private static func rgb(_ hex: Int) -> UIColor {
+    UIColor(red: CGFloat(hex >> 16 & 0xFF) / 255, green: CGFloat(hex >> 8 & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+  }
+
+  private let surface = rgb(0x1C1C1F)
+  private let textDim = rgb(0x9A9AA3)
 
   override func viewDidLoad() {
     super.viewDidLoad()
     buildUI()
+    FlowShared.observe(FlowShared.changed) { [weak self] in self?.refresh() }
   }
 
   override func viewWillAppear(_ animated: Bool) {
     super.viewWillAppear(animated)
-    refreshHint()
+    visible = true
+    refresh()
+  }
+
+  override func viewWillDisappear(_ animated: Bool) {
+    super.viewWillDisappear(animated)
+    visible = false
+  }
+
+  override func viewWillLayoutSubviews() {
+    globe.isHidden = !needsInputModeSwitchKey
+    super.viewWillLayoutSubviews()
   }
 
   private func buildUI() {
-    view.backgroundColor = UIColor(red: 0x0E / 255, green: 0x0F / 255, blue: 0x13 / 255, alpha: 1)
+    view.backgroundColor = .black
 
-    statusLabel = UILabel()
-    statusLabel.textColor = UIColor(white: 0.62, alpha: 1)
-    statusLabel.font = .systemFont(ofSize: 14)
-    statusLabel.textAlignment = .center
+    status.textColor = textDim
+    status.font = .systemFont(ofSize: 14, weight: .medium)
+    status.textAlignment = .center
+    status.numberOfLines = 2
 
-    let mic = UIButton(type: .system)
-    mic.setTitle("🎤  Dictate", for: .normal)
-    mic.setTitleColor(.white, for: .normal)
-    mic.titleLabel?.font = .systemFont(ofSize: 18, weight: .semibold)
-    mic.backgroundColor = UIColor(red: 0x14 / 255, green: 0xB8 / 255, blue: 0xA6 / 255, alpha: 1)
-    mic.layer.cornerRadius = 12
-    mic.addTarget(self, action: #selector(startDictation), for: .touchUpInside)
-    mic.heightAnchor.constraint(equalToConstant: 56).isActive = true
+    circle(mic, size: 72, fill: .white, tint: .black, symbol: "mic.fill", action: #selector(micTapped))
+    circle(cancel, size: 48, fill: surface, tint: .white, symbol: "xmark", action: #selector(cancelTapped))
+    mic.accessibilityLabel = "Dictate"
+    cancel.accessibilityLabel = "Cancel dictation"
 
+    let space = key(title: "space", action: #selector(spaceTapped))
     let row = UIStackView(arrangedSubviews: [
-      secondaryButton("⌨", #selector(nextKeyboard)),
-      secondaryButton("📋 Paste", #selector(pasteDictation)),
-      secondaryButton("space", #selector(space)),
-      secondaryButton("⌫", #selector(backspace)),
-      secondaryButton("⏎", #selector(newline)),
+      globe,
+      space,
+      key(symbol: "delete.left", action: #selector(backspaceTapped)),
+      key(symbol: "return", action: #selector(returnTapped)),
     ])
-    row.axis = .horizontal
-    row.distribution = .fillEqually
-    row.spacing = 8
+    configure(globe, symbol: "globe")
+    globe.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
+    row.spacing = 6
+    row.arrangedSubviews.filter { $0 !== space }.forEach { $0.widthAnchor.constraint(equalToConstant: 56).isActive = true }
 
-    let stack = UIStackView(arrangedSubviews: [statusLabel, mic, row])
-    stack.axis = .vertical
-    stack.spacing = 12
-    stack.translatesAutoresizingMaskIntoConstraints = false
-    view.addSubview(stack)
-
+    [status, mic, cancel, row].forEach {
+      $0.translatesAutoresizingMaskIntoConstraints = false
+      view.addSubview($0)
+    }
     NSLayoutConstraint.activate([
-      stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-      stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-      stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 14),
-      stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -18),
+      status.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
+      status.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+      status.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+      mic.topAnchor.constraint(equalTo: status.bottomAnchor, constant: 12),
+      mic.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+      cancel.centerYAnchor.constraint(equalTo: mic.centerYAnchor),
+      cancel.trailingAnchor.constraint(equalTo: mic.leadingAnchor, constant: -32),
+      row.topAnchor.constraint(equalTo: mic.bottomAnchor, constant: 16),
+      row.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 6),
+      row.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -6),
+      row.heightAnchor.constraint(equalToConstant: 44),
+      row.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -8),
     ])
   }
 
-  private func secondaryButton(_ title: String, _ action: Selector) -> UIButton {
+  private func circle(_ b: UIButton, size: CGFloat, fill: UIColor, tint: UIColor, symbol: String, action: Selector) {
+    b.backgroundColor = fill
+    b.tintColor = tint
+    b.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: size * 0.36, weight: .semibold)), for: .normal)
+    b.layer.cornerRadius = size / 2
+    b.widthAnchor.constraint(equalToConstant: size).isActive = true
+    b.heightAnchor.constraint(equalToConstant: size).isActive = true
+    b.addTarget(self, action: action, for: .touchUpInside)
+  }
+
+  private func configure(_ b: UIButton, symbol: String? = nil, title: String? = nil) {
+    b.backgroundColor = surface
+    b.tintColor = .white
+    b.layer.cornerRadius = 8
+    if let symbol { b.setImage(UIImage(systemName: symbol), for: .normal) }
+    if let title {
+      b.setTitle(title, for: .normal)
+      b.setTitleColor(.white, for: .normal)
+      b.titleLabel?.font = .systemFont(ofSize: 16)
+    }
+  }
+
+  private func key(symbol: String? = nil, title: String? = nil, action: Selector) -> UIButton {
     let b = UIButton(type: .system)
-    b.setTitle(title, for: .normal)
-    b.setTitleColor(UIColor(white: 0.9, alpha: 1), for: .normal)
-    b.titleLabel?.font = .systemFont(ofSize: 15)
-    b.backgroundColor = UIColor(red: 0x1B / 255, green: 0x1D / 255, blue: 0x24 / 255, alpha: 1)
-    b.layer.cornerRadius = 10
-    b.heightAnchor.constraint(equalToConstant: 46).isActive = true
+    configure(b, symbol: symbol, title: title)
     b.addTarget(self, action: action, for: .touchUpInside)
     return b
   }
 
-  private func refreshHint() {
-    if let s = UIPasteboard.general.string, !s.isEmpty {
-      statusLabel.text = "Tap 📋 Paste to insert your dictation"
-    } else {
-      statusLabel.text = "Tap Dictate to speak in Scribe"
+  private var requests: [String] {
+    get { UserDefaults.standard.stringArray(forKey: "flowRequests") ?? [] }
+    set { UserDefaults.standard.set(Array(newValue.suffix(10)), forKey: "flowRequests") }
+  }
+
+  private func refresh() {
+    let state = FlowShared.read()
+    phase = state.alive ? state.phase : .off
+    if visible, let request = state.resultRequest, requests.contains(request) {
+      requests = []
+      if let text = state.resultText, !text.isEmpty, let at = state.resultAt, Date().timeIntervalSince(at) < 60 {
+        insert(text)
+      }
+    }
+    render(error: state.error)
+  }
+
+  private func render(error: String?) {
+    let listening = phase == .listening
+    let config = UIImage.SymbolConfiguration(pointSize: 26, weight: .semibold)
+    mic.setImage(UIImage(systemName: listening ? "checkmark" : "mic.fill", withConfiguration: config), for: .normal)
+    mic.accessibilityLabel = listening ? "Done" : "Dictate"
+    mic.isEnabled = phase != .transcribing
+    mic.alpha = mic.isEnabled ? 1 : 0.4
+    cancel.isHidden = !listening
+    if !hasFullAccess {
+      status.text = "Turn on Allow Full Access for Bolkit Voice in Settings"
+      return
+    }
+    switch phase {
+    case .off: status.text = "Open Bolkit to start: tap the mic"
+    case .idle: status.text = error ?? "Tap the mic to dictate"
+    case .listening: status.text = "Listening"
+    case .transcribing: status.text = "Transcribing"
     }
   }
 
-  @objc private func startDictation() {
-    statusLabel.text = "Dictate in Scribe, then swipe back and tap Paste"
-    openContainingApp(URL(string: "scribe://dictate-session")!)
+  private func insert(_ text: String) {
+    let before = textDocumentProxy.documentContextBeforeInput ?? ""
+    let glue = before.last.map { !$0.isWhitespace } ?? false
+    textDocumentProxy.insertText(glue ? " " + text : text)
   }
 
-  // A keyboard extension can't call UIApplication.open directly, so walk the
-  // responder chain to whoever responds to openURL:, the standard workaround.
-  private func openContainingApp(_ url: URL) {
-    let selector = sel_registerName("openURL:")
+  @objc private func micTapped() {
+    guard hasFullAccess else { return render(error: nil) }
+    switch phase {
+    case .listening:
+      FlowShared.request(FlowShared.stop)
+    case .idle:
+      status.text = "Starting"
+      requests.append(FlowShared.request(FlowShared.start))
+      startCheck?.invalidate()
+      startCheck = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
+        guard let self, self.phase == .idle else { return }
+        self.openBolkit()
+      }
+    case .off:
+      openBolkit()
+    case .transcribing:
+      break
+    }
+  }
+
+  @objc private func cancelTapped() { FlowShared.request(FlowShared.cancel) }
+
+  // No public API opens the containing app from a keyboard; UIApplication from the responder
+  // chain still works on iOS 26 and 27 and is what other dictation keyboards ship.
+  private func openBolkit() {
+    status.text = "Opening Bolkit"
+    guard let url = URL(string: "scribe://flow") else { return }
+    requests.append(FlowShared.request(FlowShared.start))
     var responder: UIResponder? = self
     while let r = responder {
-      if r.responds(to: selector) {
-        r.perform(selector, with: url)
+      if let app = r as? UIApplication {
+        app.open(url, options: [:], completionHandler: nil)
         return
       }
       responder = r.next
     }
   }
 
-  @objc private func pasteDictation() {
-    guard let s = UIPasteboard.general.string, !s.isEmpty else { return }
-    textDocumentProxy.insertText(s)
-  }
-
-  @objc private func nextKeyboard() { advanceToNextInputMode() }
-  @objc private func space() { textDocumentProxy.insertText(" ") }
-  @objc private func backspace() { textDocumentProxy.deleteBackward() }
-  @objc private func newline() { textDocumentProxy.insertText("\n") }
+  @objc private func spaceTapped() { textDocumentProxy.insertText(" ") }
+  @objc private func backspaceTapped() { textDocumentProxy.deleteBackward() }
+  @objc private func returnTapped() { textDocumentProxy.insertText("\n") }
 }

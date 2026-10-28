@@ -64,6 +64,8 @@
 	<string>Bolkit only reads an audio or video file you explicitly choose to import for transcription. Nothing is uploaded.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Bolkit uses on-device speech recognition to transcribe your voice without sending audio anywhere.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

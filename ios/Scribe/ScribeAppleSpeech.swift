@@ -103,7 +103,7 @@ class ScribeAppleSpeech: RCTEventEmitter {
   }
 }
 
-private func speechError(_ message: String) -> NSError {
+func speechError(_ message: String) -> NSError {
   NSError(domain: "ScribeAppleSpeech", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
 }
 
@@ -120,7 +120,7 @@ private func preparedTranscriber(_ id: String, preset: SpeechTranscriber.Preset)
 }
 
 @available(iOS 26.0, *)
-private final class LiveAppleSession: @unchecked Sendable {
+final class LiveAppleSession: @unchecked Sendable {
   private let analyzer: SpeechAnalyzer
   private let converter: AnalyzerInputConverter
   private let builder: AsyncStream<AnalyzerInput>.Continuation

@@ -20,12 +20,14 @@ import {
   getAutoPolish,
   getChunkPauseMs,
   getDictationStyle,
+  getFlowIdleMinutes,
   getSmartCorrections,
   getTranslateTarget,
   getVocab,
   setAutoPolish,
   setChunkPauseMs,
   setDictationStyle,
+  setFlowIdleMinutes,
   setSmartCorrections,
   setTranslateTarget,
   setVocab,
@@ -56,6 +58,7 @@ export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWip
   const [smart, setSmartState] = useState(true);
   const [style, setStyleState] = useState<'auto' | 'english' | 'hinglish'>('auto');
   const [pauseMs, setPauseState] = useState(550);
+  const [flowIdle, setFlowIdleState] = useState(5);
   const [target, setTargetState] = useState('');
   const [targetPickerOpen, setTargetPickerOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
@@ -78,6 +81,7 @@ export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWip
     setSmartState(getSmartCorrections());
     setStyleState(getDictationStyle());
     setPauseState(getChunkPauseMs());
+    setFlowIdleState(getFlowIdleMinutes());
     setTargetState(getTranslateTarget());
     refreshBubble();
   }, [visible]);
@@ -321,6 +325,31 @@ export function SettingsModal({ visible, onClose, onChanged, onOpenModels, onWip
                 </Pressable>
               </View>
             ))
+          )}
+
+          {Platform.OS === 'ios' && (
+            <>
+              <Text style={styles.section}>Keyboard and Action Button</Text>
+              <Text style={styles.meta}>
+                {`The ${BRAND} keyboard and the Action Button keep the mic ready in the background so you can dictate without opening ${BRAND}. Nothing is transcribed until you tap the mic. End the session when idle for:`}
+              </Text>
+              <View style={styles.segment}>
+                {[0, 5, 15, 60].map((m) => (
+                  <Pressable
+                    key={m}
+                    style={[styles.segBtn, flowIdle === m && styles.segBtnOn]}
+                    onPress={() => {
+                      setFlowIdleMinutes(m);
+                      setFlowIdleState(m);
+                    }}
+                  >
+                    <Text style={[styles.segText, flowIdle === m && styles.segTextOn]}>
+                      {m === 0 ? 'Right away' : m === 60 ? '1 hour' : `${m} min`}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
           )}
 
           {Platform.OS === 'android' && (

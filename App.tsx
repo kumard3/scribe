@@ -123,6 +123,7 @@ import { LanguagePicker } from './src/ui/LanguagePicker';
 import { HistoryModal } from './src/ui/HistoryModal';
 import { ModelsModal } from './src/ui/ModelsModal';
 import { SettingsModal } from './src/ui/SettingsModal';
+import { FlowSessionScreen } from './src/ui/FlowSessionScreen';
 import { RecordScreen } from './src/ui/RecordScreen';
 import { Onboarding } from './src/ui/Onboarding';
 import { registerQuickActions, QA_DICTATE, QA_HISTORY } from './src/quickActions';
@@ -1261,6 +1262,7 @@ export default function App() {
           syncSettings();
         }}
       />
+      <FlowSessionScreen />
     </View>
   );
 }

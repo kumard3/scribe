@@ -19,6 +19,7 @@ class AppDelegate: ExpoAppDelegate {
 
     reactNativeDelegate = delegate
     reactNativeFactory = factory
+    _ = FlowEngine.shared
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
@@ -45,6 +46,11 @@ class AppDelegate: ExpoAppDelegate {
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
   var window: UIWindow?
+  private var flowRequested = false
+
+  private func noteFlow(_ url: URL) {
+    if url.scheme == "scribe", url.host == "flow" { flowRequested = true }
+  }
 
   func scene(
     _ scene: UIScene,
@@ -59,6 +65,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     appDelegate.reactNativeFactory?.startReactNative(withModuleName: "main", in: window, launchOptions: nil)
 
     if let url = connectionOptions.urlContexts.first?.url {
+      noteFlow(url)
       RCTLinkingManager.application(UIApplication.shared, open: url, options: [:])
     }
     if let activity = connectionOptions.userActivities.first {
@@ -68,7 +75,21 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
   func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
     for context in URLContexts {
+      noteFlow(context.url)
       RCTLinkingManager.application(UIApplication.shared, open: context.url, options: [:])
+    }
+  }
+
+  func sceneDidBecomeActive(_ scene: UIScene) {
+    guard flowRequested else { return }
+    flowRequested = false
+    let request = FlowShared.takeRequest(FlowShared.start, within: 15)
+    Task {
+      if let request {
+        try? await FlowEngine.shared.begin(.keyboard, request: request)
+      } else {
+        try? await FlowEngine.shared.prepare()
+      }
     }
   }
 

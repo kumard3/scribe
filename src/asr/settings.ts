@@ -27,6 +27,7 @@ type Settings = {
   diarizationEnabled: boolean;
   diarizationSpeakers: number;
   recordModelId: string;
+  flowIdleMinutes: number;
 };
 
 const DEFAULT: Settings = {
@@ -54,6 +55,7 @@ const DEFAULT: Settings = {
   diarizationEnabled: false,
   diarizationSpeakers: 0,
   recordModelId: '',
+  flowIdleMinutes: 5,
 };
 
 function file(): File {
@@ -192,6 +194,14 @@ export function getSmartCorrections(): boolean {
 
 export function setSmartCorrections(smartCorrections: boolean): void {
   persist({ ...load(), smartCorrections });
+}
+
+export function getFlowIdleMinutes(): number {
+  return load().flowIdleMinutes;
+}
+
+export function setFlowIdleMinutes(flowIdleMinutes: number): void {
+  persist({ ...load(), flowIdleMinutes });
 }
 
 export type CloudProvider = 'openai' | 'azure-speech' | 'azure-openai';
