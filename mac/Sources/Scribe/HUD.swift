@@ -76,7 +76,7 @@ struct HUDView: View {
         Text(dictation.isCommand ? "Rewriting…" : "Transcribing…")
           .foregroundColor(.white)
       } else {
-        LevelBars(level: dictation.level)
+        WithLevels { l in LevelBars(level: l.dictation) }
         Text(dictation.isCommand ? "Say what to change" : "Listening")
           .foregroundColor(.white)
       }
@@ -88,6 +88,20 @@ struct HUDView: View {
     .overlay(Capsule().strokeBorder(Color.white.opacity(0.12)))
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
+}
+
+// Kept off the recorders: a level tick there re-rendered the menu-bar extra, ~40% CPU while recording.
+final class LiveLevels: ObservableObject {
+  static let shared = LiveLevels()
+  @Published var you: Float = 0
+  @Published var others: Float = 0
+  @Published var dictation: Float = 0
+}
+
+struct WithLevels<Content: View>: View {
+  @ObservedObject private var levels = LiveLevels.shared
+  @ViewBuilder let content: (LiveLevels) -> Content
+  var body: some View { content(levels) }
 }
 
 struct LevelBars: View {

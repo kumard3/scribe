@@ -247,8 +247,10 @@ struct NotchHUDView: View {
   @ViewBuilder
   private var waves: some View {
     if meeting.isRecording {
-      TrackWave(icon: "person.fill", level: meeting.youLevel)
-      TrackWave(icon: "speaker.wave.2.fill", level: meeting.othersLevel)
+      WithLevels { l in
+        TrackWave(icon: "person.fill", level: l.you)
+        TrackWave(icon: "speaker.wave.2.fill", level: l.others)
+      }
     }
   }
 

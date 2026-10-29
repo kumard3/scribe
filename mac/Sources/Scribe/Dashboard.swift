@@ -608,9 +608,11 @@ struct DashboardView: View {
                 .background(Capsule().fill(Mono.surfaceAlt))
             }
           }
-          HStack(spacing: 18) {
-            levelMeter("You", meeting.youLevel)
-            levelMeter("This Mac", meeting.othersLevel)
+          WithLevels { l in
+            HStack(spacing: 18) {
+              levelMeter("You", l.you)
+              levelMeter("This Mac", l.others)
+            }
           }
           if ScreenRecorder.supported {
             Button("Change what's shared…") { RecorderPanel.shared.show() }

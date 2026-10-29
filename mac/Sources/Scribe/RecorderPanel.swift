@@ -309,9 +309,11 @@ struct RecorderView: View {
         .padding(2)
       }
       if meeting.isRecording {
-        HStack(spacing: 18) {
-          meter("You", meeting.youLevel)
-          meter("This Mac", meeting.othersLevel)
+        WithLevels { l in
+          HStack(spacing: 18) {
+            meter("You", l.you)
+            meter("This Mac", l.others)
+          }
         }
       }
       Text("Only record people who know and agree. Recordings stay on this Mac.")

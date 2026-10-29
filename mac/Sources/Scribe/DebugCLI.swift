@@ -763,8 +763,8 @@ private func runMeetingCaptureTestIfRequested() {
       lines.append("switched share to \(switchTo)")
     }
     RunLoop.main.run(until: Date().addingTimeInterval(0.1))
-    you = max(you, meeting.youLevel)
-    others = max(others, meeting.othersLevel)
+    you = max(you, LiveLevels.shared.you)
+    others = max(others, LiveLevels.shared.others)
   }
   if args.contains("--shot"), #available(macOS 15, *) {
     var done = false

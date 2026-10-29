@@ -33,7 +33,6 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
   @Published var lastText = ""
   @Published var lastPendingText = ""
   @Published var lastRawText = ""
-  @Published var level: Float = 0
   @Published var phase: Phase = .idle
   @Published var status = "Ready"
   @Published var hudNote: String?
@@ -293,7 +292,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
           for i in 0..<n { sum += ch[i] * ch[i] }
           let rms = n > 0 ? sqrtf(sum / Float(n)) : 0
           DispatchQueue.main.async {
-            self.level = min(1, rms * 14)
+            LiveLevels.shared.dictation = min(1, rms * 14)
             self.maxLevel = max(self.maxLevel, rms)
           }
         }
@@ -1201,7 +1200,7 @@ final class DictationManager: ObservableObject, @unchecked Sendable {
     releaseEngine()
     isRecording = false
     dictationSeconds = Date().timeIntervalSince(listeningSince)
-    level = 0
+    LiveLevels.shared.dictation = 0
 
     if let live = azureLive {
       azureLive = nil

@@ -58,9 +58,11 @@ struct MeetingScreenView: View {
       }
       Text(meeting.elapsedLabel)
         .font(.system(size: 120, weight: .thin)).monospacedDigit().foregroundColor(.white)
-      HStack(spacing: 80) {
-        BigWave(label: "You", icon: "person.fill", level: meeting.youLevel)
-        BigWave(label: "This Mac", icon: "speaker.wave.2.fill", level: meeting.othersLevel)
+      WithLevels { l in
+        HStack(spacing: 80) {
+          BigWave(label: "You", icon: "person.fill", level: l.you)
+          BigWave(label: "This Mac", icon: "speaker.wave.2.fill", level: l.others)
+        }
       }
       Text("Talking in person? Everyone is picked up by your mic and separated into speakers after you stop.")
         .font(.system(size: 14)).foregroundColor(Mono.textFaint)

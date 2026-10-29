@@ -27,8 +27,6 @@ final class MeetingRecorder: ObservableObject {
   @Published private(set) var queued: [URL] = []
   @Published private(set) var failures: [URL: String] = [:]
   @Published private(set) var recordings: [MeetingItem] = []
-  @Published private(set) var youLevel: Float = 0
-  @Published private(set) var othersLevel: Float = 0
   @Published var openMeetingID: URL?
 
   var isTranscribing: Bool { processing != nil }
@@ -207,8 +205,8 @@ final class MeetingRecorder: ObservableObject {
       }
       levelTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { [weak self] _ in
         guard let self else { return }
-        self.youLevel = self.micWriter?.level ?? 0
-        self.othersLevel = self.systemWriter?.level ?? 0
+        LiveLevels.shared.you = self.micWriter?.level ?? 0
+        LiveLevels.shared.others = self.systemWriter?.level ?? 0
       }
       d.status = "Recording meeting. Use headphones for clean You/Others labels."
       clipCount = 0
@@ -289,8 +287,8 @@ final class MeetingRecorder: ObservableObject {
     timer = nil
     levelTimer?.invalidate()
     levelTimer = nil
-    youLevel = 0
-    othersLevel = 0
+    LiveLevels.shared.you = 0
+    LiveLevels.shared.others = 0
     micWriter = nil
     systemWriter = nil
   }
