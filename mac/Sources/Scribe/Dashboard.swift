@@ -1152,7 +1152,7 @@ struct DashboardView: View {
       .font(.system(size: 12))
       Text(embedder
            ? "Search by meaning is on."
-           : "Searching by exact words. Get EmbeddingGemma 2 under Models to also search by meaning.")
+           : "Searching by exact words. Get Granite Embedding under Memory search to also search by meaning.")
         .font(.caption).foregroundColor(Mono.textFaint)
       Divider().overlay(Mono.border)
       copyLine("Claude Code", "claude mcp add bolkit -- \(command) --mcp")

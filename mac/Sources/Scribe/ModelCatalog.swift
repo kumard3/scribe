@@ -108,7 +108,7 @@ enum ModelCatalog {
   static let turboId = "whisper-large-v3-turbo-q5"
   static let gemmaAsrId = "gemma4-e2b-audio"
   static let mlxId = "gemma4-e2b-mlx"
-  static let embedderId = "embeddinggemma-2-q8"
+  static let embedderId = "granite-embedding-97m-r2"
   static let releases = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models"
 
   // Same k2-fsa archives the mobile app uses (src/asr/nemo.ts).
@@ -370,12 +370,22 @@ enum ModelCatalog {
     ),
     ModelSpec(
       id: embedderId, kind: .embedding,
-      label: "EmbeddingGemma 2 · Memory search",
-      note: "Google · multilingual · lets agents find meetings by meaning, not just exact words",
-      archive: "", sizeBytes: 309_855_520, live: false,
-      directURL: "https://huggingface.co/unsloth/embeddinggemma-2-GGUF/resolve/main/embeddinggemma-2-Q8_0.gguf",
-      fileName: "embeddinggemma-2-Q8_0.gguf",
-      sha256: "6f1bd4ac6c5df7444f9cca7ca36cafe6cfa34cd6f49fefb1e0b4be8143aed8bc"
+      label: "Granite Embedding 97M · Memory search",
+      note: "IBM · text only · multilingual incl. Hindi · lets agents find meetings by meaning, not just exact words",
+      archive: "", sizeBytes: 98_247_878 + 25_301_672 + 12_860, live: false,
+      fileName: "model.onnx",
+      sha256: "a6022dd8220ea6f6595562a1328ee216f4a94faa55362f2f4747c80f1e78772e",
+      bundleFiles: [
+        BundleFile(
+          url: "https://huggingface.co/ibm-granite/granite-embedding-97m-multilingual-r2/resolve/main/onnx/model_quint8_avx2.onnx",
+          name: "model.onnx", sizeBytes: 98_247_878),
+        BundleFile(
+          url: "https://huggingface.co/ibm-granite/granite-embedding-97m-multilingual-r2/resolve/main/tokenizer.json",
+          name: "tokenizer.json", sizeBytes: 25_301_672),
+        BundleFile(
+          url: "https://huggingface.co/ibm-granite/granite-embedding-97m-multilingual-r2/resolve/main/tokenizer_config.json",
+          name: "tokenizer_config.json", sizeBytes: 12_860),
+      ]
     ),
   ] + AzureSpeech.specs
 

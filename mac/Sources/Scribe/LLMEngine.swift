@@ -1,4 +1,5 @@
 import Foundation
+import Tokenizers
 import CLlama
 
 /// One loaded GGUF model behind the llama.cpp shim. Not thread-safe, only the
@@ -164,26 +165,29 @@ final class LLMRuntime: @unchecked Sendable {
   }
 }
 
-/// EmbeddingGemma 2 GGUF through llama.cpp. The memory index only sees `MemoryStore.Embed`,
-/// so swapping the model means replacing this one function.
-enum EmbeddingGemma2 {
+/// IBM Granite Embedding 97M multilingual R2 on ONNX Runtime: CLS token of the last layer, L2-normalised,
+/// no query prefix. The memory index only sees `MemoryStore.Embed`, so swapping the model means replacing this one function.
+enum GraniteEmbedding {
   static func load() -> MemoryStore.Embed? {
-    guard let spec = ModelCatalog.spec(ModelCatalog.embedderId), let path = ModelStore.llmPath(for: spec),
-          let model = Handle(cllama_embed_load(path, 1024)) else { return nil }
-    return { text, isQuery in
-      var out = [Float](repeating: 0, count: 2048)
-      let n = cllama_embed(model.ptr, (isQuery ? "task: search result | query: " : "title: none | text: ") + text, &out, 2048)
-      guard n >= MemoryStore.dims else { return nil }
-      return MemoryStore.normalized(Array(out.prefix(MemoryStore.dims)))
+    guard let spec = ModelCatalog.spec(ModelCatalog.embedderId), ModelStore.bundleInstalled(spec) else { return nil }
+    let dir = ModelStore.dir(for: spec)
+    let done = DispatchSemaphore(value: 0)
+    var tokenizer: Tokenizer?
+    Task.detached {
+      tokenizer = try? await AutoTokenizer.from(modelFolder: dir)
+      done.signal()
     }
-  }
-
-  private final class Handle {
-    let ptr: OpaquePointer
-    init?(_ ptr: OpaquePointer?) {
-      guard let ptr else { return nil }
-      self.ptr = ptr
+    done.wait()
+    guard let tokenizer, let session = try? Ort.Session(path: dir.appendingPathComponent("model.onnx").path, threads: 1)
+    else { return nil }
+    return { text, _ in
+      let ids = tokenizer.encode(text: text).prefix(512).map(Int64.init)
+      let shape: [Int64] = [1, Int64(ids.count)]
+      guard !ids.isEmpty, let out = try? session.run(
+        floats: [:],
+        int64s: ["input_ids": (ids, shape), "attention_mask": (ids.map { _ in 1 }, shape)]
+      ), let hidden = out.first?.data, hidden.count >= ids.count * MemoryStore.dims else { return nil }
+      return MemoryStore.normalized(Array(hidden.prefix(MemoryStore.dims)))
     }
-    deinit { cllama_free(ptr) }
   }
 }

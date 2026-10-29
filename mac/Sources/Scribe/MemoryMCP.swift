@@ -12,7 +12,7 @@ enum MemoryMCP {
     "Every passage cites its meeting id, date, time range and speakers; read more of a meeting with get_meeting."
 
   static func serve() {
-    let server = Server(open: { MemoryStore(readOnly: true) }, embed: { EmbeddingGemma2.load() })
+    let server = Server(open: { MemoryStore(readOnly: true) }, embed: { GraniteEmbedding.load() })
     while let line = readLine(strippingNewline: true) {
       guard let reply = server.handle(line) else { continue }
       FileHandle.standardOutput.write(Data((reply + "\n").utf8))
@@ -253,6 +253,21 @@ enum MemoryMCP {
           "vectors \(c.vectors) · tokenizer \(store.trigram ? "trigram" : "unicode61") · \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
     let again = dirs.filter { store.indexMeeting($0) }.count
     print("second pass re-indexed \(again) (unchanged meetings are skipped)")
+    if args.contains("--embed") {
+      DispatchQueue(label: "embed-bench", qos: .background).sync {
+        let t0 = Date()
+        guard let embed = GraniteEmbedding.load() else { print("embedder not installed"); return }
+        print("embedder loaded in \(String(format: "%.1f", Date().timeIntervalSince(t0))) s")
+        let t1 = Date()
+        let added = store.embedPending(embed, batch: 16, pause: 1)
+        let s = Date().timeIntervalSince(t1)
+        print("embedded \(added) passages in \(String(format: "%.1f", s)) s = \(String(format: "%.1f", Double(added) / s)) passages/s · vectors \(store.counts().vectors)")
+        if args.count > i + 2, !args[i + 2].hasPrefix("--") {
+          let query = args[(i + 2)...].prefix { !$0.hasPrefix("--") }.joined(separator: " ")
+          print("\nmeaning search \"\(query)\"\n" + format(store.search(query, limit: 3, embed: embed), query: query))
+        }
+      }
+    }
     if args.count > i + 2, !args[i + 2].hasPrefix("--") {
       let query = args[(i + 2)...].prefix { !$0.hasPrefix("--") }.joined(separator: " ")
       print("\nsearch_memory \"\(query)\"\n" + format(store.search(query, limit: 3), query: query))

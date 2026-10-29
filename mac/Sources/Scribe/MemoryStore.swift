@@ -7,7 +7,8 @@ import USearch
 /// memory/vectors.usearch (HNSW over chunk vectors, keyed by chunk id). Not thread-safe.
 final class MemoryStore {
   typealias Embed = (_ text: String, _ isQuery: Bool) -> [Float]?
-  static let dims = 256
+  static let dims = 384
+  static let vectorVersion = 2
 
   struct Chunk: Equatable {
     var speaker: String
@@ -84,6 +85,12 @@ final class MemoryStore {
 
   deinit { sqlite3_close(db) }
 
+  private var storedVectorVersion: Int {
+    var v = 0
+    rows("PRAGMA user_version") { v = self.int($0, 0) ?? 0 }
+    return v
+  }
+
   private func createSchema() {
     exec("PRAGMA journal_mode = WAL")
     exec("""
@@ -105,6 +112,11 @@ final class MemoryStore {
         INSERT INTO chunk_fts(chunk_fts, rowid, text) VALUES ('delete', old.id, old.text);
       END;
       """)
+    if storedVectorVersion != Self.vectorVersion {
+      try? FileManager.default.removeItem(atPath: vectorPath)
+      exec("UPDATE chunk SET vec = 0 WHERE vec != 0")
+      exec("PRAGMA user_version = \(Self.vectorVersion)")
+    }
   }
 
   // MARK: - chunking
@@ -292,7 +304,7 @@ final class MemoryStore {
 
   /// Embeds chunks that have no vector yet, `batch` per save. Returns how many were added.
   @discardableResult
-  func embedPending(_ embed: Embed, batch: Int = 64) -> Int {
+  func embedPending(_ embed: Embed, batch: Int = 64, pause: TimeInterval = 0) -> Int {
     func todo() -> [(id: Int, text: String)] {
       var out: [(id: Int, text: String)] = []
       rows("SELECT id, text FROM chunk WHERE vec = 0 ORDER BY id") { out.append((self.int($0, 0) ?? 0, self.text($0, 1) ?? "")) }
@@ -315,6 +327,7 @@ final class MemoryStore {
       guard save(index) else { break }
       rows("UPDATE chunk SET vec = 1 WHERE id IN (\(done.map(String.init).joined(separator: ",")))")
       added += done.count
+      if pause > 0 { Thread.sleep(forTimeInterval: pause) }
     }
     return added
   }
@@ -322,7 +335,7 @@ final class MemoryStore {
   /// Memory-mapped, reopened when the app saves a new file.
   private func readableIndex() -> USearchIndex? {
     let stamp = (try? FileManager.default.attributesOfItem(atPath: vectorPath))?[.modificationDate] as? Date
-    guard let stamp else { return nil }
+    guard let stamp, storedVectorVersion == Self.vectorVersion else { return nil }
     if stamp != viewStamp || view == nil {
       guard let index = try? Self.newIndex(), (try? index.view(path: vectorPath)) != nil else { return nil }
       view = index
@@ -533,7 +546,7 @@ final class MemoryIndex: ObservableObject, @unchecked Sendable {
   @Published private(set) var status = "Not built yet"
   @Published private(set) var busy = false
 
-  private let queue = DispatchQueue(label: "ai.scribe.memory", qos: .utility)
+  private let queue = DispatchQueue(label: "ai.scribe.memory", qos: .background)
   private var store: MemoryStore?
   private var embed: MemoryStore.Embed?
   private var evict: DispatchWorkItem?
@@ -593,7 +606,7 @@ final class MemoryIndex: ObservableObject, @unchecked Sendable {
       guard let store = self.store else { return }
       DispatchQueue.main.async { self.busy = true }
       work(store)
-      if embedAfter, let embed = self.loadEmbedder() { store.embedPending(embed) }
+      if embedAfter, let embed = self.loadEmbedder() { store.embedPending(embed, batch: 16, pause: 1) }
       let c = store.counts()
       let text = "\(c.meetings) meetings · \(c.dictations) dictations · \(c.chunks) passages · \(c.vectors) with meaning vectors"
       DispatchQueue.main.async {
@@ -605,7 +618,7 @@ final class MemoryIndex: ObservableObject, @unchecked Sendable {
 
   /// Loaded on demand and dropped after a minute idle, so the app does not hold it between meetings.
   private func loadEmbedder() -> MemoryStore.Embed? {
-    if embed == nil { embed = EmbeddingGemma2.load() }
+    if embed == nil { embed = GraniteEmbedding.load() }
     evict?.cancel()
     let w = DispatchWorkItem { [weak self] in self?.embed = nil }
     evict = w

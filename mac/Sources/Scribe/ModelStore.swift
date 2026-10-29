@@ -46,7 +46,7 @@ final class ModelStore: NSObject, ObservableObject {
       let dir = Self.dir(for: spec)
       let installed: Bool
       switch spec.kind {
-      case .llm, .embedding:
+      case .llm:
         installed = Self.ggufFile(in: dir) != nil
       case .mlx:
         installed = Self.mlxInstalled(spec)
@@ -64,7 +64,7 @@ final class ModelStore: NSObject, ObservableObject {
         installed = FileManager.default.fileExists(
           atPath: dir.appendingPathComponent(spec.fileName).path
         )
-      case .arkasrOnnx, .arkOnnx:
+      case .arkasrOnnx, .arkOnnx, .embedding:
         installed = Self.bundleInstalled(spec)
       case .voz:
         installed = VozEngine.downloaded
@@ -110,7 +110,7 @@ final class ModelStore: NSObject, ObservableObject {
       }
       return
     }
-    if spec.kind == .arkasrOnnx || spec.kind == .arkOnnx || spec.kind == .mlx {
+    if spec.kind == .arkasrOnnx || spec.kind == .arkOnnx || spec.kind == .mlx || spec.kind == .embedding {
       guard !spec.bundleFiles.isEmpty else { return }
       errors[spec.id] = nil
       progress[spec.id] = 0
@@ -192,7 +192,7 @@ final class ModelStore: NSObject, ObservableObject {
 
   /// On-disk GGUF to run text generation with, nil when it isn't downloaded.
   nonisolated static func llmPath(for spec: ModelSpec) -> String? {
-    let file = spec.kind == .llm || spec.kind == .embedding
+    let file = spec.kind == .llm
       ? ggufFile(in: dir(for: spec))
       : dir(for: spec).appendingPathComponent(spec.fileName)
     guard let file, FileManager.default.fileExists(atPath: file.path) else { return nil }
@@ -378,7 +378,7 @@ extension ModelStore: URLSessionDownloadDelegate {
     let (id, mmproj, file) = Self.parse(desc)
     guard let spec = ModelCatalog.spec(id) else { return }
     // The temp file dies when this delegate returns, move it out first.
-    let singleFile = [.llm, .embedding, .qwenAsr, .whisperCpp].contains(spec.kind)
+    let singleFile = [.llm, .qwenAsr, .whisperCpp].contains(spec.kind)
     let ext = spec.kind == .whisperCpp ? "bin" : (singleFile ? "gguf" : "tar.bz2")
     let kept = FileManager.default.temporaryDirectory
       .appendingPathComponent(
@@ -387,7 +387,7 @@ extension ModelStore: URLSessionDownloadDelegate {
     try? FileManager.default.moveItem(at: location, to: kept)
     DispatchQueue.global(qos: .userInitiated).async {
       switch spec.kind {
-      case .mlx, .arkasrOnnx, .arkOnnx:
+      case .mlx, .arkasrOnnx, .arkOnnx, .embedding:
         guard let member = spec.bundleFiles[safe: file] else { return }
         let isLast = file == spec.bundleFiles.count - 1
         self.installSingleFile(
@@ -399,7 +399,7 @@ extension ModelStore: URLSessionDownloadDelegate {
             self.startBundleFile(spec, index: file + 1)
           }
         }
-      case .llm, .embedding:
+      case .llm:
         self.installSingleFile(spec: spec, tempFile: kept, name: spec.fileName,
                                expectedBytes: spec.sizeBytes, wipe: true, isFinal: true)
       case .qwenAsr:
