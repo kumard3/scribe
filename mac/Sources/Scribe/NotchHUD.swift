@@ -25,8 +25,13 @@ final class NotchHUD: ObservableObject {
   }
 
   private var screen: NSScreen? {
-    let id = UserDefaults.standard.integer(forKey: "islandScreen")
-    return NSScreen.screens.first { $0.displayID.map(Int.init) == id } ?? NSScreen.main
+    NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main
+  }
+
+  init() {
+    NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+      self?.refresh()
+    }
   }
 
   func refresh() {
@@ -50,7 +55,7 @@ final class NotchHUD: ObservableObject {
 
   private func frame(for dock: IslandDock, on screen: NSScreen) -> NSRect {
     let notch = NotchLayout(screen: screen)
-    if dock == .notch, notch.hasNotch { return notch.frame }
+    if dock == .notch { return Self.hudLayout(for: screen).frame }
     let size = Self.compactSize, v = screen.visibleFrame, m: CGFloat = 12
     let origin: NSPoint
     switch dock {
@@ -126,8 +131,12 @@ final class NotchHUD: ObservableObject {
       return hypot(f.midX - center.x, f.midY - center.y)
     }
     dock = IslandDock.allCases.min { distance($0) < distance($1) } ?? .notch
-    UserDefaults.standard.set(target.displayID.map(Int.init) ?? 0, forKey: "islandScreen")
     show()
+  }
+
+  static func hudLayout(for screen: NSScreen) -> (frame: NSRect, mode: String) {
+    let layout = NotchLayout(screen: screen)
+    return (layout.frame, layout.hasNotch ? "notch" : "pill")
   }
 }
 
@@ -160,8 +169,9 @@ struct NotchLayout {
     } else {
       hasNotch = false
       notchWidth = 0
-      let width = NotchLayout.side * 2 + 12
-      frame = NSRect(x: f.midX - width / 2, y: screen.visibleFrame.maxY - 38, width: width, height: 32)
+      let size = NotchHUD.compactSize
+      frame = NSRect(x: f.midX - size.width / 2, y: screen.visibleFrame.maxY - size.height - 6,
+                     width: size.width, height: size.height)
     }
   }
 }

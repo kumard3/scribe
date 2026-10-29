@@ -16,6 +16,13 @@ import FoundationModels
 /// without starting the UI.
 enum DebugCLI {
   static func runIfRequested() {
+    if CommandLine.arguments.contains("--hud-layout") {
+      for screen in NSScreen.screens {
+        let layout = NotchHUD.hudLayout(for: screen)
+        print("\(screen.localizedName): \(layout.mode == "notch" ? "notch" : "no notch") frame=\(NSStringFromRect(layout.frame)) \(layout.mode)")
+      }
+      exit(0)
+    }
     // App Store 2.4.5(iii): worker children must not outlive the app, so exit once reparented to launchd.
     if !Set(["--transcribe", "--transcribe-batch", "--asr-serve", "--asr"]).isDisjoint(with: CommandLine.arguments) {
       Thread.detachNewThread { while getppid() != 1 { sleep(1) }; exit(0) }
